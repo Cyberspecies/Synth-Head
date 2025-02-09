@@ -104,7 +104,7 @@
     </mxGraphModel>
   </diagram>
   <diagram id="EIz6ATKGmSpaXtac2Ex5" name="Substructure">
-    <mxGraphModel dx="1917" dy="1122" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1500" math="0" shadow="0">
+    <mxGraphModel dx="1597" dy="935" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1500" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -1286,10 +1286,13 @@
         <mxCell id="Re86HsSjQeiaMiEisaZk-38" value="USB" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-1" target="Re86HsSjQeiaMiEisaZk-37">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="Re86HsSjQeiaMiEisaZk-43" value="UART" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-1" target="Re86HsSjQeiaMiEisaZk-36">
+        <mxCell id="Re86HsSjQeiaMiEisaZk-43" value="UART" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-1" target="Re86HsSjQeiaMiEisaZk-36">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="Re86HsSjQeiaMiEisaZk-50" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-1" target="Re86HsSjQeiaMiEisaZk-49">
+        <mxCell id="Re86HsSjQeiaMiEisaZk-50" value="UART" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-1" target="Re86HsSjQeiaMiEisaZk-49">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Re86HsSjQeiaMiEisaZk-59" value="2P" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-1" target="Re86HsSjQeiaMiEisaZk-48">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="Re86HsSjQeiaMiEisaZk-1" value="GPU" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
@@ -1361,11 +1364,11 @@
         <mxCell id="Re86HsSjQeiaMiEisaZk-25" value="Photoresistor" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="1860" y="1960" width="80" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="Re86HsSjQeiaMiEisaZk-29" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-28" target="Re86HsSjQeiaMiEisaZk-3">
+        <mxCell id="Re86HsSjQeiaMiEisaZk-29" value="Analog" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-28" target="Re86HsSjQeiaMiEisaZk-3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="Re86HsSjQeiaMiEisaZk-28" value="Capacitive Touch" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
-          <mxGeometry x="2040" y="1880" width="80" height="40" as="geometry" />
+          <mxGeometry x="2060" y="1880" width="80" height="40" as="geometry" />
         </mxCell>
         <mxCell id="Re86HsSjQeiaMiEisaZk-36" value="Main Port&lt;div&gt;USB/Pogos&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="1520" y="1880" width="80" height="40" as="geometry" />
@@ -1376,29 +1379,40 @@
         <mxCell id="Re86HsSjQeiaMiEisaZk-37" value="USB HUB" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="1680" y="1840" width="80" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="Re86HsSjQeiaMiEisaZk-44" value="2P" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" edge="1" target="Re86HsSjQeiaMiEisaZk-46" parent="1" source="Re86HsSjQeiaMiEisaZk-1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1720" y="1980" as="sourcePoint" />
-          </mxGeometry>
+        <mxCell id="Re86HsSjQeiaMiEisaZk-57" value="4P Analog" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-46" target="Re86HsSjQeiaMiEisaZk-1">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="Re86HsSjQeiaMiEisaZk-45" value="I2C" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" edge="1" source="Re86HsSjQeiaMiEisaZk-46" parent="1" target="Re86HsSjQeiaMiEisaZk-1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1740" y="1980" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="Re86HsSjQeiaMiEisaZk-46" value="2x TOF" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+        <mxCell id="Re86HsSjQeiaMiEisaZk-46" value="4x Photoresistor" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="1740" y="2000" width="80" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="Re86HsSjQeiaMiEisaZk-47" value="4P Analog" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;" edge="1" source="Re86HsSjQeiaMiEisaZk-48" parent="1" target="Re86HsSjQeiaMiEisaZk-1">
+        <mxCell id="Re86HsSjQeiaMiEisaZk-47" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.25;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" source="Re86HsSjQeiaMiEisaZk-48" parent="1" target="Re86HsSjQeiaMiEisaZk-1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="1700" y="1980" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="Re86HsSjQeiaMiEisaZk-48" value="Photoresistor" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+        <mxCell id="Re86HsSjQeiaMiEisaZk-48" value="2x TOF" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="1620" y="2000" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="Re86HsSjQeiaMiEisaZk-53" value="SPI" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-49" target="Re86HsSjQeiaMiEisaZk-52">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Re86HsSjQeiaMiEisaZk-54" value="SPI" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-49" target="Re86HsSjQeiaMiEisaZk-51">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="Re86HsSjQeiaMiEisaZk-49" value="HUD Driver" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="1680" y="2060" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="Re86HsSjQeiaMiEisaZk-51" value="Display" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1560" y="2060" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="Re86HsSjQeiaMiEisaZk-52" value="Display" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1800" y="2060" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="Re86HsSjQeiaMiEisaZk-56" value="I2C" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="Re86HsSjQeiaMiEisaZk-55" target="Re86HsSjQeiaMiEisaZk-1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Re86HsSjQeiaMiEisaZk-55" value="Sensors" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1520" y="2000" width="80" height="40" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
