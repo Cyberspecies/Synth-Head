@@ -7422,10 +7422,10 @@
 		)
 		(uuid "ffc29aa0-2d43-4f98-b423-e1be259fd652")
 	)
-	(text_box "To Do List\n- Boot Button Selection\n- Debug Addressable LED\n- Pins Footprints"
+	(text_box "To Do List\n- Boot Button Selection\n- Pins Footprints\n- Add IMU & ENV\n- Select Shunts\n- Select Crystals"
 		(exclude_from_sim no)
 		(at 25.4 25.4 0)
-		(size 27.94 10.16)
+		(size 27.94 13.97)
 		(stroke
 			(width 0)
 			(type default)
@@ -7443,7 +7443,7 @@
 	)
 	(global_label "HUD UART TX"
 		(shape input)
-		(at 142.24 27.94 0)
+		(at 147.32 33.02 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7453,29 +7453,7 @@
 		)
 		(uuid "05298bea-53a4-4b66-806f-dd837dc72a8d")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 157.9252 27.94 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "USB3P"
-		(shape input)
-		(at 154.94 233.68 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "084f1fb3-47bd-4030-bc31-5ba86a354a6a")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 164.2147 233.68 0)
+			(at 163.0052 33.02 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7507,7 +7485,7 @@
 			)
 		)
 	)
-	(global_label "USB1P"
+	(global_label "Main USB -"
 		(shape input)
 		(at 369.57 55.88 0)
 		(fields_autoplaced yes)
@@ -7519,7 +7497,7 @@
 		)
 		(uuid "0eb960b4-e3e8-40a1-962b-e1505ff88aa2")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 378.8447 55.88 0)
+			(at 384.227 55.88 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7597,7 +7575,7 @@
 	)
 	(global_label "Power GPIO 1"
 		(shape input)
-		(at 119.38 33.02 0)
+		(at 63.5 33.02 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7607,29 +7585,7 @@
 		)
 		(uuid "1ff20a2f-3160-4b76-8477-b3821fb4c9a9")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 135.6095 33.02 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "USB1P"
-		(shape input)
-		(at 154.94 208.28 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "270d23cf-dad9-4e63-a8a2-2625eaed96b2")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 164.2147 208.28 0)
+			(at 79.7295 33.02 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7663,7 +7619,7 @@
 	)
 	(global_label "HUD USB -"
 		(shape input)
-		(at 142.24 33.02 0)
+		(at 154.94 218.44 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7673,7 +7629,7 @@
 		)
 		(uuid "31abdd64-1b1b-4975-b6eb-7846492c3972")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 156.4738 33.02 0)
+			(at 169.1738 218.44 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7718,50 +7674,6 @@
 		(uuid "3783077c-f106-4664-bb41-8c9f76b430e1")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 46.6488 110.49 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "USB3P"
-		(shape input)
-		(at 165.1 33.02 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "37b336c4-28b9-435a-820f-73a9d7571ee7")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 174.3747 33.02 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "USB3M"
-		(shape input)
-		(at 165.1 30.48 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "37e6dc54-0acf-4a94-bfed-50edb561d6e1")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 174.5561 30.48 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7817,7 +7729,7 @@
 	)
 	(global_label "SD SPI CLK"
 		(shape input)
-		(at 199.39 30.48 0)
+		(at 85.09 30.48 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7827,7 +7739,7 @@
 		)
 		(uuid "3e517ae2-2979-4740-992e-412e0793b137")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 213.4423 30.48 0)
+			(at 99.1423 30.48 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7949,7 +7861,7 @@
 	)
 	(global_label "SD SPI MISO"
 		(shape input)
-		(at 199.39 33.02 0)
+		(at 85.09 33.02 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7959,7 +7871,7 @@
 		)
 		(uuid "4d45383e-dcd3-4df0-831a-58b367695c93")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 214.4704 33.02 0)
+			(at 100.1704 33.02 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7971,7 +7883,7 @@
 	)
 	(global_label "Snoot UART TX"
 		(shape input)
-		(at 97.79 27.94 0)
+		(at 147.32 27.94 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7981,7 +7893,7 @@
 		)
 		(uuid "4dbb7df6-e2d4-4e29-b13c-7906d9839c7e")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 114.9264 27.94 0)
+			(at 164.4564 27.94 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8015,7 +7927,7 @@
 	)
 	(global_label "Photoresistor 2"
 		(shape input)
-		(at 220.98 27.94 0)
+		(at 170.18 27.94 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8025,7 +7937,7 @@
 		)
 		(uuid "52d8da2b-48a3-429d-a64b-e1469b7376a7")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 238.7817 27.94 0)
+			(at 187.9817 27.94 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8059,7 +7971,7 @@
 	)
 	(global_label "Fan 1"
 		(shape input)
-		(at 180.34 30.48 0)
+		(at 128.27 30.48 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8069,7 +7981,29 @@
 		)
 		(uuid "570a25cf-1a0a-4266-8bbc-c78175ebfa17")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 188.8889 30.48 0)
+			(at 136.8189 30.48 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Main USB -"
+		(shape input)
+		(at 154.94 205.74 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "5cecbc52-4879-42a1-9d57-8eef8f3be59f")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 169.597 205.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8081,7 +8015,7 @@
 	)
 	(global_label "Power UART RX"
 		(shape input)
-		(at 119.38 25.4 0)
+		(at 63.5 25.4 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8091,7 +8025,7 @@
 		)
 		(uuid "62968d0b-eabe-4d95-bbb5-a60e431d526c")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 137.0609 25.4 0)
+			(at 81.1809 25.4 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8147,7 +8081,7 @@
 	)
 	(global_label "SD SPI MOSI"
 		(shape input)
-		(at 199.39 27.94 0)
+		(at 85.09 27.94 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8157,7 +8091,29 @@
 		)
 		(uuid "70b54d09-8ba7-4eeb-8c0b-2c227c601ce9")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 214.4704 27.94 0)
+			(at 100.1704 27.94 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Main USB +"
+		(shape input)
+		(at 154.94 208.28 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "764ddfef-2615-45fa-a8da-766ffd28f1d7")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 169.597 208.28 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8189,31 +8145,9 @@
 			)
 		)
 	)
-	(global_label "USB3M"
-		(shape input)
-		(at 154.94 231.14 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "7719fa8b-067b-409d-8ca7-d720026b8902")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 164.3961 231.14 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "HUD USB +"
 		(shape input)
-		(at 142.24 30.48 0)
+		(at 154.94 220.98 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8223,7 +8157,7 @@
 		)
 		(uuid "7c266106-bb3e-4796-a003-fc3a0854f135")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 156.4738 30.48 0)
+			(at 169.1738 220.98 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8257,7 +8191,7 @@
 	)
 	(global_label "Snoot USB -"
 		(shape input)
-		(at 97.79 33.02 0)
+		(at 154.94 231.14 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8267,7 +8201,7 @@
 		)
 		(uuid "858ce1ab-b79d-4916-a0ec-1b99ab23d2d3")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 113.475 33.02 0)
+			(at 170.625 231.14 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8389,7 +8323,7 @@
 	)
 	(global_label "Snoot UART RX"
 		(shape input)
-		(at 97.79 25.4 0)
+		(at 147.32 25.4 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8399,7 +8333,7 @@
 		)
 		(uuid "9906b2fa-f68c-4078-b0f2-07fb3e09f0fa")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 115.2288 25.4 0)
+			(at 164.7588 25.4 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8411,7 +8345,7 @@
 	)
 	(global_label "Power GPIO 0"
 		(shape input)
-		(at 119.38 30.48 0)
+		(at 63.5 30.48 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8421,7 +8355,7 @@
 		)
 		(uuid "a36e0e51-3543-4356-b119-24b57f7830e1")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 135.6095 30.48 0)
+			(at 79.7295 30.48 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8433,7 +8367,7 @@
 	)
 	(global_label "I2C SCL"
 		(shape input)
-		(at 76.2 27.94 0)
+		(at 105.41 27.94 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8443,7 +8377,7 @@
 		)
 		(uuid "ab8c0b0f-32c5-4e6a-a836-f8158199c3b5")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 86.7447 27.94 0)
+			(at 115.9547 27.94 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8455,7 +8389,7 @@
 	)
 	(global_label "Power UART TX"
 		(shape input)
-		(at 119.38 27.94 0)
+		(at 63.5 27.94 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8465,7 +8399,7 @@
 		)
 		(uuid "b319ce99-dc31-4919-81c3-df5eb5578d5a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 136.7585 27.94 0)
+			(at 80.8785 27.94 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8477,7 +8411,7 @@
 	)
 	(global_label "Gesture GPIO 1"
 		(shape input)
-		(at 76.2 30.48 0)
+		(at 105.41 30.48 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8487,7 +8421,7 @@
 		)
 		(uuid "bf3d3c49-4232-4c2e-a94a-6fe28052dfdf")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 93.9414 30.48 0)
+			(at 123.1514 30.48 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8499,7 +8433,7 @@
 	)
 	(global_label "HUD UART RX"
 		(shape input)
-		(at 142.24 25.4 0)
+		(at 147.32 30.48 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8509,7 +8443,7 @@
 		)
 		(uuid "c7b23293-0a5c-4110-bd20-42a3325cbf3f")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 158.2276 25.4 0)
+			(at 163.3076 30.48 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8519,7 +8453,7 @@
 			)
 		)
 	)
-	(global_label "USB1M"
+	(global_label "Main USB +"
 		(shape input)
 		(at 369.57 53.34 0)
 		(fields_autoplaced yes)
@@ -8531,7 +8465,7 @@
 		)
 		(uuid "c97d4c7a-6b71-4297-a5d2-1ee835f39f73")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 379.0261 53.34 0)
+			(at 384.227 53.34 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8565,7 +8499,7 @@
 	)
 	(global_label "Fan 0"
 		(shape input)
-		(at 180.34 27.94 0)
+		(at 128.27 27.94 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8575,29 +8509,7 @@
 		)
 		(uuid "d1e4b232-215e-467f-9c57-8784f50a246f")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 188.8889 27.94 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "USB1M"
-		(shape input)
-		(at 154.94 205.74 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "d2ca012d-6e81-449f-92bb-8f28a299fe07")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 164.3961 205.74 0)
+			(at 136.8189 27.94 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8609,7 +8521,7 @@
 	)
 	(global_label "Snoot USB +"
 		(shape input)
-		(at 97.79 30.48 0)
+		(at 154.94 233.68 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8619,7 +8531,7 @@
 		)
 		(uuid "d6430a57-2b1b-4ae5-a38a-47ccac0a9397")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 113.475 30.48 0)
+			(at 170.625 233.68 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8653,7 +8565,7 @@
 	)
 	(global_label "I2C SDA"
 		(shape input)
-		(at 76.2 25.4 0)
+		(at 105.41 25.4 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8663,51 +8575,7 @@
 		)
 		(uuid "d7d9bc98-5f94-48e1-85d2-5408634f53fe")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 86.8052 25.4 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "USB2P"
-		(shape input)
-		(at 165.1 27.94 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "d9b787a5-9460-4f9e-adc4-227edf8664f4")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 174.3747 27.94 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "USB2M"
-		(shape input)
-		(at 154.94 218.44 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "dabdb0e9-1932-4401-a7a4-a743ce0a8a3b")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 164.3961 218.44 0)
+			(at 116.0152 25.4 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8829,7 +8697,7 @@
 	)
 	(global_label "Debug LED"
 		(shape input)
-		(at 180.34 33.02 0)
+		(at 128.27 33.02 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8839,7 +8707,7 @@
 		)
 		(uuid "e7bd5d1d-4e71-4e44-8bbe-c498f5174a2b")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 193.5455 33.02 0)
+			(at 141.4755 33.02 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8851,7 +8719,7 @@
 	)
 	(global_label "SD SPI CS"
 		(shape input)
-		(at 199.39 25.4 0)
+		(at 85.09 25.4 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8861,7 +8729,7 @@
 		)
 		(uuid "eb44c6a4-b793-4105-8ea5-b31997022fdf")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 212.3537 25.4 0)
+			(at 98.0537 25.4 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8915,31 +8783,9 @@
 			)
 		)
 	)
-	(global_label "USB2P"
-		(shape input)
-		(at 154.94 220.98 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "f036f65e-183e-4e18-9586-8bc2a6e3af26")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 164.2147 220.98 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "Mic Analog"
 		(shape input)
-		(at 180.34 25.4 0)
+		(at 128.27 25.4 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8949,7 +8795,7 @@
 		)
 		(uuid "f06d34ef-a3c0-46af-8ae4-4aeb063381f4")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 193.7874 25.4 0)
+			(at 141.7174 25.4 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8961,7 +8807,7 @@
 	)
 	(global_label "Photoresistor 1"
 		(shape input)
-		(at 220.98 25.4 0)
+		(at 170.18 25.4 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -8971,7 +8817,7 @@
 		)
 		(uuid "f080b12f-3218-4356-9525-0cba45d7cc42")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 238.7817 25.4 0)
+			(at 187.9817 25.4 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9047,28 +8893,6 @@
 			)
 		)
 	)
-	(global_label "USB2M"
-		(shape input)
-		(at 165.1 25.4 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "fb0cab22-cecf-4c15-a9e2-94509621972e")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 174.5561 25.4 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "Photoresistor 2"
 		(shape input)
 		(at 54.61 66.04 0)
@@ -9093,7 +8917,7 @@
 	)
 	(global_label "Gesture GPIO 2"
 		(shape input)
-		(at 76.2 33.02 0)
+		(at 105.41 33.02 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -9103,7 +8927,7 @@
 		)
 		(uuid "fcea4a13-f007-4030-861f-0da39a9d60f5")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 93.9414 33.02 0)
+			(at 123.1514 33.02 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13879,7 +13703,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
 			(at 275.59 44.7548 0)
 			(effects
 				(font
