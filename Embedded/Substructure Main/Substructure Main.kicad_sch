@@ -3840,6 +3840,141 @@
 				)
 			)
 		)
+		(symbol "Sensored:Sensored"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "U"
+				(at 0 1.524 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "Sensored_0_1"
+				(rectangle
+					(start -2.54 0)
+					(end 2.54 -10.16)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "Sensored_1_1"
+				(pin input line
+					(at 5.08 -1.27 180)
+					(length 2.54)
+					(name "3V3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin input line
+					(at 5.08 -3.81 180)
+					(length 2.54)
+					(name "SDA"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin input line
+					(at 5.08 -6.35 180)
+					(length 2.54)
+					(name "SCL"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin input line
+					(at 5.08 -8.89 180)
+					(length 2.54)
+					(name "GND"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "4"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+		)
 		(symbol "Switch:SW_Push"
 			(pin_numbers hide)
 			(pin_names
@@ -4912,24 +5047,27 @@
 		)
 		(uuid "ffc29aa0-2d43-4f98-b423-e1be259fd652")
 	)
-	(text_box "To Do List\n- Boot Button Selection\n- Add IMU & ENV\n- Coin Cell Footprints"
-		(exclude_from_sim no)
-		(at 16.51 16.51 0)
-		(size 33.02 10.16)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(fill
-			(type none)
-		)
+	(global_label "I2C SCL"
+		(shape input)
+		(at 62.23 208.28 0)
+		(fields_autoplaced yes)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
-			(justify left top)
+			(justify left)
 		)
-		(uuid "581b3bee-8ddb-4db6-ad71-1903fec3fa1d")
+		(uuid "0380e30d-b1b7-48a5-8256-da8a758e9225")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 72.7747 208.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
 	)
 	(global_label "HUD UART TX"
 		(shape input)
@@ -5120,6 +5258,28 @@
 		(uuid "2921fb48-9e0a-4715-ad6e-4bab4cc995d6")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 73.9238 257.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "I2C SDA"
+		(shape input)
+		(at 62.23 205.74 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "31f118ce-ab01-4261-b023-1ef1d5c13005")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 72.8352 205.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7277,7 +7437,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Button-R-667843:Button-R-667843"
+		(property "Footprint" "Buttons:R-667843"
 			(at 393.7 66.04 0)
 			(effects
 				(font
@@ -9382,6 +9542,73 @@
 	)
 	(symbol
 		(lib_id "power:+3V3")
+		(at 62.23 203.2 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "97c61693-2884-4617-bf55-fe5dcad5b935")
+		(property "Reference" "#PWR077"
+			(at 58.42 203.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3V3"
+			(at 66.04 203.1999 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 62.23 203.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 62.23 203.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3V3\""
+			(at 62.23 203.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "3342c222-7ca4-4a5d-ac18-7642fa8b8176")
+		)
+		(instances
+			(project "Substructure Main"
+				(path "/dda3f9ed-866a-496e-a4f2-d6745d13652e"
+					(reference "#PWR077")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+3V3")
 		(at 99.06 53.34 0)
 		(unit 1)
 		(exclude_from_sim no)
@@ -10387,6 +10614,73 @@
 			(project "Substructure Main"
 				(path "/dda3f9ed-866a-496e-a4f2-d6745d13652e"
 					(reference "#PWR014")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 62.23 210.82 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "bfa85d83-7020-48a1-b0e0-5f04d5c8386d")
+		(property "Reference" "#PWR078"
+			(at 68.58 210.82 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 66.04 210.8199 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" ""
+			(at 62.23 210.82 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 62.23 210.82 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 62.23 210.82 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "c86820f3-8f17-404a-885b-d5cb25ebf87a")
+		)
+		(instances
+			(project "Substructure Main"
+				(path "/dda3f9ed-866a-496e-a4f2-d6745d13652e"
+					(reference "#PWR078")
 					(unit 1)
 				)
 			)
@@ -11833,6 +12127,79 @@
 		)
 	)
 	(symbol
+		(lib_id "Sensored:Sensored")
+		(at 57.15 201.93 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "fd8bd777-04b4-4766-b397-e29a0c163e02")
+		(property "Reference" "U11"
+			(at 57.15 200.406 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "~"
+			(at 57.15 200.66 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Sensored:Sensored"
+			(at 57.15 201.93 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 57.15 201.93 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" ""
+			(at 57.15 201.93 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "89c462e1-cb70-4497-8428-ec876bf6057b")
+		)
+		(pin "3"
+			(uuid "0106a55a-2ab2-4101-ad72-e0b8c086b7f9")
+		)
+		(pin "2"
+			(uuid "8c6162af-e2fe-4c1f-b1d7-e5f6d4697d90")
+		)
+		(pin "4"
+			(uuid "aff50bad-d812-42b8-9f71-2d2f31d69227")
+		)
+		(instances
+			(project ""
+				(path "/dda3f9ed-866a-496e-a4f2-d6745d13652e"
+					(reference "U11")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:+5VP")
 		(at 29.21 144.78 270)
 		(unit 1)
@@ -12030,7 +12397,7 @@
 			(uuid "e758bcfe-922f-4ce3-835e-190837fe1410")
 		)
 		(pin "USB3 +" input
-			(at 59.69 255.27 0)
+			(at 59.69 257.81 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12040,7 +12407,7 @@
 			(uuid "bd5f3e81-6f37-4647-ab9f-872fd3689126")
 		)
 		(pin "USB2 -" input
-			(at 59.69 257.81 0)
+			(at 59.69 255.27 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12050,7 +12417,7 @@
 			(uuid "6a5a8ccf-b636-4522-9bae-99e9af8e22ff")
 		)
 		(pin "USB2 +" input
-			(at 59.69 261.62 0)
+			(at 59.69 264.16 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -12060,7 +12427,7 @@
 			(uuid "b0f8efbd-9285-43b4-8edc-54987ac8efae")
 		)
 		(pin "USB3 -" input
-			(at 59.69 264.16 0)
+			(at 59.69 261.62 0)
 			(effects
 				(font
 					(size 1.27 1.27)
