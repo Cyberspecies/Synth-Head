@@ -3727,6 +3727,12 @@
 		(uuid "36009296-a698-4d64-b105-8637aa3b7bbe")
 	)
 	(junction
+		(at 241.3 153.67)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "3a99274c-5e41-4d53-a858-f06c3b6b8ded")
+	)
+	(junction
 		(at 203.2 171.45)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -10990,6 +10996,73 @@
 		)
 	)
 	(symbol
+		(lib_id "power:+3V3")
+		(at 182.88 156.21 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "cdda6e16-57fc-48b1-8fb8-5322543b1e6e")
+		(property "Reference" "#PWR064"
+			(at 186.69 156.21 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3V3"
+			(at 179.07 156.2099 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 182.88 156.21 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 182.88 156.21 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3V3\""
+			(at 182.88 156.21 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "9832b4f6-7d7f-49ee-a7b4-e56cc1e2205c")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c"
+					(reference "#PWR064")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:R")
 		(at 177.8 144.78 0)
 		(unit 1)
@@ -11738,6 +11811,72 @@
 			(project "Substructure Snoot Board"
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c"
 					(reference "#PWR044")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+5V")
+		(at 241.3 153.67 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "e8798e61-b38a-4e48-b5a9-bf4898ecba80")
+		(property "Reference" "#PWR063"
+			(at 241.3 157.48 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+5V"
+			(at 241.3 148.59 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 241.3 153.67 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 241.3 153.67 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+5V\""
+			(at 241.3 153.67 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "d1fb314c-041d-4b4b-b46f-9783b454d106")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c"
+					(reference "#PWR063")
 					(unit 1)
 				)
 			)
