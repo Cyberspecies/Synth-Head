@@ -32,3 +32,7 @@ This project is always in the works and will be updated. Although regular update
 * <strong style='color: #99ff99;'>Milestone:</strong> [Synth Head DX.2 Rushed](/Archives/DX.2/README.md)
 * <strong style='color: #99ff99;'>Milestone:</strong> [Synth Head DX.3 Rushed](/Archives/DX.3/README.md)
 * <strong style='color: #99ff99;'>Milestone:</strong> Properly Structured Github
+
+### Licensing
+* GNU-GPL-3.0: All Software
+* CC-NONCOMM: All Hardware (Circuits, CAD, etc)
