@@ -3302,6 +3302,25 @@
 		)
 		(uuid "f6f5cf01-8f74-4ef7-8bf5-aff35eab54c3")
 	)
+	(text_box "To Do List\n- Buck Converter Values\n- Buck Converter Footprints\n- Overall Component Placement"
+		(exclude_from_sim no)
+		(at 19.05 19.05 0)
+		(size 34.29 10.16)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(fill
+			(type none)
+		)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left top)
+		)
+		(uuid "7429896c-0812-4ae6-aa8f-b517835cc249")
+	)
 	(global_label "Disp GPIO 6"
 		(shape input)
 		(at 29.21 82.55 0)
@@ -7005,7 +7024,7 @@
 	)
 	(symbol
 		(lib_id "power:+5VP")
-		(at 165.1 154.94 90)
+		(at 127 66.04 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -7014,7 +7033,7 @@
 		(fields_autoplaced yes)
 		(uuid "5cd65f21-d95d-4e8b-831e-ba31494b4aed")
 		(property "Reference" "#PWR054"
-			(at 168.91 154.94 0)
+			(at 130.81 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7023,7 +7042,7 @@
 			)
 		)
 		(property "Value" "+RAWVS"
-			(at 161.29 154.9399 90)
+			(at 123.19 66.0399 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7032,7 +7051,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 165.1 154.94 0)
+			(at 127 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7041,7 +7060,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 165.1 154.94 0)
+			(at 127 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7050,7 +7069,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+5VP\""
-			(at 165.1 154.94 0)
+			(at 127 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8657,7 +8676,7 @@
 	)
 	(symbol
 		(lib_id "power:+5V")
-		(at 196.85 154.94 270)
+		(at 158.75 66.04 270)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -8666,7 +8685,7 @@
 		(fields_autoplaced yes)
 		(uuid "a4e80663-2649-435e-8634-f11c30daf57c")
 		(property "Reference" "#PWR057"
-			(at 193.04 154.94 0)
+			(at 154.94 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8675,7 +8694,7 @@
 			)
 		)
 		(property "Value" "+5V"
-			(at 200.66 154.9399 90)
+			(at 162.56 66.0399 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8684,7 +8703,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 196.85 154.94 0)
+			(at 158.75 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8693,7 +8712,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 196.85 154.94 0)
+			(at 158.75 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8702,7 +8721,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+5V\""
-			(at 196.85 154.94 0)
+			(at 158.75 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9965,7 +9984,7 @@
 		)
 	)
 	(sheet
-		(at 165.1 152.4)
+		(at 127 63.5)
 		(size 31.75 5.08)
 		(fields_autoplaced yes)
 		(stroke
@@ -9977,7 +9996,7 @@
 		)
 		(uuid "b8b4d66b-40d9-4643-be7e-3cbb124c7cda")
 		(property "Sheetname" "Buck Converter"
-			(at 165.1 151.6884 0)
+			(at 127 62.7884 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9986,7 +10005,7 @@
 			)
 		)
 		(property "Sheetfile" "buckconverter.kicad_sch"
-			(at 165.1 158.0646 0)
+			(at 127 69.1646 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9996,7 +10015,7 @@
 			)
 		)
 		(pin "Power Output" input
-			(at 196.85 154.94 0)
+			(at 158.75 66.04 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10006,7 +10025,7 @@
 			(uuid "b84e57e6-b589-4e38-a9c9-30f86655c790")
 		)
 		(pin "Power Input" input
-			(at 165.1 154.94 180)
+			(at 127 66.04 180)
 			(effects
 				(font
 					(size 1.27 1.27)
