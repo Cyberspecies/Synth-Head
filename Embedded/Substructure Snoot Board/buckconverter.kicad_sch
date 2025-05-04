@@ -4835,6 +4835,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R")
+		(at 231.14 231.14 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "22b1b89e-9a7c-4c58-a610-3bffba4b3b8c")
+		(property "Reference" "R10"
+			(at 233.68 229.8699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100"
+			(at 233.68 232.4099 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
+			(at 229.362 231.14 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 231.14 231.14 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 231.14 231.14 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C844713"
+			(at 231.14 231.14 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "796f3d03-b2ec-4b48-9077-1a8b35aeaea1")
+		)
+		(pin "2"
+			(uuid "81af1484-2879-49f3-82d0-348502eb4bb6")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "R10")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C")
 		(at 400.05 222.25 0)
 		(unit 1)
@@ -5221,76 +5300,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Device:R")
-		(at 231.14 231.14 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "519aece5-f180-46fb-a974-728b8d1f11a1")
-		(property "Reference" "R10"
-			(at 233.68 229.8699 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "100"
-			(at 233.68 232.4099 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 229.362 231.14 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 231.14 231.14 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Resistor"
-			(at 231.14 231.14 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "2d9a79c2-2740-41c2-a34c-672e35260775")
-		)
-		(pin "2"
-			(uuid "55c7fd88-9cf3-45fe-bee7-08b7072d7767")
-		)
-		(instances
-			(project "Substructure Snoot Board"
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "R10")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:GND")
 		(at 231.14 241.3 0)
 		(unit 1)
@@ -5621,7 +5630,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
 			(at 214.122 231.14 90)
 			(effects
 				(font
@@ -5640,6 +5649,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 215.9 231.14 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C844713"
 			(at 215.9 231.14 0)
 			(effects
 				(font
@@ -6050,7 +6068,7 @@
 				)
 			)
 		)
-		(property "Value" "4.8m"
+		(property "Value" "5m"
 			(at 223.52 237.49 90)
 			(effects
 				(font
@@ -6058,7 +6076,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_2512_6332Metric_Pad1.40x3.35mm_HandSolder"
 			(at 223.52 243.078 90)
 			(effects
 				(font
@@ -6078,6 +6096,15 @@
 		)
 		(property "Description" "Resistor"
 			(at 223.52 241.3 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C22468851"
+			(at 223.52 241.3 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7258,7 +7285,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
 			(at 227.33 219.4052 0)
 			(effects
 				(font
@@ -7278,6 +7305,15 @@
 		)
 		(property "Description" "Unpolarized capacitor"
 			(at 223.52 218.44 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C76970"
+			(at 223.52 218.44 90)
 			(effects
 				(font
 					(size 1.27 1.27)
