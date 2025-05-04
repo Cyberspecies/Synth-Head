@@ -2398,12 +2398,6 @@
 		(uuid "7d2c4437-0d3f-4a29-afca-ee0ae5b8f70d")
 	)
 	(junction
-		(at 476.25 142.24)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "7d9202e6-402f-4de0-8f06-be6948eda0ef")
-	)
-	(junction
 		(at 318.77 171.45)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2474,6 +2468,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "c5bb2dcf-39f6-4b74-ac9d-87d3de52d966")
+	)
+	(junction
+		(at 482.6 142.24)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "c63092c2-d00f-4f8d-a62e-07cdb768209b")
 	)
 	(junction
 		(at 179.07 127)
@@ -2690,16 +2690,6 @@
 			(type default)
 		)
 		(uuid "25bde242-40ce-4932-8124-4e6812ce0b3d")
-	)
-	(wire
-		(pts
-			(xy 476.25 139.7) (xy 476.25 142.24)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "25f1fdba-d541-4517-90ba-d6e5f3c791fa")
 	)
 	(wire
 		(pts
@@ -3203,7 +3193,7 @@
 	)
 	(wire
 		(pts
-			(xy 476.25 142.24) (xy 464.82 142.24)
+			(xy 464.82 142.24) (xy 482.6 142.24)
 		)
 		(stroke
 			(width 0)
@@ -3693,16 +3683,6 @@
 	)
 	(wire
 		(pts
-			(xy 482.6 139.7) (xy 476.25 139.7)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "c9d3c954-5685-480b-960e-5eddd1dc4c79")
-	)
-	(wire
-		(pts
 			(xy 134.62 203.2) (xy 134.62 205.74)
 		)
 		(stroke
@@ -3803,7 +3783,7 @@
 	)
 	(wire
 		(pts
-			(xy 504.19 142.24) (xy 476.25 142.24)
+			(xy 504.19 142.24) (xy 482.6 142.24)
 		)
 		(stroke
 			(width 0)
@@ -3943,7 +3923,7 @@
 	)
 	(wire
 		(pts
-			(xy 482.6 138.43) (xy 482.6 139.7)
+			(xy 482.6 138.43) (xy 482.6 142.24)
 		)
 		(stroke
 			(width 0)
@@ -4061,6 +4041,15 @@
 		)
 		(property "Description" "Schottky diode"
 			(at 266.7 135.89 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C155367"
+			(at 266.7 135.89 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4203,6 +4192,15 @@
 			)
 		)
 		(property "Description" "60A Id, 30V Vds, NexFET N-Channel Power MOSFET, 4.2mOhm Ron, 13nC Qg(typ), SON8 5x6mm"
+			(at 297.18 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C475504"
 			(at 297.18 160.02 0)
 			(effects
 				(font
@@ -4403,7 +4401,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
 			(at 264.922 143.51 90)
 			(effects
 				(font
@@ -4422,6 +4420,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 266.7 143.51 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C481926"
 			(at 266.7 143.51 0)
 			(effects
 				(font
@@ -4613,7 +4620,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
 			(at 254.762 139.7 90)
 			(effects
 				(font
@@ -4632,6 +4639,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 256.54 139.7 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C482125"
 			(at 256.54 139.7 0)
 			(effects
 				(font
@@ -4792,76 +4808,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Device:C_Polarized")
-		(at 157.48 134.62 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "2dea22e7-8340-4e6d-be7f-9d4b45f43942")
-		(property "Reference" "C25"
-			(at 161.29 132.4609 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "33uF 40mohm"
-			(at 161.29 135.0009 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Capacitors:EEFCX1E330R"
-			(at 158.4452 138.43 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 157.48 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Polarized capacitor"
-			(at 157.48 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "79f18913-214b-4580-9837-64bbc563ae16")
-		)
-		(pin "2"
-			(uuid "6c51f4dd-a3b3-47d5-b6d0-f510f6718872")
-		)
-		(instances
-			(project "Substructure Snoot Board"
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "C25")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:C")
 		(at 400.05 222.25 0)
 		(unit 1)
@@ -4926,76 +4872,6 @@
 			(project "Substructure Snoot Board"
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
 					(reference "C21")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C_Polarized")
-		(at 135.89 134.62 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "3673f0f2-c5d3-426d-bbec-42895d58d266")
-		(property "Reference" "C24"
-			(at 139.7 132.4609 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "33uF 40mohm"
-			(at 139.7 135.0009 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Capacitors:EEFCX1E330R"
-			(at 136.8552 138.43 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 135.89 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Polarized capacitor"
-			(at 135.89 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "dd6fca60-7ab5-4412-a3ee-2fee5ce0064a")
-		)
-		(pin "2"
-			(uuid "53032f9a-f347-438d-b156-d7210701278c")
-		)
-		(instances
-			(project "Substructure Snoot Board"
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "C24")
 					(unit 1)
 				)
 			)
@@ -5126,6 +5002,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C482111"
+			(at 226.06 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "9a4417c2-bfb1-4bf4-86e4-6a9bcdeabb5a")
 		)
@@ -5188,6 +5073,15 @@
 			)
 		)
 		(property "Description" "Polarized capacitor"
+			(at 114.3 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C193237"
 			(at 114.3 134.62 0)
 			(effects
 				(font
@@ -5346,76 +5240,6 @@
 			(project "Substructure Snoot Board"
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
 					(reference "R15")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 200.66 134.62 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "4c5635a4-f1bb-4bec-ae8a-7892562e8d96")
-		(property "Reference" "C28"
-			(at 204.47 133.3499 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "47uF 3mohm"
-			(at 204.47 135.8899 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder"
-			(at 201.6252 138.43 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 200.66 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Unpolarized capacitor"
-			(at 200.66 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "8d873f6f-f4fe-46c2-a82c-dcd223f5a637")
-		)
-		(pin "1"
-			(uuid "8065bfa8-47df-48a1-be72-957f550bff7e")
-		)
-		(instances
-			(project "Substructure Snoot Board"
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "C28")
 					(unit 1)
 				)
 			)
@@ -5616,6 +5440,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C202231"
+			(at 340.36 132.08 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "10358afa-440c-4d46-8c3a-adfb6f7ef191")
 		)
@@ -5635,6 +5468,85 @@
 			(project ""
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
 					(reference "Q3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C_Polarized")
+		(at 135.89 134.62 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "5e0a8f03-da9b-4a60-a831-3e0e4f8811bd")
+		(property "Reference" "C24"
+			(at 139.7 132.4609 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "33uF 40mohm"
+			(at 139.7 135.0009 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitors:EEFCX1E330R"
+			(at 136.8552 138.43 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 135.89 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Polarized capacitor"
+			(at 135.89 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C193237"
+			(at 135.89 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "61e59f4e-3e6c-4cf3-8ed6-ce9e0bed2677")
+		)
+		(pin "2"
+			(uuid "65766ce3-0eb8-4971-8197-f67a18a58842")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "C24")
 					(unit 1)
 				)
 			)
@@ -5959,6 +5871,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 226.06 138.43 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C481928"
 			(at 226.06 138.43 0)
 			(effects
 				(font
@@ -6545,6 +6466,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:C_Polarized")
+		(at 157.48 134.62 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "93765d66-2660-4fc3-97d6-12a072082c56")
+		(property "Reference" "C25"
+			(at 161.29 132.4609 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "33uF 40mohm"
+			(at 161.29 135.0009 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitors:EEFCX1E330R"
+			(at 158.4452 138.43 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 157.48 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Polarized capacitor"
+			(at 157.48 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C193237"
+			(at 157.48 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "584a9b98-c8c3-4538-af50-7297fcb0ac5f")
+		)
+		(pin "2"
+			(uuid "eded7887-8497-453d-a960-fbe4ee33b966")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "C25")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 93.98 220.98 0)
 		(unit 1)
@@ -6612,7 +6612,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 476.25 142.24 0)
+		(at 482.6 142.24 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -6621,7 +6621,7 @@
 		(fields_autoplaced yes)
 		(uuid "a559a986-d4e9-420b-a5f8-c7e8ec14bbdf")
 		(property "Reference" "#PWR065"
-			(at 476.25 148.59 0)
+			(at 482.6 148.59 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6630,7 +6630,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 476.25 147.32 0)
+			(at 482.6 147.32 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6638,7 +6638,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 476.25 142.24 0)
+			(at 482.6 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6647,7 +6647,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 476.25 142.24 0)
+			(at 482.6 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6656,7 +6656,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 476.25 142.24 0)
+			(at 482.6 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6731,6 +6731,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C77101"
+			(at 179.07 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "8ed380e9-8b7e-4dc5-b11e-81b4ba87bf32")
 		)
@@ -6771,7 +6780,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Inductors:XAL7070-102ME"
 			(at 318.77 147.32 0)
 			(effects
 				(font
@@ -6791,6 +6800,15 @@
 		)
 		(property "Description" "Inductor"
 			(at 318.77 147.32 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C6609502"
+			(at 318.77 147.32 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6942,6 +6960,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C475504"
+			(at 340.36 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "2ecb7c4b-1e9a-4013-8f2b-ceb586b931f2")
 		)
@@ -7029,6 +7056,85 @@
 			(project "Substructure Snoot Board"
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
 					(reference "C12")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 200.66 134.62 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c6efb53a-4f9b-4602-b3ec-22ecb525c6ab")
+		(property "Reference" "C28"
+			(at 204.47 133.3499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "47uF 3mohm"
+			(at 204.47 135.8899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder"
+			(at 201.6252 138.43 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 200.66 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 200.66 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C77101"
+			(at 200.66 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "3000b6f9-fb97-4051-8009-7f2e914bbffb")
+		)
+		(pin "1"
+			(uuid "6cc2c259-bc0f-4062-969d-3867d74d0f74")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "C28")
 					(unit 1)
 				)
 			)
@@ -7154,6 +7260,15 @@
 			)
 		)
 		(property "Description" "60A Id, 30V Vds, NexFET N-Channel Power MOSFET, 4.2mOhm Ron, 13nC Qg(typ), SON8 5x6mm"
+			(at 297.18 132.08 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C475504"
 			(at 297.18 132.08 0)
 			(effects
 				(font
@@ -7716,7 +7831,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
 			(at 267.6652 154.94 0)
 			(effects
 				(font
@@ -7735,6 +7850,15 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
+			(at 266.7 151.13 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C2181865"
 			(at 266.7 151.13 0)
 			(effects
 				(font
