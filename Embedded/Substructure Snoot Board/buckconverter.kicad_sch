@@ -2314,12 +2314,6 @@
 		(uuid "258c53b0-1705-4671-8630-22f5bb0efd9e")
 	)
 	(junction
-		(at 419.1 127)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "33f31de1-f0b3-4b9c-a61f-e2ad9df2cc6c")
-	)
-	(junction
 		(at 464.82 127)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2410,6 +2404,12 @@
 		(uuid "866af81f-83d5-4134-b307-fdf66de38e37")
 	)
 	(junction
+		(at 393.7 127)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "86c2b25c-ed44-47ef-ac3b-bc9da6eebbea")
+	)
+	(junction
 		(at 400.05 193.04)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2462,12 +2462,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "c3082c26-12e6-4704-b539-6d75008ea021")
-	)
-	(junction
-		(at 393.7 127)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "c5bb2dcf-39f6-4b74-ac9d-87d3de52d966")
 	)
 	(junction
 		(at 482.6 142.24)
@@ -2546,6 +2540,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "d9296d9e-3948-4303-bdcb-11ab096f2028")
+	)
+	(junction
+		(at 419.1 127)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "d9599118-a746-48a9-961c-1d9cd7037b43")
 	)
 	(junction
 		(at 134.62 203.2)
@@ -3183,7 +3183,7 @@
 	)
 	(wire
 		(pts
-			(xy 393.7 127) (xy 419.1 127)
+			(xy 368.3 127) (xy 393.7 127)
 		)
 		(stroke
 			(width 0)
@@ -3543,6 +3543,16 @@
 	)
 	(wire
 		(pts
+			(xy 393.7 127) (xy 419.1 127)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a6f1b8bd-deb2-4531-bd1b-6fdb546ac4b8")
+	)
+	(wire
+		(pts
 			(xy 157.48 203.2) (xy 236.22 203.2)
 		)
 		(stroke
@@ -3753,16 +3763,6 @@
 	)
 	(wire
 		(pts
-			(xy 419.1 127) (xy 464.82 127)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "d41a633a-2455-4522-98cf-9ce97c61df44")
-	)
-	(wire
-		(pts
 			(xy 172.72 205.74) (xy 172.72 213.36)
 		)
 		(stroke
@@ -3790,6 +3790,16 @@
 			(type default)
 		)
 		(uuid "d766f985-8426-458b-98e5-ebe9bbbb0f04")
+	)
+	(wire
+		(pts
+			(xy 419.1 127) (xy 464.82 127)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d8fd6eac-8c4f-4610-b99e-9f8fa2e0ae5e")
 	)
 	(wire
 		(pts
@@ -3840,16 +3850,6 @@
 			(type default)
 		)
 		(uuid "e9b1f15e-e18c-4593-93f8-25dd6df845a4")
-	)
-	(wire
-		(pts
-			(xy 368.3 127) (xy 393.7 127)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ea0b56f7-6719-42c2-911b-404392330d38")
 	)
 	(wire
 		(pts
@@ -4091,7 +4091,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "105K"
+		(property "Value" "20K"
 			(at 467.36 139.6999 0)
 			(effects
 				(font
@@ -4100,7 +4100,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
 			(at 463.042 138.43 90)
 			(effects
 				(font
@@ -4119,6 +4119,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 464.82 138.43 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C105575"
 			(at 464.82 138.43 0)
 			(effects
 				(font
@@ -4517,76 +4526,6 @@
 			(project "Substructure Snoot Board"
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
 					(reference "R8")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 504.19 134.62 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "12811221-8625-4491-9807-a55c9dbba93a")
-		(property "Reference" "C27"
-			(at 508 133.3499 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "47uF 3mohm"
-			(at 508 135.8899 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 505.1552 138.43 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 504.19 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Unpolarized capacitor"
-			(at 504.19 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "b11b2ddb-df8f-4d80-8815-957725f51191")
-		)
-		(pin "1"
-			(uuid "c8b9fec6-b520-4bdf-98c2-dcd88b51fcb8")
-		)
-		(instances
-			(project "Substructure Snoot Board"
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "C27")
 					(unit 1)
 				)
 			)
@@ -5203,7 +5142,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
 			(at 463.042 130.81 90)
 			(effects
 				(font
@@ -5222,6 +5161,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 464.82 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C227540"
 			(at 464.82 130.81 0)
 			(effects
 				(font
@@ -5970,6 +5918,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:C")
+		(at 504.19 134.62 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "74f00ec5-bc5a-455a-a81f-cee66cebbbaa")
+		(property "Reference" "C27"
+			(at 508 133.3499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "47uF 3mohm"
+			(at 508 135.8899 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder"
+			(at 505.1552 138.43 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 504.19 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 504.19 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C77101"
+			(at 504.19 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "dc734aba-2826-4685-a159-01cfbae51201")
+		)
+		(pin "1"
+			(uuid "2ba0e0a1-82ae-4bfb-873f-7202e3e83688")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "C27")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:R")
 		(at 223.52 241.3 90)
 		(unit 1)
@@ -6545,6 +6572,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:C")
+		(at 393.7 130.81 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "9876cc32-2662-4e03-b18b-d0fd50983312")
+		(property "Reference" "C17"
+			(at 397.51 129.5399 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "22uF 3.71mohm"
+			(at 397.51 132.0799 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
+			(at 394.6652 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 393.7 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 393.7 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C86295"
+			(at 393.7 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "062e1a13-c052-4ac8-bdab-1a7642e1eff4")
+		)
+		(pin "1"
+			(uuid "b7bb26e4-968e-47b6-a8cf-1e4a6ff872ee")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "C17")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 93.98 220.98 0)
 		(unit 1)
@@ -6902,6 +7008,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:C")
+		(at 419.1 130.81 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "b7dfd082-7337-4728-ad11-34ac6c6ae3df")
+		(property "Reference" "C18"
+			(at 422.91 129.5399 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "22uF 3.71mohm"
+			(at 422.91 132.0799 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
+			(at 420.0652 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 419.1 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 419.1 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C86295"
+			(at 419.1 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "e8a69d49-9e6d-42ca-8c76-c71fbb16a329")
+		)
+		(pin "1"
+			(uuid "01df0c60-7997-4d59-918e-cebf970b5fbc")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "C18")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Transistor_FET:CSD17577Q5A")
 		(at 340.36 160.02 0)
 		(mirror y)
@@ -7168,7 +7353,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder"
 			(at 483.5652 138.43 0)
 			(effects
 				(font
@@ -7187,6 +7372,15 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
+			(at 482.6 134.62 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C77101"
 			(at 482.6 134.62 0)
 			(effects
 				(font
@@ -7303,76 +7497,6 @@
 	)
 	(symbol
 		(lib_id "Device:C")
-		(at 419.1 130.81 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "da6815cc-d835-41eb-af9c-f7b3225c5d2e")
-		(property "Reference" "C18"
-			(at 422.91 129.5399 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "22uF 3.71mohm"
-			(at 422.91 132.0799 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 420.0652 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 419.1 130.81 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Unpolarized capacitor"
-			(at 419.1 130.81 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "b72157c6-4fa4-442e-8dcc-38a319d4bf6a")
-		)
-		(pin "1"
-			(uuid "ec531016-e3dc-49f3-adba-5ad60478df01")
-		)
-		(instances
-			(project "Substructure Snoot Board"
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "C18")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
 		(at 111.76 209.55 0)
 		(unit 1)
 		(exclude_from_sim no)
@@ -7469,7 +7593,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
 			(at 369.2652 134.62 0)
 			(effects
 				(font
@@ -7488,6 +7612,15 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
+			(at 368.3 130.81 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C86295"
 			(at 368.3 130.81 0)
 			(effects
 				(font
@@ -7658,76 +7791,6 @@
 			(project ""
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
 					(reference "U10")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 393.7 130.81 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "e80310e4-3f10-4c55-82be-8b2a336ccef3")
-		(property "Reference" "C17"
-			(at 397.51 129.5399 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "22uF 3.71mohm"
-			(at 397.51 132.0799 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 394.6652 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 393.7 130.81 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Unpolarized capacitor"
-			(at 393.7 130.81 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "e94690e2-ebd7-4efc-8d92-3d4c494aa214")
-		)
-		(pin "1"
-			(uuid "053a882a-5a11-46d5-9cbf-254143cc1706")
-		)
-		(instances
-			(project "Substructure Snoot Board"
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "C17")
 					(unit 1)
 				)
 			)
