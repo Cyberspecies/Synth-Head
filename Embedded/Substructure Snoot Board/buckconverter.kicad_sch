@@ -299,169 +299,6 @@
 				)
 			)
 		)
-		(symbol "Device:D"
-			(pin_numbers hide)
-			(pin_names
-				(offset 1.016) hide)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "D"
-				(at 0 2.54 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "D"
-				(at 0 -2.54 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" ""
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" "~"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "Diode"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Sim.Device" "D"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Sim.Pins" "1=K 2=A"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "diode"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_fp_filters" "TO-???* *_Diode_* *SingleDiode* D_*"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "D_0_1"
-				(polyline
-					(pts
-						(xy -1.27 1.27) (xy -1.27 -1.27)
-					)
-					(stroke
-						(width 0.254)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 1.27 0) (xy -1.27 0)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 1.27 1.27) (xy 1.27 -1.27) (xy -1.27 0) (xy 1.27 1.27)
-					)
-					(stroke
-						(width 0.254)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "D_1_1"
-				(pin passive line
-					(at -3.81 0 0)
-					(length 2.54)
-					(name "K"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 3.81 0 180)
-					(length 2.54)
-					(name "A"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-		)
 		(symbol "Device:D_Schottky"
 			(pin_numbers hide)
 			(pin_names
@@ -2350,12 +2187,6 @@
 		(uuid "45df4bc9-8d2e-43bb-a7b4-120cd50326dc")
 	)
 	(junction
-		(at 400.05 218.44)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "4b8b00ed-760c-4211-9038-21d2cc807eba")
-	)
-	(junction
 		(at 123.19 220.98)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2410,12 +2241,6 @@
 		(uuid "86c2b25c-ed44-47ef-ac3b-bc9da6eebbea")
 	)
 	(junction
-		(at 400.05 193.04)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "9492a5b1-2efa-440e-ae80-896e36504cb0")
-	)
-	(junction
 		(at 381 193.04)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2452,6 +2277,12 @@
 		(uuid "ad41089c-6340-4d94-aeb3-4832b4e2a011")
 	)
 	(junction
+		(at 400.05 218.44)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "b3a3a34d-51ea-4f3c-a0bf-50089a93ce54")
+	)
+	(junction
 		(at 251.46 236.22)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2462,6 +2293,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "c3082c26-12e6-4704-b539-6d75008ea021")
+	)
+	(junction
+		(at 400.05 193.04)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "c33fee70-6764-495e-bf18-7fa06b6368de")
 	)
 	(junction
 		(at 482.6 142.24)
@@ -3763,6 +3600,16 @@
 	)
 	(wire
 		(pts
+			(xy 400.05 193.04) (xy 420.37 193.04)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d39c579c-eb4d-4455-b320-2535f67cb48d")
+	)
+	(wire
+		(pts
 			(xy 172.72 205.74) (xy 172.72 213.36)
 		)
 		(stroke
@@ -3770,16 +3617,6 @@
 			(type default)
 		)
 		(uuid "d54a3348-0b9e-4d03-b5c2-ccfbc6c56f14")
-	)
-	(wire
-		(pts
-			(xy 400.05 193.04) (xy 420.37 193.04)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "d68dcbc5-840a-4692-9a77-3e7046ed4ad3")
 	)
 	(wire
 		(pts
@@ -4021,7 +3858,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Diode_SMD:D_SOD-123"
 			(at 266.7 135.89 0)
 			(effects
 				(font
@@ -4349,7 +4186,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
 			(at 421.3352 200.66 0)
 			(effects
 				(font
@@ -4368,6 +4205,15 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
+			(at 420.37 196.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C181015"
 			(at 420.37 196.85 0)
 			(effects
 				(font
@@ -4419,7 +4265,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Diode_SMD:D_SOD-123"
 			(at 381 196.85 0)
 			(effects
 				(font
@@ -4439,6 +4285,15 @@
 		)
 		(property "Description" "Schottky diode"
 			(at 381 196.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C398783"
+			(at 381 196.85 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4765,6 +4620,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:D_Schottky")
+		(at 400.05 196.85 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "1b26448c-8f7f-4257-a24a-374d22e2283e")
+		(property "Reference" "D3"
+			(at 402.59 195.8974 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "385mV 500mA"
+			(at 402.59 198.4374 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Diode_SMD:D_SOD-123"
+			(at 400.05 196.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 400.05 196.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Schottky diode"
+			(at 400.05 196.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C398783"
+			(at 400.05 196.85 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "ac249f33-522f-472a-b74d-df6143ac069c")
+		)
+		(pin "2"
+			(uuid "199c9174-635b-4735-9ba0-52b42fd6bc2b")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "D3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:R")
 		(at 440.69 196.85 0)
 		(unit 1)
@@ -4792,7 +4726,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
 			(at 438.912 196.85 90)
 			(effects
 				(font
@@ -4811,6 +4745,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 440.69 196.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C71617"
 			(at 440.69 196.85 0)
 			(effects
 				(font
@@ -4908,76 +4851,6 @@
 			(project "Substructure Snoot Board"
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
 					(reference "R10")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 400.05 222.25 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "33c0a14e-ded8-4907-af0e-f63e3d397a9e")
-		(property "Reference" "C21"
-			(at 403.86 220.9799 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "100nF 50mohm"
-			(at 403.86 223.5199 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 401.0152 226.06 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 400.05 222.25 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Unpolarized capacitor"
-			(at 400.05 222.25 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "ed212251-5460-46f7-aeba-385d4ef22278")
-		)
-		(pin "1"
-			(uuid "2b1e2e45-21ff-4220-8fb2-869417a9f404")
-		)
-		(instances
-			(project "Substructure Snoot Board"
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "C21")
 					(unit 1)
 				)
 			)
@@ -6128,94 +6001,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Device:D")
-		(at 400.05 196.85 90)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "7860f741-fbc1-462f-9897-8ac2f05fff6a")
-		(property "Reference" "D3"
-			(at 402.59 195.5799 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Value" "500mV 200mA"
-			(at 402.59 198.1199 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" ""
-			(at 400.05 196.85 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 400.05 196.85 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Diode"
-			(at 400.05 196.85 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Sim.Device" "D"
-			(at 400.05 196.85 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Sim.Pins" "1=K 2=A"
-			(at 400.05 196.85 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "8e2ac85e-2294-4998-b659-8e7567f79a1a")
-		)
-		(pin "1"
-			(uuid "d4348779-1369-4048-95af-ee919a1269fe")
-		)
-		(instances
-			(project ""
-				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
-					(reference "D3")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:GND")
 		(at 251.46 236.22 0)
 		(unit 1)
@@ -6307,7 +6092,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
 			(at 368.3 194.6148 0)
 			(effects
 				(font
@@ -6327,6 +6112,15 @@
 		)
 		(property "Description" "Unpolarized capacitor"
 			(at 364.49 195.58 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C133086"
+			(at 364.49 195.58 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6377,7 +6171,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
 			(at 381.9652 208.28 0)
 			(effects
 				(font
@@ -6396,6 +6190,15 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
+			(at 381 204.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C92490"
 			(at 381 204.47 0)
 			(effects
 				(font
@@ -7580,6 +7383,85 @@
 			(project ""
 				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
 					(reference "Q1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 400.05 222.25 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "d30c38cc-fcd1-44d7-b8f3-c841a5a85cdd")
+		(property "Reference" "C21"
+			(at 403.86 220.9799 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100nF 50mohm"
+			(at 403.86 223.5199 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
+			(at 401.0152 226.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 400.05 222.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 400.05 222.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C92490"
+			(at 400.05 222.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "ca0e1cb7-c89e-4a9a-9c23-4ec314a10690")
+		)
+		(pin "1"
+			(uuid "4ae7d2ca-c348-452e-8f5c-d0bdde1b5498")
+		)
+		(instances
+			(project "Substructure Snoot Board"
+				(path "/f2fe47b0-47e9-4c85-8000-2f6998edcf1c/b8b4d66b-40d9-4643-be7e-3cbb124c7cda"
+					(reference "C21")
 					(unit 1)
 				)
 			)
