@@ -1,4 +1,4 @@
-<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/26.2.15 Chrome/134.0.6998.205 Electron/35.2.1 Safari/537.36" version="26.2.15" pages="6">
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/27.0.2 Chrome/134.0.6998.205 Electron/35.3.0 Safari/537.36" version="27.0.2" pages="6">
   <diagram name="Project Scope" id="6ef_2Vwstoa_3FDqgM2N">
     <mxGraphModel dx="1434" dy="1004" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="320" pageHeight="140" math="0" shadow="0">
       <root>
@@ -179,7 +179,7 @@
     </mxGraphModel>
   </diagram>
   <diagram id="EIz6ATKGmSpaXtac2Ex5" name="Substructure">
-    <mxGraphModel dx="2066" dy="1249" grid="1" gridSize="10" guides="0" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1500" math="0" shadow="0">
+    <mxGraphModel dx="1380" dy="1131" grid="1" gridSize="10" guides="0" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1500" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -3556,6 +3556,186 @@
         </mxCell>
         <mxCell id="FSRZ2MZBwWqbrWuLm1_g-53" value="GND" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" parent="FSRZ2MZBwWqbrWuLm1_g-47" vertex="1">
           <mxGeometry y="120" width="60" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-1" value="&lt;div&gt;To Do List&lt;/div&gt;&lt;div&gt;- Power Indicator LEDS&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- Input Supply (On if power is inputted)&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- Output (On if output is active)&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- [SCP] Fuse (On if fuse is alive)&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- [OVP] Input Over Volt (On if input is reaching its max voltage)&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- [RVP] Input Reverse Volt (On if input voltage is reversed)&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- [UVP] Input Under Volt (On if input voltage is below 4.5V)&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- [O-OVP] Output Over Volt (On if output is over 5V)&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- Output Ripple Voltage (On if the ripple is too high)&lt;/div&gt;&lt;div&gt;- Power Protection&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- Input&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;Over Voltage&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;Under Voltage&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;Reverse Voltage&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;ESD&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- Output&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;Over Voltage (If Buck Fails)&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;Reverse Voltage (If output rails reversed)&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;Short Circuit&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;Over Current&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - C&lt;b&gt;onnected to Higher Voltage&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- Internal&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - &lt;b&gt;Over Temperature&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp;- External&lt;/div&gt;&lt;div&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; - Power Switch (Emergency Shutdown)&lt;/div&gt;" style="whiteSpace=wrap;html=1;align=left;" parent="1" vertex="1">
+          <mxGeometry x="5520" y="1840" width="360" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-3" value="Power Regulator" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#bac8d3;strokeColor=#23445d;" parent="1" vertex="1">
+          <mxGeometry x="6540" y="1400" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-14" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-4" target="IzEsbzg1Ggu8r2vV5VKZ-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-4" value="Reverse Voltage Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="6160" y="1400" width="100" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-12" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-5" target="IzEsbzg1Ggu8r2vV5VKZ-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-5" value="Power Input" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#bac8d3;strokeColor=#23445d;" parent="1" vertex="1">
+          <mxGeometry x="5920" y="1400" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-18" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-8" target="IzEsbzg1Ggu8r2vV5VKZ-17" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-8" value="Over Voltage Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="6300" y="1400" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-13" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-10" target="IzEsbzg1Ggu8r2vV5VKZ-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-10" value="ESD Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="6040" y="1400" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-16" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-17" target="IzEsbzg1Ggu8r2vV5VKZ-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-17" value="Undervolt&lt;div&gt;Lockout&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="6420" y="1400" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-23" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-20" target="IzEsbzg1Ggu8r2vV5VKZ-22" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-20" value="Power Regulator" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#bac8d3;strokeColor=#23445d;" parent="1" vertex="1">
+          <mxGeometry x="5920" y="1480" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-21" value="Power Output" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#bac8d3;strokeColor=#23445d;" parent="1" vertex="1">
+          <mxGeometry x="6540" y="1480" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-28" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-22" target="IzEsbzg1Ggu8r2vV5VKZ-27" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-22" value="Over Current Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="6040" y="1480" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-31" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-27" target="IzEsbzg1Ggu8r2vV5VKZ-30" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-27" value="Short Circuit Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="6160" y="1480" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-33" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-30" target="IzEsbzg1Ggu8r2vV5VKZ-32" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-30" value="Reverse Voltage Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="6280" y="1480" width="100" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-34" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" parent="1" source="IzEsbzg1Ggu8r2vV5VKZ-32" target="IzEsbzg1Ggu8r2vV5VKZ-21" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IzEsbzg1Ggu8r2vV5VKZ-32" value="Over Voltage Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="6420" y="1480" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-14" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-2" target="G1-OPy4DbC1zesHK2ekp-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-2" value="Power Input" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#bac8d3;strokeColor=#23445d;" vertex="1" parent="1">
+          <mxGeometry x="5920" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-40" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-3" target="G1-OPy4DbC1zesHK2ekp-17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-3" value="N Channel Mosfet" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6280" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-6" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-5" target="G1-OPy4DbC1zesHK2ekp-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-5" value="Reverse Voltage Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6270" y="1820" width="100" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-8" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-7" target="G1-OPy4DbC1zesHK2ekp-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-7" value="Undervolt Lockout" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6230" y="1760" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-10" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-9" target="G1-OPy4DbC1zesHK2ekp-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-9" value="Over Voltage Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6330" y="1760" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-38" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-11" target="G1-OPy4DbC1zesHK2ekp-37">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-11" value="TVS Clamp" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6040" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-42" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-17" target="G1-OPy4DbC1zesHK2ekp-41">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-17" value="Power Regulator" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#bac8d3;strokeColor=#23445d;" vertex="1" parent="1">
+          <mxGeometry x="6400" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-20" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-19" target="G1-OPy4DbC1zesHK2ekp-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-19" value="Thermistor" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6280" y="1600" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-26" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-23" target="G1-OPy4DbC1zesHK2ekp-25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-23" value="N Channel Mosfet" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6640" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-32" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-24" target="G1-OPy4DbC1zesHK2ekp-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-24" value="Reverse Voltage Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6630" y="1820" width="100" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-28" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-25" target="G1-OPy4DbC1zesHK2ekp-27">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-25" value="TVS Clamp" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6760" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-27" value="Power Output" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#bac8d3;strokeColor=#23445d;" vertex="1" parent="1">
+          <mxGeometry x="6880" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-34" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-29" target="G1-OPy4DbC1zesHK2ekp-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-29" value="Over Voltage Protection" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6690" y="1760" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-31" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-30" target="G1-OPy4DbC1zesHK2ekp-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-30" value="Thermistor" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6590" y="1600" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-36" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-35" target="G1-OPy4DbC1zesHK2ekp-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-35" value="Undervolt Lockout" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6590" y="1760" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-39" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-37" target="G1-OPy4DbC1zesHK2ekp-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-37" value="Resettable EFuse" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6160" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-47" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-41" target="G1-OPy4DbC1zesHK2ekp-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-41" value="Resettable EFuse" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6520" y="1680" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-45" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-43" target="G1-OPy4DbC1zesHK2ekp-44">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-43" value="Enable" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=#bac8d3;strokeColor=#23445d;" vertex="1" parent="1">
+          <mxGeometry x="6880" y="1600" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-46" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="G1-OPy4DbC1zesHK2ekp-44" target="G1-OPy4DbC1zesHK2ekp-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="G1-OPy4DbC1zesHK2ekp-44" value="Window Comparator 5.1KΩ" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+          <mxGeometry x="6690" y="1600" width="120" height="40" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
