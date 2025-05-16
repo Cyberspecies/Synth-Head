@@ -8649,6 +8649,116 @@
 			)
 		)
 	)
+	(footprint "TestPoint:TestPoint_Pad_D4.0mm"
+		(layer "B.Cu")
+		(uuid "7adba61e-d23f-4fad-b638-4d0d875d5be1")
+		(at 117.5 67.5 180)
+		(descr "SMD pad as test Point, diameter 4.0mm")
+		(tags "test point SMD pad")
+		(property "Reference" "J5"
+			(at 0 2.898 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "b36ba04f-c2df-45e5-93c0-6e7b624a5b97")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Value" "5Vout"
+			(at 0 3.25 0)
+			(layer "B.SilkS")
+			(uuid "966c7362-ff72-4538-938a-d2845bafbe50")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Footprint" "TestPoint:TestPoint_Pad_D4.0mm"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "da76ad19-4b04-4ab5-bb5a-a1a025151d90")
+			(effects
+				(font
+					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Datasheet" ""
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "bdca46c3-e9bd-48c4-88de-21f39df32279")
+			(effects
+				(font
+					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Description" "Generic connector, single row, 01x01, script generated"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "362c4d82-0923-40fb-b5cb-4e7351e2f4b3")
+			(effects
+				(font
+					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property ki_fp_filters "Connector*:*_1x??_*")
+		(path "/3d466bb5-5cc2-42b7-812a-ea73d5780aac")
+		(sheetname "Root")
+		(sheetfile "Substructure Snoot Board.kicad_sch")
+		(attr exclude_from_pos_files)
+		(fp_circle
+			(center 0 0)
+			(end 0 -2.25)
+			(stroke
+				(width 0.12)
+				(type solid)
+			)
+			(fill none)
+			(layer "B.SilkS")
+			(uuid "c6589285-42ff-450e-98e6-ff30dd3c1a36")
+		)
+		(fp_circle
+			(center 0 0)
+			(end 2.5 0)
+			(stroke
+				(width 0.05)
+				(type solid)
+			)
+			(fill none)
+			(layer "B.CrtYd")
+			(uuid "0124857b-87a6-4ed3-b0c6-a6beaed6cdb0")
+		)
+		(pad "1" smd circle
+			(at 0 0 180)
+			(size 4 4)
+			(layers "B.Cu" "B.Mask")
+			(net 40 "+5V")
+			(pinfunction "Pin_1")
+			(pintype "passive")
+			(uuid "9749d9ce-7e58-4c80-8467-0310411205e3")
+		)
+	)
 	(footprint "Resistor_SMD:R_0603_1608Metric"
 		(layer "B.Cu")
 		(uuid "adf5af04-422b-4e7c-a9e6-60a4665f5eef")
@@ -10647,6 +10757,116 @@
 			(rotate
 				(xyz 0 0 0)
 			)
+		)
+	)
+	(footprint "TestPoint:TestPoint_Pad_D4.0mm"
+		(layer "B.Cu")
+		(uuid "f848a1f5-7d85-4008-afac-e3e1524063bb")
+		(at 102.5 67.5 180)
+		(descr "SMD pad as test Point, diameter 4.0mm")
+		(tags "test point SMD pad")
+		(property "Reference" "J9"
+			(at 0 2.898 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "2fe47470-c2e6-4020-81f0-cfe0055dba5a")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Value" "GNDout"
+			(at 0 3.25 0)
+			(layer "B.SilkS")
+			(uuid "b0394dd7-cc77-440b-9598-e673bf0d7611")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Footprint" "TestPoint:TestPoint_Pad_D4.0mm"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "d3b27de4-2a37-4024-ba0c-386c0232d263")
+			(effects
+				(font
+					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Datasheet" ""
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "995ba763-9326-4c3e-90ad-60db3f013fb9")
+			(effects
+				(font
+					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Description" "Generic connector, single row, 01x01, script generated"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "00fdaec5-960f-487d-8681-893b0b3f031f")
+			(effects
+				(font
+					(size 1.27 1.27)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property ki_fp_filters "Connector*:*_1x??_*")
+		(path "/5f23f2a4-6936-42bf-b973-4ab0ef7638b9")
+		(sheetname "Root")
+		(sheetfile "Substructure Snoot Board.kicad_sch")
+		(attr exclude_from_pos_files)
+		(fp_circle
+			(center 0 0)
+			(end 0 -2.25)
+			(stroke
+				(width 0.12)
+				(type solid)
+			)
+			(fill none)
+			(layer "B.SilkS")
+			(uuid "64452dd7-ddee-4673-9332-f016ac3534ea")
+		)
+		(fp_circle
+			(center 0 0)
+			(end 2.5 0)
+			(stroke
+				(width 0.05)
+				(type solid)
+			)
+			(fill none)
+			(layer "B.CrtYd")
+			(uuid "13f33293-b91a-4079-bedb-fc47e8c0588e")
+		)
+		(pad "1" smd circle
+			(at 0 0 180)
+			(size 4 4)
+			(layers "B.Cu" "B.Mask")
+			(net 2 "GND")
+			(pinfunction "Pin_1")
+			(pintype "passive")
+			(uuid "1c6d0ad6-3f3f-4236-a5f7-80e21eea1618")
 		)
 	)
 	(gr_arc
