@@ -1305,26 +1305,6 @@
 			(embedded_fonts no)
 		)
 	)
-	(text_box "To Do List\n- Add LDO or Tiny Buck Converter"
-		(exclude_from_sim no)
-		(at 25.4 25.4 0)
-		(size 38.1 6.35)
-		(margins 0.9525 0.9525 0.9525 0.9525)
-		(stroke
-			(width 0)
-			(type solid)
-		)
-		(fill
-			(type none)
-		)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "2ee31d3c-bc9e-42a2-a94b-faa658ddbf5b")
-	)
 	(global_label "Power UART TX"
 		(shape input)
 		(at 118.11 55.88 0)
@@ -1437,7 +1417,7 @@
 	)
 	(global_label "Power UART RX"
 		(shape input)
-		(at 46.99 74.93 0)
+		(at 46.99 77.47 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -1447,7 +1427,7 @@
 		)
 		(uuid "5e4ecbdf-a07b-488e-8040-d1131ec5c72c")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 64.6709 74.93 0)
+			(at 64.6709 77.47 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1481,28 +1461,6 @@
 	)
 	(global_label "Power USB -"
 		(shape input)
-		(at 34.29 74.93 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "748d0b95-389a-4a9c-9104-cc2dee0a8047")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 18.3629 74.93 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "Power USB +"
-		(shape input)
 		(at 34.29 77.47 180)
 		(fields_autoplaced yes)
 		(effects
@@ -1511,7 +1469,7 @@
 			)
 			(justify right)
 		)
-		(uuid "a2f3d891-a59b-448b-ba9c-33d55c486bb6")
+		(uuid "748d0b95-389a-4a9c-9104-cc2dee0a8047")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 18.3629 77.47 0)
 			(effects
@@ -1523,9 +1481,31 @@
 			)
 		)
 	)
+	(global_label "Power USB +"
+		(shape input)
+		(at 34.29 74.93 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "a2f3d891-a59b-448b-ba9c-33d55c486bb6")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 18.3629 74.93 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "Power UART TX"
 		(shape input)
-		(at 46.99 77.47 0)
+		(at 46.99 74.93 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -1535,7 +1515,7 @@
 		)
 		(uuid "ef22f2e2-b752-4fba-8a16-c71f13977960")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 64.3685 77.47 0)
+			(at 64.3685 74.93 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1815,73 +1795,6 @@
 	)
 	(symbol
 		(lib_id "power:+5VP")
-		(at 118.11 63.5 270)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "347e7675-a6db-4102-9011-8a4903989b4c")
-		(property "Reference" "#PWR016"
-			(at 114.3 63.5 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "+5VP"
-			(at 121.92 63.4999 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 118.11 63.5 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 118.11 63.5 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"+5VP\""
-			(at 118.11 63.5 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "e31d0e8e-daae-4b62-8ece-526920ad686c")
-		)
-		(instances
-			(project "Substructure Adapter Interface"
-				(path "/27087853-ac82-4f15-975f-bca38c4e67eb"
-					(reference "#PWR016")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:+5VP")
 		(at 46.99 72.39 270)
 		(unit 1)
 		(exclude_from_sim no)
@@ -1942,6 +1855,73 @@
 			(project "Substructure Adapter Interface"
 				(path "/27087853-ac82-4f15-975f-bca38c4e67eb"
 					(reference "#PWR012")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+5VP")
+		(at 118.11 60.96 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "4dbf006f-99db-4239-a5b8-ed85e1d36145")
+		(property "Reference" "#PWR015"
+			(at 114.3 60.96 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+RAWVS"
+			(at 121.92 60.9599 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 118.11 60.96 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 118.11 60.96 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+5VP\""
+			(at 118.11 60.96 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "e785d890-657d-4e06-9da5-d338ecd9a197")
+		)
+		(instances
+			(project "Substructure Adapter Interface"
+				(path "/27087853-ac82-4f15-975f-bca38c4e67eb"
+					(reference "#PWR015")
 					(unit 1)
 				)
 			)
@@ -2040,7 +2020,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "FFC:FFC 0.8mm 10P"
 			(at 114.3 62.23 0)
 			(effects
 				(font
@@ -2235,6 +2215,73 @@
 			(project "Substructure Adapter Interface"
 				(path "/27087853-ac82-4f15-975f-bca38c4e67eb"
 					(reference "#PWR020")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+5VP")
+		(at 118.11 63.5 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "65d5e04d-15b5-4a69-af93-23c7d9654b9b")
+		(property "Reference" "#PWR016"
+			(at 114.3 63.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+RAWVS"
+			(at 121.92 63.4999 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 118.11 63.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 118.11 63.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+5VP\""
+			(at 118.11 63.5 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "e36d5bec-36f6-4ec3-ae5c-74b343cb90d2")
+		)
+		(instances
+			(project "Substructure Adapter Interface"
+				(path "/27087853-ac82-4f15-975f-bca38c4e67eb"
+					(reference "#PWR016")
 					(unit 1)
 				)
 			)
@@ -3231,73 +3278,6 @@
 			(project "Substructure Adapter Interface"
 				(path "/27087853-ac82-4f15-975f-bca38c4e67eb"
 					(reference "#PWR021")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:+5VP")
-		(at 118.11 60.96 270)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "ff3c7765-7a9d-4c28-9644-895b313f2aca")
-		(property "Reference" "#PWR015"
-			(at 114.3 60.96 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "+5VP"
-			(at 121.92 60.9599 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 118.11 60.96 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 118.11 60.96 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"+5VP\""
-			(at 118.11 60.96 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "104d1fe5-549f-4dc5-9cca-d1454e14ec7f")
-		)
-		(instances
-			(project "Substructure Adapter Interface"
-				(path "/27087853-ac82-4f15-975f-bca38c4e67eb"
-					(reference "#PWR015")
 					(unit 1)
 				)
 			)
