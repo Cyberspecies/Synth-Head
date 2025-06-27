@@ -1116,6 +1116,830 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "RF_NFC:PN5321A3HN_C1xx"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "U"
+				(at -15.24 31.75 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "PN5321A3HN_C1xx"
+				(at 15.24 31.75 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" "Package_DFN_QFN:HVQFN-40-1EP_6x6mm_P0.5mm_EP4.1x4.1mm"
+				(at 38.1 -31.75 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "https://www.nxp.com/docs/en/nxp/data-sheets/PN532_C1.pdf"
+				(at 0 5.08 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Near Field Communication (NFC) controller, QFN-40"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "NFC"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "HVQFN*1EP*6x6mm*P0.5mm*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "PN5321A3HN_C1xx_0_1"
+				(rectangle
+					(start -17.78 30.48)
+					(end 17.78 -30.48)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+			)
+			(symbol "PN5321A3HN_C1xx_1_1"
+				(pin input line
+					(at -20.32 22.86 0)
+					(length 2.54)
+					(name "~{RSTPD}"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "38"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at -20.32 20.32 0)
+					(length 2.54)
+					(name "~{RSTOUT}"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "26"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 17.78 0)
+					(length 2.54)
+					(name "P70_IRQ"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "25"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 12.7 0)
+					(length 2.54)
+					(name "NSS/P50_SCL/HSU_RX"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "27"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 10.16 0)
+					(length 2.54)
+					(name "MOSI/SDA/HSU_TX"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "28"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 7.62 0)
+					(length 2.54)
+					(name "MISO/P71"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "29"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 5.08 0)
+					(length 2.54)
+					(name "SCK/P72"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "30"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 0 0)
+					(length 2.54)
+					(name "P30/UART_RX"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "24"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 -2.54 0)
+					(length 2.54)
+					(name "P31/UART_TX"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "31"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 -5.08 0)
+					(length 2.54)
+					(name "P32_INT0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "32"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 -7.62 0)
+					(length 2.54)
+					(name "P33_INT1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "33"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at -20.32 -10.16 0)
+					(length 2.54)
+					(name "P35"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "19"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin input line
+					(at -20.32 -15.24 0)
+					(length 2.54)
+					(name "OSCIN"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "14"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at -20.32 -17.78 0)
+					(length 2.54)
+					(name "OSCOUT"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "15"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at -20.32 -22.86 0)
+					(length 2.54)
+					(name "I0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "16"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at -20.32 -25.4 0)
+					(length 2.54)
+					(name "I1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "17"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at -5.08 33.02 270)
+					(length 2.54)
+					(name "VBAT"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "40"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at -5.08 -33.02 90)
+					(length 2.54)
+					(name "DVSS"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at -2.54 33.02 270)
+					(length 2.54)
+					(name "AVDD"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "8"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at -2.54 -33.02 90)
+					(length 2.54)
+					(name "AVSS"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "11"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at -2.54 -33.02 90)
+					(length 2.54)
+					(hide yes)
+					(name "AVSS"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "41"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 0 33.02 270)
+					(length 2.54)
+					(name "TVDD"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "5"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 0 -33.02 90)
+					(length 2.54)
+					(name "TVSS1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 2.54 33.02 270)
+					(length 2.54)
+					(name "PVDD"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "23"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 2.54 -33.02 90)
+					(length 2.54)
+					(name "TVSS2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "7"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_out line
+					(at 5.08 33.02 270)
+					(length 2.54)
+					(name "DVDD"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "39"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 5.08 -33.02 90)
+					(length 2.54)
+					(name "TESTEN"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "18"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin no_connect line
+					(at 17.78 -2.54 180)
+					(length 2.54)
+					(hide yes)
+					(name "N.C."
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "20"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin no_connect line
+					(at 17.78 -5.08 180)
+					(length 2.54)
+					(hide yes)
+					(name "N.C."
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "21"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin no_connect line
+					(at 17.78 -7.62 180)
+					(length 2.54)
+					(hide yes)
+					(name "N.C."
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "22"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at 20.32 22.86 180)
+					(length 2.54)
+					(name "TX1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "4"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at 20.32 20.32 180)
+					(length 2.54)
+					(name "TX2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "6"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin input line
+					(at 20.32 17.78 180)
+					(length 2.54)
+					(name "RX"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "10"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at 20.32 12.7 180)
+					(length 2.54)
+					(name "LOADMOD"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at 20.32 10.16 180)
+					(length 2.54)
+					(name "VMID"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "9"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at 20.32 5.08 180)
+					(length 2.54)
+					(name "AUX1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "12"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at 20.32 2.54 180)
+					(length 2.54)
+					(name "AUX2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "13"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at 20.32 -12.7 180)
+					(length 2.54)
+					(name "SVDD"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "37"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin output line
+					(at 20.32 -15.24 180)
+					(length 2.54)
+					(name "SIGOUT"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "35"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin input line
+					(at 20.32 -17.78 180)
+					(length 2.54)
+					(name "SIGIN"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "36"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin bidirectional line
+					(at 20.32 -20.32 180)
+					(length 2.54)
+					(name "SIC_CLK/P34"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "34"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "power:+3V3"
 			(power)
 			(pin_numbers
@@ -1468,10 +2292,10 @@
 			(embedded_fonts no)
 		)
 	)
-	(text_box "To Do List\n- Add Capacitive Strength Analog to Digital (I2C) Sensor (AD7142ACPZ-500RL7)\n- Add RFID Read/Writer (PN532)\n- Proper Voltage Filtering"
+	(text_box "To Do List\n- Add Capacitive Pads\n- Add RFID Read/Writer (PN532)\n- Proper Voltage Filtering"
 		(exclude_from_sim no)
 		(at 25.4 25.4 0)
-		(size 83.82 10.16)
+		(size 38.1 10.16)
 		(margins 0.9525 0.9525 0.9525 0.9525)
 		(stroke
 			(width 0)
@@ -2321,7 +3145,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Package_CSP:LFCSP-32-1EP_5x5mm_P0.5mm_EP3.1x3.1mm_ThermalVias"
 			(at 85.09 64.77 0)
 			(effects
 				(font
@@ -3299,6 +4123,193 @@
 			(project "Substructure Boop Board"
 				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
 					(reference "#PWR025")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "RF_NFC:PN5321A3HN_C1xx")
+		(at 208.28 93.98 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "f37404d8-3c50-407c-96ee-1612e7f9b11b")
+		(property "Reference" "U1"
+			(at 215.5033 58.42 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "PN5321A3HN_C1xx"
+			(at 215.5033 60.96 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Package_DFN_QFN:HVQFN-40-1EP_6x6mm_P0.5mm_EP4.1x4.1mm"
+			(at 246.38 125.73 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "https://www.nxp.com/docs/en/nxp/data-sheets/PN532_C1.pdf"
+			(at 208.28 88.9 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Near Field Communication (NFC) controller, QFN-40"
+			(at 208.28 93.98 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "7"
+			(uuid "fd23d2b9-cce9-45da-9dc4-01e73c8d1456")
+		)
+		(pin "25"
+			(uuid "3792e06a-fe23-4064-b9c7-a659dd317b9b")
+		)
+		(pin "24"
+			(uuid "540a15ab-cfa2-46b6-b83f-54069d9de34d")
+		)
+		(pin "31"
+			(uuid "d1eb3209-0802-4389-bd6c-5f1f082fe462")
+		)
+		(pin "33"
+			(uuid "0900c66d-27a5-4cc4-9942-c4fca7d5d999")
+		)
+		(pin "17"
+			(uuid "c8448758-35e0-46b0-8a4d-3c4ab4b5709d")
+		)
+		(pin "40"
+			(uuid "77b912cb-46cb-4299-8c6d-cb8973814a64")
+		)
+		(pin "1"
+			(uuid "16280278-8756-471a-b73d-e42344234434")
+		)
+		(pin "26"
+			(uuid "565d7465-0ee1-4ec7-ae73-b6607a500a41")
+		)
+		(pin "8"
+			(uuid "cdb0a296-fa77-4ae5-999d-080ce5dc5680")
+		)
+		(pin "41"
+			(uuid "9cbeb90d-1d0e-4a60-be87-d5a8e54f8f74")
+		)
+		(pin "28"
+			(uuid "cf4fe38d-fff8-418f-a9a4-bcadc83d884b")
+		)
+		(pin "19"
+			(uuid "b803687c-fad2-496d-984c-86fefb46c5af")
+		)
+		(pin "23"
+			(uuid "ed950a39-e55b-41b3-8faa-655a9795d8f1")
+		)
+		(pin "5"
+			(uuid "8cb23f49-4098-4845-a9ba-cb75cd390a93")
+		)
+		(pin "29"
+			(uuid "89018b3c-dc90-4ffe-96de-e892f980e931")
+		)
+		(pin "30"
+			(uuid "93ed1731-0f94-4bec-9430-438e604a9702")
+		)
+		(pin "14"
+			(uuid "2ff356d4-00c0-422f-9f4f-e39ddd6be5dd")
+		)
+		(pin "32"
+			(uuid "aad2971a-d7e9-4b4b-ba6c-62dc8347e641")
+		)
+		(pin "27"
+			(uuid "63a12ef4-dddb-4f8b-a91d-a8e1bb6066cd")
+		)
+		(pin "15"
+			(uuid "91451e05-3e2b-4ef5-9e28-aec3d8508fc6")
+		)
+		(pin "16"
+			(uuid "7e1513dc-04c4-47fd-b282-7e8156701f3d")
+		)
+		(pin "11"
+			(uuid "3d60fc43-5f30-47a2-9292-acc6df30b06b")
+		)
+		(pin "3"
+			(uuid "1208d2b7-1549-40ca-bf0d-902d9f15f843")
+		)
+		(pin "38"
+			(uuid "7bc8f132-6995-480d-9edf-ceabbbe580cd")
+		)
+		(pin "34"
+			(uuid "dca0f33e-c48b-4013-82a0-6d48b13501e5")
+		)
+		(pin "18"
+			(uuid "0bbf158d-46a1-4c4f-aba2-15c194404732")
+		)
+		(pin "20"
+			(uuid "47cb22f4-9353-47a5-a71f-facec41d5824")
+		)
+		(pin "13"
+			(uuid "d0562302-0984-448a-a9de-79e3e23e446a")
+		)
+		(pin "37"
+			(uuid "4733ebff-5921-404d-be9a-81c6e21e51a4")
+		)
+		(pin "39"
+			(uuid "4c688f7b-c7e0-42e4-9b17-c54aa8d8f1eb")
+		)
+		(pin "2"
+			(uuid "1999e881-ecf0-42db-ba3e-f36e3362edef")
+		)
+		(pin "6"
+			(uuid "6b0f78a3-603b-42fe-a836-ee97767214fd")
+		)
+		(pin "10"
+			(uuid "4b87380a-16d9-4dfd-a482-0726e9593e71")
+		)
+		(pin "9"
+			(uuid "e1eb12ce-2993-42c8-9a84-d44e4f84a79c")
+		)
+		(pin "22"
+			(uuid "e72862a8-4acf-46a3-8f6c-386a2c504907")
+		)
+		(pin "4"
+			(uuid "22c0e560-20f3-4bbf-8980-e55a88ed80ef")
+		)
+		(pin "21"
+			(uuid "18b12779-40ef-497b-8f64-229038db2c9e")
+		)
+		(pin "12"
+			(uuid "d6f8a907-eb6f-439a-b939-65306a13705b")
+		)
+		(pin "36"
+			(uuid "9d47aff0-513e-4f16-a36b-be6dcb91c586")
+		)
+		(pin "35"
+			(uuid "71d27c08-5db6-448e-981a-9c037c3f4d78")
+		)
+		(instances
+			(project ""
+				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
+					(reference "U1")
 					(unit 1)
 				)
 			)
