@@ -921,7 +921,10 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Connector:TestPoint_2Pole"
+		(symbol "Connector:TestPoint"
+			(pin_numbers
+				(hide yes)
+			)
 			(pin_names
 				(offset 0.762)
 				(hide yes)
@@ -930,15 +933,15 @@
 			(in_bom yes)
 			(on_board yes)
 			(property "Reference" "TP"
-				(at 0 1.524 0)
+				(at 0 6.858 0)
 				(effects
 					(font
 						(size 1.27 1.27)
 					)
 				)
 			)
-			(property "Value" "TestPoint_2Pole"
-				(at 0 -1.778 0)
+			(property "Value" "TestPoint"
+				(at 0 5.08 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -946,7 +949,7 @@
 				)
 			)
 			(property "Footprint" ""
-				(at 0 0 0)
+				(at 5.08 0 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -955,6 +958,15 @@
 				)
 			)
 			(property "Datasheet" "~"
+				(at 5.08 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "test point"
 				(at 0 0 0)
 				(effects
 					(font
@@ -963,16 +975,7 @@
 					(hide yes)
 				)
 			)
-			(property "Description" "2-polar test point"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "point tp"
+			(property "ki_keywords" "test point tp"
 				(at 0 0 0)
 				(effects
 					(font
@@ -990,9 +993,9 @@
 					(hide yes)
 				)
 			)
-			(symbol "TestPoint_2Pole_0_1"
+			(symbol "TestPoint_0_1"
 				(circle
-					(center -1.778 0)
+					(center 0 3.302)
 					(radius 0.762)
 					(stroke
 						(width 0)
@@ -1002,19 +1005,10 @@
 						(type none)
 					)
 				)
-				(circle
-					(center 1.778 0)
-					(radius 0.762)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
+			)
+			(symbol "TestPoint_1_1"
 				(pin passive line
-					(at -5.08 0 0)
+					(at 0 0 90)
 					(length 2.54)
 					(name "1"
 						(effects
@@ -1024,141 +1018,6 @@
 						)
 					)
 					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 5.08 0 180)
-					(length 2.54)
-					(name "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
-		(symbol "Device:Antenna_Loop"
-			(pin_numbers
-				(hide yes)
-			)
-			(pin_names
-				(offset 1.016)
-				(hide yes)
-			)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "AE"
-				(at 1.27 6.35 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "Antenna_Loop"
-				(at 1.27 5.08 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" ""
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" "~"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "Loop antenna"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "loop antenna"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "Antenna_Loop_0_1"
-				(polyline
-					(pts
-						(xy 2.54 -3.81) (xy 2.54 -2.54) (xy 5.08 0) (xy 1.27 3.81) (xy -2.54 0) (xy 0 -2.54) (xy 0 -3.81)
-					)
-					(stroke
-						(width 0.254)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "Antenna_Loop_1_1"
-				(pin input line
-					(at 0 -5.08 90)
-					(length 2.54)
-					(name "~"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin input line
-					(at 2.54 -5.08 90)
-					(length 2.54)
-					(name "~"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3115,6 +2974,46 @@
 			(embedded_fonts no)
 		)
 	)
+	(text_box "Note:\nThe capacitive charge differential is between CINx and SRC"
+		(exclude_from_sim no)
+		(at 165.1 38.1 0)
+		(size 29.21 10.16)
+		(margins 0.9525 0.9525 0.9525 0.9525)
+		(stroke
+			(width 0)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left top)
+		)
+		(uuid "89a66f77-3af4-4d85-9e21-bbd150b048de")
+	)
+	(text_box "Note:\nThe Antennas are between TP1 - GND and TP2 - GND"
+		(exclude_from_sim no)
+		(at 228.6 114.3 0)
+		(size 29.21 7.62)
+		(margins 0.9525 0.9525 0.9525 0.9525)
+		(stroke
+			(width 0)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left top)
+		)
+		(uuid "e83344cd-82c0-4948-b7ff-2cb946f5eadd")
+	)
 	(junction
 		(at 191.77 129.54)
 		(diameter 0)
@@ -3200,6 +3099,12 @@
 		(uuid "28803619-ef99-494f-bd9a-61bc421bbd27")
 	)
 	(junction
+		(at 215.9 137.16)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "2d988f26-6db2-459b-a036-f101bc181aff")
+	)
+	(junction
 		(at 168.91 121.92)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3252,6 +3157,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "5ab56873-4635-4770-a30c-05997ae6aca8")
+	)
+	(junction
+		(at 215.9 106.68)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "6b66bb8e-5fd8-4831-8f99-475109d35589")
 	)
 	(junction
 		(at 99.06 90.17)
@@ -3917,7 +3828,7 @@
 	)
 	(wire
 		(pts
-			(xy 215.9 121.92) (xy 215.9 134.62)
+			(xy 215.9 121.92) (xy 215.9 137.16)
 		)
 		(stroke
 			(width 0)
@@ -3947,7 +3858,7 @@
 	)
 	(wire
 		(pts
-			(xy 215.9 109.22) (xy 215.9 121.92)
+			(xy 215.9 106.68) (xy 215.9 121.92)
 		)
 		(stroke
 			(width 0)
@@ -4542,141 +4453,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Connector:TestPoint_2Pole")
-		(at 185.42 30.48 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "068117d2-3070-422f-b8ce-9dd4940839e1")
-		(property "Reference" "TP1"
-			(at 185.42 25.4 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "Touch Pad"
-			(at 185.42 27.94 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 185.42 30.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 185.42 30.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "2-polar test point"
-			(at 185.42 30.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "dfe61eda-2fd5-485f-acd7-07298adac0b9")
-		)
-		(pin "2"
-			(uuid "4f4d2d1d-1d06-4c74-a8c9-88aed4b5edb1")
-		)
-		(instances
-			(project ""
-				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
-					(reference "TP1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:GND")
-		(at 180.34 30.48 270)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "116894c6-551d-4da3-9d2b-79d78bc36d4f")
-		(property "Reference" "#PWR029"
-			(at 173.99 30.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "GND"
-			(at 176.53 30.4799 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" ""
-			(at 180.34 30.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 180.34 30.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 180.34 30.48 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "a7d83eb0-5066-41ee-8787-35709f2ff4b2")
-		)
-		(instances
-			(project "Substructure Boop Board"
-				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
-					(reference "#PWR029")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:C")
 		(at 146.05 93.98 0)
 		(unit 1)
@@ -5104,7 +4880,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Inductor_SMD:L_0603_1608Metric_Pad1.05x0.95mm_HandSolder"
 			(at 156.21 120.65 0)
 			(effects
 				(font
@@ -5423,76 +5199,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Device:Antenna_Loop")
-		(at 220.98 106.68 270)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "36764f7d-cea2-46be-a023-494bd04058dc")
-		(property "Reference" "AE1"
-			(at 226.06 106.6799 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "Antenna_Loop"
-			(at 226.06 109.2199 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 220.98 106.68 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 220.98 106.68 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Loop antenna"
-			(at 220.98 106.68 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "486cc246-4c06-4e6d-9cc0-7ec11b9e0050")
-		)
-		(pin "1"
-			(uuid "5cf63cb4-1df8-41c7-9ec2-5339980ceeaf")
-		)
-		(instances
-			(project ""
-				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
-					(reference "AE1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:C")
 		(at 63.5 179.07 0)
 		(unit 1)
@@ -5628,76 +5334,6 @@
 			(project "Substructure Boop Board"
 				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
 					(reference "C24")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:Antenna_Loop")
-		(at 220.98 134.62 270)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "46853698-6370-401f-a1c6-ac872b517f12")
-		(property "Reference" "AE2"
-			(at 226.06 134.6199 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "Antenna_Loop"
-			(at 226.06 137.1599 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 220.98 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 220.98 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Loop antenna"
-			(at 220.98 134.62 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "9cc84ccc-4910-49ce-980f-75220a7b8f8c")
-		)
-		(pin "1"
-			(uuid "87179e3a-1347-4a25-ad87-ab5e0a7822ff")
-		)
-		(instances
-			(project "Substructure Boop Board"
-				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
-					(reference "AE2")
 					(unit 1)
 				)
 			)
@@ -6335,6 +5971,73 @@
 			(project "Substructure Boop Board"
 				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
 					(reference "C5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Connector:TestPoint")
+		(at 215.9 137.16 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "5dc1f0ad-9137-489d-9d07-0e7912298370")
+		(property "Reference" "TP2"
+			(at 220.98 135.8899 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "TestPoint"
+			(at 220.98 138.4299 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "TestPoint:TestPoint_Loop_D1.80mm_Drill1.0mm_Beaded"
+			(at 215.9 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 215.9 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "test point"
+			(at 215.9 137.16 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "ea43ee31-b753-4105-97dd-45090ca6fd2b")
+		)
+		(instances
+			(project "Substructure Boop Board"
+				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
+					(reference "TP2")
 					(unit 1)
 				)
 			)
@@ -7381,6 +7084,73 @@
 		)
 	)
 	(symbol
+		(lib_id "Connector:TestPoint")
+		(at 215.9 106.68 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "90d25f94-cd37-410b-ae26-9a5944caeb71")
+		(property "Reference" "TP1"
+			(at 220.98 105.4099 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "TestPoint"
+			(at 220.98 107.9499 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "TestPoint:TestPoint_Loop_D1.80mm_Drill1.0mm_Beaded"
+			(at 215.9 111.76 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 215.9 111.76 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "test point"
+			(at 215.9 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "42619a44-6ad5-438c-b513-9500f42de5ed")
+		)
+		(instances
+			(project ""
+				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
+					(reference "TP1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C")
 		(at 180.34 114.3 0)
 		(unit 1)
@@ -8002,74 +7772,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Connector:TestPoint_2Pole")
-		(at 185.42 38.1 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "af9876d6-9568-4282-b1c8-0dbbe3545acc")
-		(property "Reference" "TP2"
-			(at 185.42 33.02 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "Touch Pad"
-			(at 185.42 35.56 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 185.42 38.1 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 185.42 38.1 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "2-polar test point"
-			(at 185.42 38.1 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "15a15301-2f0c-4e11-977a-1bfbb0f15bbc")
-		)
-		(pin "2"
-			(uuid "3efb7539-9b84-4417-9112-93e2e00398b5")
-		)
-		(instances
-			(project "Substructure Boop Board"
-				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
-					(reference "TP2")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:C")
 		(at 139.7 125.73 90)
 		(mirror x)
@@ -8202,73 +7904,6 @@
 			(project "Substructure Boop Board"
 				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
 					(reference "C10")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:GND")
-		(at 180.34 38.1 270)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "b7e02331-50bf-4e9f-8d72-17fc65c9919d")
-		(property "Reference" "#PWR030"
-			(at 173.99 38.1 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "GND"
-			(at 176.53 38.0999 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" ""
-			(at 180.34 38.1 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 180.34 38.1 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 180.34 38.1 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "87cd80d1-0ad7-453b-925d-f9654bf2af17")
-		)
-		(instances
-			(project "Substructure Boop Board"
-				(path "/6d158939-39e3-4f58-b43a-760f32d1166c"
-					(reference "#PWR030")
 					(unit 1)
 				)
 			)
@@ -9263,7 +8898,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Inductor_SMD:L_0603_1608Metric_Pad1.05x0.95mm_HandSolder"
 			(at 156.21 123.19 0)
 			(effects
 				(font
