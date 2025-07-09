@@ -179,7 +179,7 @@
     </mxGraphModel>
   </diagram>
   <diagram id="EIz6ATKGmSpaXtac2Ex5" name="Substructure">
-    <mxGraphModel dx="1374" dy="986" grid="1" gridSize="10" guides="0" tooltips="1" connect="0" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1500" math="0" shadow="0">
+    <mxGraphModel dx="1214" dy="822" grid="1" gridSize="10" guides="0" tooltips="1" connect="0" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1500" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -4011,7 +4011,7 @@
         <mxCell id="75qp7kY8xx01OFQApgwP-56" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" source="75qp7kY8xx01OFQApgwP-57" target="75qp7kY8xx01OFQApgwP-63" parent="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="75qp7kY8xx01OFQApgwP-57" value="P Channel Mosfet" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+        <mxCell id="75qp7kY8xx01OFQApgwP-57" value="SI7111EDN-T1-GE3" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
           <mxGeometry x="6280" y="2800" width="80" height="40" as="geometry" />
         </mxCell>
         <mxCell id="75qp7kY8xx01OFQApgwP-58" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="75qp7kY8xx01OFQApgwP-59" target="75qp7kY8xx01OFQApgwP-57" parent="1">
@@ -4083,7 +4083,7 @@
         <mxCell id="75qp7kY8xx01OFQApgwP-80" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" source="75qp7kY8xx01OFQApgwP-81" target="75qp7kY8xx01OFQApgwP-67" parent="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="75qp7kY8xx01OFQApgwP-81" value="P Channel Mosfet" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
+        <mxCell id="75qp7kY8xx01OFQApgwP-81" value="SI7111EDN-T1-GE3" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="1">
           <mxGeometry x="6760" y="2800" width="80" height="40" as="geometry" />
         </mxCell>
         <mxCell id="75qp7kY8xx01OFQApgwP-82" value="" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" source="75qp7kY8xx01OFQApgwP-83" target="75qp7kY8xx01OFQApgwP-81" parent="1">
@@ -4094,6 +4094,36 @@
         </mxCell>
         <mxCell id="75qp7kY8xx01OFQApgwP-84" value="Optimised Safety Circuit" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;fillColor=none;dashed=1;labelPosition=center;verticalLabelPosition=top;align=center;verticalAlign=bottom;" vertex="1" parent="1">
           <mxGeometry x="5910" y="2710" width="1180" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="75qp7kY8xx01OFQApgwP-85" value="" style="endArrow=baseDash;html=1;rounded=0;startArrow=baseDash;startFill=0;endFill=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="5780" y="2720" as="sourcePoint" />
+            <mxPoint x="5780" y="2820" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="75qp7kY8xx01OFQApgwP-86" value="" style="endArrow=baseDash;html=1;rounded=0;startArrow=baseDash;startFill=0;endFill=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="5800" y="2840" as="sourcePoint" />
+            <mxPoint x="5800" y="2800" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="75qp7kY8xx01OFQApgwP-87" value="" style="endArrow=baseDash;html=1;rounded=0;startArrow=baseDash;startFill=0;endFill=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="5780" y="2920" as="sourcePoint" />
+            <mxPoint x="5780" y="2820" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="75qp7kY8xx01OFQApgwP-88" value="5.1K ohm" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="5710" y="2810" width="60" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="75qp7kY8xx01OFQApgwP-91" value="Ref Voltage" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="5740" y="2700" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="75qp7kY8xx01OFQApgwP-92" value="GND" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="5760" y="2920" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="75qp7kY8xx01OFQApgwP-94" value="10%" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="5810" y="2810" width="30" height="20" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
