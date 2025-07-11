@@ -1956,14 +1956,14 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Thyristor TYN:TYN625RG"
+		(symbol "Thyristor TN5:TN5015H-6G-TR"
 			(pin_names
 				(offset 0.254)
 			)
 			(exclude_from_sim no)
 			(in_bom yes)
 			(on_board yes)
-			(property "Reference" "CR"
+			(property "Reference" "U"
 				(at 20.32 10.16 0)
 				(effects
 					(font
@@ -1971,7 +1971,7 @@
 					)
 				)
 			)
-			(property "Value" "TYN625RG"
+			(property "Value" "TN5015H-6G-TR"
 				(at 20.32 7.62 0)
 				(effects
 					(font
@@ -1979,7 +1979,7 @@
 					)
 				)
 			)
-			(property "Footprint" "TO-220AB_STM"
+			(property "Footprint" "D2PAK_T2550_STM"
 				(at 0 0 0)
 				(effects
 					(font
@@ -1989,7 +1989,7 @@
 					(hide yes)
 				)
 			)
-			(property "Datasheet" "https://www.st.com/resource/en/datasheet/tn2540.pdf"
+			(property "Datasheet" "https://www.st.com/resource/en/datasheet/tn5015h-6g.pdf"
 				(at 0 0 0)
 				(effects
 					(font
@@ -2016,7 +2016,7 @@
 					)
 				)
 			)
-			(property "ki_keywords" "TYN625RG"
+			(property "ki_keywords" "TN5015H-6G-TR"
 				(at 0 0 0)
 				(effects
 					(font
@@ -2025,7 +2025,7 @@
 					(hide yes)
 				)
 			)
-			(property "ki_fp_filters" "TO-220AB_STM"
+			(property "ki_fp_filters" "D2PAK_T2550_STM D2PAK_T2550_STM-M D2PAK_T2550_STM-L"
 				(at 0 0 0)
 				(effects
 					(font
@@ -2034,7 +2034,7 @@
 					(hide yes)
 				)
 			)
-			(symbol "TYN625RG_0_1"
+			(symbol "TN5015H-6G-TR_0_1"
 				(polyline
 					(pts
 						(xy 7.62 5.08) (xy 7.62 -7.62)
@@ -2061,115 +2061,7 @@
 				)
 				(polyline
 					(pts
-						(xy 17.78 -1.905) (xy 17.78 -2.54)
-					)
-					(stroke
-						(width 0.127)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 19.05 1.27) (xy 19.05 -1.27)
-					)
-					(stroke
-						(width 0.127)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 19.05 0) (xy 21.59 1.27)
-					)
-					(stroke
-						(width 0.127)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 19.05 0) (xy 21.59 1.27) (xy 21.59 -1.27)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type outline)
-					)
-				)
-				(polyline
-					(pts
-						(xy 19.05 -0.635) (xy 17.78 -1.905)
-					)
-					(stroke
-						(width 0.127)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 21.59 1.27) (xy 21.59 -1.27)
-					)
-					(stroke
-						(width 0.127)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 21.59 -1.27) (xy 19.05 0)
-					)
-					(stroke
-						(width 0.127)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
 						(xy 33.02 5.08) (xy 7.62 5.08)
-					)
-					(stroke
-						(width 0.127)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 33.02 0) (xy 7.62 0)
-					)
-					(stroke
-						(width 0.127)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 33.02 -2.54) (xy 17.78 -2.54)
 					)
 					(stroke
 						(width 0.127)
@@ -2194,7 +2086,7 @@
 				(pin unspecified line
 					(at 0 0 0)
 					(length 7.62)
-					(name "1"
+					(name "K"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2212,14 +2104,14 @@
 				(pin unspecified line
 					(at 40.64 0 180)
 					(length 7.62)
-					(name "2"
+					(name "G"
 						(effects
 							(font
 								(size 1.27 1.27)
 							)
 						)
 					)
-					(number "2"
+					(number "3"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2230,14 +2122,14 @@
 				(pin unspecified line
 					(at 40.64 -2.54 180)
 					(length 7.62)
-					(name "3"
+					(name "A"
 						(effects
 							(font
 								(size 1.27 1.27)
 							)
 						)
 					)
-					(number "3"
+					(number "2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3204,12 +3096,6 @@
 		(uuid "04c874ae-bc5b-4477-a734-3f8bd230f5a7")
 	)
 	(junction
-		(at 218.44 127)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "08a17278-9559-413d-963d-d7be3c2cff21")
-	)
-	(junction
 		(at 41.91 127)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3292,6 +3178,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "cb12e9e1-e110-4235-8931-f93502bfb9b5")
+	)
+	(junction
+		(at 238.76 127)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "d02a6c0a-2c14-4d2c-b8e2-0578da686a65")
 	)
 	(junction
 		(at 228.6 114.3)
@@ -3491,6 +3383,16 @@
 	)
 	(wire
 		(pts
+			(xy 238.76 127) (xy 218.44 127)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7c63799c-6447-48b4-a0c0-371e632ed9a6")
+	)
+	(wire
+		(pts
 			(xy 177.8 118.11) (xy 177.8 124.46)
 		)
 		(stroke
@@ -3498,6 +3400,16 @@
 			(type default)
 		)
 		(uuid "7e41c584-6f13-4082-859a-db278f1a1d94")
+	)
+	(wire
+		(pts
+			(xy 238.76 127) (xy 238.76 130.81)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "82bbf050-504c-4c0b-94f7-ac0eff67b104")
 	)
 	(wire
 		(pts
@@ -3511,7 +3423,7 @@
 	)
 	(wire
 		(pts
-			(xy 218.44 144.78) (xy 218.44 139.7)
+			(xy 238.76 143.51) (xy 238.76 138.43)
 		)
 		(stroke
 			(width 0)
@@ -3528,16 +3440,6 @@
 			(type default)
 		)
 		(uuid "9b760c64-a02a-4d05-a13e-adce81d11691")
-	)
-	(wire
-		(pts
-			(xy 218.44 132.08) (xy 218.44 127)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "9c0ff785-05c8-4a5a-8976-4bb104162d78")
 	)
 	(wire
 		(pts
@@ -3651,16 +3553,6 @@
 	)
 	(wire
 		(pts
-			(xy 238.76 127) (xy 218.44 127)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "f96ae856-48db-4a09-ae42-b7058d305de9")
-	)
-	(wire
-		(pts
 			(xy 228.6 114.3) (xy 238.76 114.3)
 		)
 		(stroke
@@ -3681,7 +3573,7 @@
 	)
 	(global_label "EN 2"
 		(shape input)
-		(at 218.44 144.78 0)
+		(at 238.76 143.51 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -3691,7 +3583,7 @@
 		)
 		(uuid "083937f5-e2a6-4f3d-b53c-60d946d6118f")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 226.0818 144.78 0)
+			(at 246.4018 143.51 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3960,7 +3852,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
 			(at 79.502 147.32 90)
 			(effects
 				(font
@@ -4230,7 +4122,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
 			(at 236.982 118.11 90)
 			(effects
 				(font
@@ -4274,7 +4166,7 @@
 	)
 	(symbol
 		(lib_id "Device:R")
-		(at 218.44 135.89 0)
+		(at 238.76 134.62 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -4283,7 +4175,7 @@
 		(fields_autoplaced yes)
 		(uuid "2508c382-b654-42b1-b3e4-7981368235e8")
 		(property "Reference" "R20"
-			(at 220.98 134.6199 0)
+			(at 241.3 133.3499 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4292,7 +4184,7 @@
 			)
 		)
 		(property "Value" "1M"
-			(at 220.98 137.1599 0)
+			(at 241.3 135.8899 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4300,8 +4192,8 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
-			(at 216.662 135.89 90)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
+			(at 236.982 134.62 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4310,7 +4202,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 218.44 135.89 0)
+			(at 238.76 134.62 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4319,7 +4211,7 @@
 			)
 		)
 		(property "Description" "Resistor"
-			(at 218.44 135.89 0)
+			(at 238.76 134.62 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4702,81 +4594,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Thyristor TYN:TYN625RG")
-		(at 198.12 158.75 270)
-		(mirror x)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(uuid "3bbf8881-c976-4d90-94e0-fffad70355b5")
-		(property "Reference" "CR2"
-			(at 189.23 137.1599 90)
-			(effects
-				(font
-					(size 1.524 1.524)
-				)
-				(justify right)
-			)
-		)
-		(property "Value" "TYN625RG"
-			(at 189.23 139.6999 90)
-			(effects
-				(font
-					(size 1.524 1.524)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" "Thyristor TYN:TO-220AB_STM"
-			(at 198.12 158.75 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-					(italic yes)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "https://www.st.com/resource/en/datasheet/tn2540.pdf"
-			(at 198.12 158.75 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-					(italic yes)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" ""
-			(at 198.12 158.75 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "3"
-			(uuid "716f1e58-7129-4317-b2b7-c0e1edaa61a2")
-		)
-		(pin "1"
-			(uuid "0d4ce5ec-6f46-44ca-81d0-01b2e1ced489")
-		)
-		(pin "2"
-			(uuid "24a3b918-4e26-4ee8-a3d5-0470f59fe7e6")
-		)
-		(instances
-			(project ""
-				(path "/6e7c3700-4b7d-4b10-b755-ccb609125a98"
-					(reference "CR2")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:GND")
 		(at 132.08 63.5 90)
 		(unit 1)
@@ -5029,7 +4846,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
 			(at 163.322 128.27 90)
 			(effects
 				(font
@@ -5731,7 +5548,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0402_1005Metric_Pad0.72x0.64mm_HandSolder"
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
 			(at 73.66 141.478 90)
 			(effects
 				(font
@@ -6371,7 +6188,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 198.12 158.75 0)
+		(at 195.58 158.75 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -6380,7 +6197,7 @@
 		(fields_autoplaced yes)
 		(uuid "ad5be609-cf15-4d37-96d8-3bfb71ab32c8")
 		(property "Reference" "#PWR042"
-			(at 198.12 165.1 0)
+			(at 195.58 165.1 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6389,7 +6206,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 198.12 163.83 0)
+			(at 195.58 163.83 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6397,7 +6214,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 198.12 158.75 0)
+			(at 195.58 158.75 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6406,7 +6223,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 198.12 158.75 0)
+			(at 195.58 158.75 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6415,7 +6232,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 198.12 158.75 0)
+			(at 195.58 158.75 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6530,7 +6347,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric_Pad0.74x0.62mm_HandSolder"
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
 			(at 178.7652 132.08 0)
 			(effects
 				(font
@@ -6655,6 +6472,81 @@
 			(project "Substructure Power Distrobution"
 				(path "/6e7c3700-4b7d-4b10-b755-ccb609125a98"
 					(reference "J1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Thyristor TN5:TN5015H-6G-TR")
+		(at 195.58 158.75 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c04bdfba-3d98-4e33-85fe-4354b1c5c3da")
+		(property "Reference" "U5"
+			(at 204.47 137.1599 90)
+			(effects
+				(font
+					(size 1.524 1.524)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "TN5015H-6G-TR"
+			(at 204.47 139.6999 90)
+			(effects
+				(font
+					(size 1.524 1.524)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Thyristor TN5:D2PAK_T2550_STM-M"
+			(at 195.58 158.75 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+					(italic yes)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "https://www.st.com/resource/en/datasheet/tn5015h-6g.pdf"
+			(at 195.58 158.75 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+					(italic yes)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" ""
+			(at 195.58 158.75 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "f050704b-e99f-4fe7-9a40-bf89ee3490f5")
+		)
+		(pin "2"
+			(uuid "c852445a-82fd-4ade-bf99-f75a973a9576")
+		)
+		(pin "3"
+			(uuid "3c015d43-4f2e-4c91-9d5f-124cc53bb4ab")
+		)
+		(instances
+			(project ""
+				(path "/6e7c3700-4b7d-4b10-b755-ccb609125a98"
+					(reference "U5")
 					(unit 1)
 				)
 			)
