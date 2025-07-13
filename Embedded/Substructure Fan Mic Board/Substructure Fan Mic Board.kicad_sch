@@ -1751,7 +1751,7 @@
 	)
 	(global_label "Fan 0"
 		(shape input)
-		(at 29.21 50.8 0)
+		(at 29.21 43.18 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -1761,7 +1761,7 @@
 		)
 		(uuid "2ae8d8df-4606-488d-a93d-9bbb777fa190")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 37.7589 50.8 0)
+			(at 37.7589 43.18 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1795,7 +1795,7 @@
 	)
 	(global_label "Fan 1"
 		(shape input)
-		(at 29.21 53.34 0)
+		(at 29.21 40.64 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -1805,7 +1805,7 @@
 		)
 		(uuid "5d166938-5692-47df-9758-24f2f16f1b4b")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 37.7589 53.34 0)
+			(at 37.7589 40.64 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1861,7 +1861,7 @@
 	)
 	(global_label "Mic Analog"
 		(shape input)
-		(at 29.21 40.64 0)
+		(at 29.21 53.34 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -1871,7 +1871,7 @@
 		)
 		(uuid "b9983634-9686-4cbe-bdd1-0ed7fdf94875")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 42.6574 40.64 0)
+			(at 42.6574 53.34 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2728,7 +2728,8 @@
 	)
 	(symbol
 		(lib_id "power:+3V3")
-		(at 29.21 43.18 270)
+		(at 29.21 50.8 270)
+		(mirror x)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -2737,7 +2738,7 @@
 		(fields_autoplaced yes)
 		(uuid "8a0a50be-719f-46ec-9128-48d6d9d617e1")
 		(property "Reference" "#PWR06"
-			(at 25.4 43.18 0)
+			(at 25.4 50.8 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2746,7 +2747,7 @@
 			)
 		)
 		(property "Value" "+3V3"
-			(at 33.02 43.1799 90)
+			(at 33.02 50.8001 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2755,7 +2756,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 29.21 43.18 0)
+			(at 29.21 50.8 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2764,7 +2765,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 29.21 43.18 0)
+			(at 29.21 50.8 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2773,7 +2774,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 29.21 43.18 0)
+			(at 29.21 50.8 0)
 			(effects
 				(font
 					(size 1.27 1.27)
