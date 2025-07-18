@@ -11820,7 +11820,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "75169493-05e3-4de9-8ea5-2665b9afb696")
-		(property "Reference" "#PWR010"
+		(property "Reference" "#PWR0101"
 			(at 148.59 228.6 0)
 			(effects
 				(font
@@ -11870,7 +11870,7 @@
 		(instances
 			(project "Main Head CPU"
 				(path "/f158cce9-f45f-474d-a65f-ecbb8fa57101"
-					(reference "#PWR010")
+					(reference "#PWR0101")
 					(unit 1)
 				)
 			)
@@ -11901,7 +11901,7 @@
 				)
 			)
 		)
-		(property "Footprint" "FFC:FFC-8-0.5"
+		(property "Footprint" "FCC:FFC 0.8mm 8P"
 			(at 101.6 172.72 0)
 			(effects
 				(font
@@ -16787,7 +16787,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical"
 			(at 102.87 261.62 0)
 			(effects
 				(font
