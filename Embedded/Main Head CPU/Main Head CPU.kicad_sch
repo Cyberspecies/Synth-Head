@@ -6744,7 +6744,7 @@
 	)
 	(global_label "Power UART RX"
 		(shape input)
-		(at 414.02 59.69 0)
+		(at 373.38 95.25 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -6754,7 +6754,7 @@
 		)
 		(uuid "07b522a6-63c2-4292-9894-ed56d3fdd517")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 431.7009 59.69 0)
+			(at 391.0609 95.25 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6920,7 +6920,7 @@
 	)
 	(global_label "Addr LED 0"
 		(shape input)
-		(at 414.02 63.5 0)
+		(at 373.38 113.03 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -6930,7 +6930,7 @@
 		)
 		(uuid "21382561-7733-43a6-a4e9-4d264f543c82")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 427.7698 63.5 0)
+			(at 387.1298 113.03 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6964,7 +6964,7 @@
 	)
 	(global_label "I2S L-R"
 		(shape input)
-		(at 420.37 104.14 180)
+		(at 281.94 72.39 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -6974,7 +6974,7 @@
 		)
 		(uuid "2cc89d05-8d1c-4c1f-bd2b-34c2591b6393")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 409.5229 104.14 0)
+			(at 271.0929 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7008,29 +7008,7 @@
 	)
 	(global_label "I2S Dout{slash}Analog"
 		(shape input)
-		(at 420.37 109.22 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "388831d7-5a9c-40cc-919a-4b2d6fdfe0f6")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 401.4194 109.22 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "Addr LED 3"
-		(shape input)
-		(at 414.02 74.93 0)
+		(at 373.38 72.39 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7038,14 +7016,36 @@
 			)
 			(justify left)
 		)
-		(uuid "3c7d49a2-a1c5-49d9-9456-260b2be07000")
+		(uuid "388831d7-5a9c-40cc-919a-4b2d6fdfe0f6")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 427.7698 74.93 0)
+			(at 392.3306 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Addr LED 3"
+		(shape input)
+		(at 281.94 67.31 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "3c7d49a2-a1c5-49d9-9456-260b2be07000")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 268.1902 67.31 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
 				(hide yes)
 			)
 		)
@@ -7316,7 +7316,7 @@
 	)
 	(global_label "I2S CLK"
 		(shape input)
-		(at 420.37 106.68 180)
+		(at 281.94 69.85 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7326,7 +7326,7 @@
 		)
 		(uuid "80da0a90-9a91-4f16-8796-c853d472a2b1")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 409.8253 106.68 0)
+			(at 271.3953 69.85 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7404,7 +7404,7 @@
 	)
 	(global_label "Fan 1"
 		(shape input)
-		(at 421.64 96.52 180)
+		(at 281.94 120.65 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7414,7 +7414,7 @@
 		)
 		(uuid "954ef4ce-8e1a-406e-8c41-40e4a743f1ed")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 413.0911 96.52 0)
+			(at 273.3911 120.65 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7426,7 +7426,7 @@
 	)
 	(global_label "I2S WS"
 		(shape input)
-		(at 420.37 101.6 180)
+		(at 281.94 74.93 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7436,7 +7436,7 @@
 		)
 		(uuid "95786265-4794-4803-b839-0ca1437a5006")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 410.7325 101.6 0)
+			(at 272.3025 74.93 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7602,22 +7602,22 @@
 	)
 	(global_label "Addr LED 1"
 		(shape input)
-		(at 414.02 67.31 0)
+		(at 281.94 123.19 180)
 		(fields_autoplaced yes)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
-			(justify left)
+			(justify right)
 		)
 		(uuid "b9c71d2e-9659-448b-bf48-ec2125c1678e")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 427.7698 67.31 0)
+			(at 268.1902 123.19 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
-				(justify left)
+				(justify right)
 				(hide yes)
 			)
 		)
@@ -7800,7 +7800,7 @@
 	)
 	(global_label "Power UART TX"
 		(shape input)
-		(at 414.02 57.15 0)
+		(at 373.38 97.79 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -7810,7 +7810,7 @@
 		)
 		(uuid "d5a622bd-fc32-4fd6-8ef9-ff688b396362")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 431.3985 57.15 0)
+			(at 390.7585 97.79 0)
 			(effects
 				(font
 					(size 1.27 1.27)
