@@ -6397,6 +6397,28 @@
 			)
 		)
 	)
+	(global_label "Disp GPIO 6"
+		(shape input)
+		(at 190.5 40.64 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "0a4d7a7a-e3e2-4099-9fb7-735feacbb195")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 40.64 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "Power UART TX"
 		(shape input)
 		(at 39.37 185.42 0)
@@ -6419,6 +6441,28 @@
 			)
 		)
 	)
+	(global_label "Disp GPIO 5"
+		(shape input)
+		(at 190.5 38.1 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "1bdf72d8-8f04-4ee5-8b0a-529f6cb262b5")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 38.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "SD SPI CLK"
 		(shape input)
 		(at 152.4 203.2 0)
@@ -6432,6 +6476,28 @@
 		(uuid "1deade67-ddd1-493f-baad-88a1a49e61c7")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 166.4523 203.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 10"
+		(shape input)
+		(at 190.5 50.8 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "1e9d6071-4f13-4f58-b94d-9c8a0c11ab84")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 206.3666 50.8 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6595,6 +6661,28 @@
 			)
 		)
 	)
+	(global_label "SD SPI CLK"
+		(shape input)
+		(at 215.9 30.48 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "350b38f7-2cdd-4a7a-9555-d92305bbb14e")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 229.9523 30.48 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "A"
 		(shape input)
 		(at 339.09 210.82 180)
@@ -6613,6 +6701,50 @@
 					(size 1.27 1.27)
 				)
 				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 4"
+		(shape input)
+		(at 190.5 35.56 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "383b5922-19b3-45fe-81c8-0eb95a063076")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 35.56 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 8"
+		(shape input)
+		(at 190.5 45.72 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "39966ee6-6b92-4336-b02e-fc2693f1a6e7")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 45.72 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
 				(hide yes)
 			)
 		)
@@ -6683,6 +6815,50 @@
 			)
 		)
 	)
+	(global_label "Disp GPIO 12"
+		(shape input)
+		(at 190.5 55.88 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "508fc167-e75d-43bb-922e-74ace57c6e76")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 206.3666 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 9"
+		(shape input)
+		(at 190.5 48.26 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "53dfe6a0-be28-4f1a-8d37-9c2efd234a4d")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 48.26 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "E"
 		(shape input)
 		(at 262.89 226.06 180)
@@ -6701,6 +6877,28 @@
 					(size 1.27 1.27)
 				)
 				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 1"
+		(shape input)
+		(at 190.5 27.94 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "5a770b6a-1dc3-4322-b517-aa82eed91582")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 27.94 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
 				(hide yes)
 			)
 		)
@@ -7167,6 +7365,50 @@
 			)
 		)
 	)
+	(global_label "Disp GPIO 2"
+		(shape input)
+		(at 190.5 30.48 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "9a85b7c3-2473-4d33-bc7b-3aaf66b5c124")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 30.48 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "SD SPI CS"
+		(shape input)
+		(at 215.9 25.4 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "9b95bb63-3ed0-4f70-8c50-6b4be70ab275")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 228.8637 25.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "CLK"
 		(shape input)
 		(at 313.69 173.99 180)
@@ -7185,6 +7427,28 @@
 					(size 1.27 1.27)
 				)
 				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 3"
+		(shape input)
+		(at 190.5 33.02 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "a28b237b-f92a-4fe1-9c6a-4727152c2abd")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 33.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
 				(hide yes)
 			)
 		)
@@ -7321,6 +7585,28 @@
 			)
 		)
 	)
+	(global_label "Disp GPIO 11"
+		(shape input)
+		(at 190.5 53.34 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "b416f9f3-a80e-4c83-baf2-1e705d047667")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 206.3666 53.34 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "R0"
 		(shape input)
 		(at 313.69 158.75 180)
@@ -7339,6 +7625,28 @@
 					(size 1.27 1.27)
 				)
 				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "SD SPI MOSI"
+		(shape input)
+		(at 215.9 27.94 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "c050990f-c99d-44d5-aaff-d2ba448efda9")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 230.9804 27.94 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
 				(hide yes)
 			)
 		)
@@ -7378,6 +7686,50 @@
 		(uuid "c80fab22-b52f-42fb-b2f8-4196ca8a3a3b")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 319.4571 236.22 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 13"
+		(shape input)
+		(at 190.5 58.42 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "c86bbe3a-1835-48d9-95f7-1cfea5128d54")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 206.3666 58.42 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 7"
+		(shape input)
+		(at 190.5 43.18 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "cb290d09-d56d-4fbf-95e1-da4cff5e5d8c")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 43.18 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7488,6 +7840,72 @@
 		(uuid "d96bf402-cff1-4eed-898b-4348cf15f87f")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 320.6666 246.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "SD SPI MISO"
+		(shape input)
+		(at 215.9 33.02 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "dc132380-3132-4ca2-9350-440b420fc8db")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 230.9804 33.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Power UART RX"
+		(shape input)
+		(at 215.9 40.64 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "ddb8c8b7-d092-4d46-b3c3-e82835220622")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 233.5809 40.64 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Disp GPIO 0"
+		(shape input)
+		(at 190.5 25.4 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "e100ec32-1564-4d1d-a3a1-aee33499b91d")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 205.1571 25.4 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7752,6 +8170,28 @@
 		(uuid "f4a9112a-8e65-4b48-b6c9-c5989fe6e57b")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 319.4571 218.44 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "Power UART TX"
+		(shape input)
+		(at 215.9 38.1 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "f91fdaf8-5afe-463d-a03f-ce359874eea7")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 233.2785 38.1 0)
 			(effects
 				(font
 					(size 1.27 1.27)
