@@ -14734,6 +14734,17 @@
 		(layer "F.SilkS")
 		(uuid "ef6dde94-0747-4c2c-bf98-d75b00ac5525")
 	)
+	(gr_rect
+		(start 93.75 71)
+		(end 106.25 74)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "B.SilkS")
+		(uuid "002ea0be-2785-4112-8ff7-dc7158214d99")
+	)
 	(gr_arc
 		(start 125 87.5)
 		(mid 124.267767 89.267767)
@@ -15027,6 +15038,18 @@
 		)
 		(layer "Edge.Cuts")
 		(uuid "f658f8f2-d1da-423b-9064-6de66d70351c")
+	)
+	(gr_text "Designation: CSFB-Main-CPU\nModel No: CSF-AAA-001\nRevision: D0.0"
+		(at 106 72.5 0)
+		(layer "B.SilkS")
+		(uuid "fa68d338-24ab-4f39-af6d-6ea4622b3f0f")
+		(effects
+			(font
+				(size 0.5 0.5)
+				(thickness 0.1)
+			)
+			(justify left mirror)
+		)
 	)
 	(segment
 		(start 108.379 68.49)
