@@ -563,6 +563,206 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Buttons:B3U-1000P"
+			(pin_names
+				(offset 1.016)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "S"
+				(at -2.54 2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left bottom)
+				)
+			)
+			(property "Value" "B3U-1000P"
+				(at -2.54 -2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left top)
+				)
+			)
+			(property "Footprint" "B3U-1000P:SW_B3U-1000P"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify bottom)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "MF" "Omron"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify bottom)
+					(hide yes)
+				)
+			)
+			(property "DESCRIPTION" "Tactile Switch SPST-NO Top Actuated Surface Mount"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify bottom)
+					(hide yes)
+				)
+			)
+			(property "PACKAGE" "None"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify bottom)
+					(hide yes)
+				)
+			)
+			(property "PRICE" "None"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify bottom)
+					(hide yes)
+				)
+			)
+			(property "MP" "B3U-1000P"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify bottom)
+					(hide yes)
+				)
+			)
+			(property "AVAILABILITY" "Unavailable"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify bottom)
+					(hide yes)
+				)
+			)
+			(symbol "B3U-1000P_0_0"
+				(polyline
+					(pts
+						(xy -2.54 0) (xy -5.08 0)
+					)
+					(stroke
+						(width 0.1524)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -2.54 0) (xy 2.794 2.1336)
+					)
+					(stroke
+						(width 0.1524)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 2.54 0)
+					(radius 0.3302)
+					(stroke
+						(width 0.1524)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 5.08 0) (xy 2.921 0)
+					)
+					(stroke
+						(width 0.1524)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(pin passive line
+					(at -7.62 0 0)
+					(length 2.54)
+					(name "~"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 7.62 0 180)
+					(length 2.54)
+					(name "~"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Connector:Conn_01x02_Socket"
 			(pin_names
 				(offset 1.016)
@@ -4890,156 +5090,6 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Switch:SW_Push"
-			(pin_numbers
-				(hide yes)
-			)
-			(pin_names
-				(offset 1.016)
-				(hide yes)
-			)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "SW"
-				(at 1.27 2.54 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left)
-				)
-			)
-			(property "Value" "SW_Push"
-				(at 0 -1.524 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" ""
-				(at 0 5.08 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" "~"
-				(at 0 5.08 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "Push button switch, generic, two pins"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "switch normally-open pushbutton push-button"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "SW_Push_0_1"
-				(circle
-					(center -2.032 0)
-					(radius 0.508)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 0 1.27) (xy 0 3.048)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(circle
-					(center 2.032 0)
-					(radius 0.508)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 2.54 1.27) (xy -2.54 1.27)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(pin passive line
-					(at -5.08 0 0)
-					(length 2.54)
-					(name "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 5.08 0 180)
-					(length 2.54)
-					(name "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
 		(symbol "USBC_10171746_00021LF:10171746-00021LF"
 			(pin_names
 				(offset 1.016)
@@ -5047,7 +5097,7 @@
 			(exclude_from_sim no)
 			(in_bom yes)
 			(on_board yes)
-			(property "Reference" "J2"
+			(property "Reference" "J1"
 				(at 0 17.78 0)
 				(effects
 					(font
@@ -5063,7 +5113,7 @@
 					)
 				)
 			)
-			(property "Footprint" "10171746-00021LF:AMPHENOL_10171746-00021LF"
+			(property "Footprint" "USBC:AMPHENOL_10171746-00021LF"
 				(at 0 0 0)
 				(effects
 					(font
@@ -5141,42 +5191,6 @@
 					)
 					(fill
 						(type background)
-					)
-				)
-				(pin power_in line
-					(at 11.43 11.43 180)
-					(length 5.08)
-					(name "VBUS_A"
-						(effects
-							(font
-								(size 1.016 1.016)
-							)
-						)
-					)
-					(number "A4_B9"
-						(effects
-							(font
-								(size 1.016 1.016)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 11.43 8.89 180)
-					(length 5.08)
-					(name "VBUS_B"
-						(effects
-							(font
-								(size 1.016 1.016)
-							)
-						)
-					)
-					(number "B4_A9"
-						(effects
-							(font
-								(size 1.016 1.016)
-							)
-						)
 					)
 				)
 				(pin bidirectional line
@@ -5323,42 +5337,6 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 11.43 -13.97 180)
-					(length 5.08)
-					(name "GND_A"
-						(effects
-							(font
-								(size 1.016 1.016)
-							)
-						)
-					)
-					(number "A1_B12"
-						(effects
-							(font
-								(size 1.016 1.016)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 11.43 -16.51 180)
-					(length 5.08)
-					(name "GND_B"
-						(effects
-							(font
-								(size 1.016 1.016)
-							)
-						)
-					)
-					(number "B1_A12"
-						(effects
-							(font
-								(size 1.016 1.016)
-							)
-						)
-					)
-				)
 				(pin passive line
 					(at 11.43 -19.05 180)
 					(length 5.08)
@@ -5424,6 +5402,80 @@
 						)
 					)
 					(number "SH4"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+				)
+			)
+			(symbol "10171746-00021LF_1_0"
+				(pin power_in line
+					(at 11.43 11.43 180)
+					(length 5.08)
+					(name "VBUS_A"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+					(number "A4B9"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 11.43 8.89 180)
+					(length 5.08)
+					(name "VBUS_B"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+					(number "B4A9"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 11.43 -13.97 180)
+					(length 5.08)
+					(name "GND_A"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+					(number "A1B12"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 11.43 -16.51 180)
+					(length 5.08)
+					(name "GND_B"
+						(effects
+							(font
+								(size 1.016 1.016)
+							)
+						)
+					)
+					(number "B1A12"
 						(effects
 							(font
 								(size 1.016 1.016)
@@ -5960,22 +6012,16 @@
 		(uuid "45c36638-bed2-469f-9e4e-c0bc9baffded")
 	)
 	(junction
-		(at 393.7 63.5)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "481add5f-7da4-4d0b-bd5a-35c995349dd9")
-	)
-	(junction
-		(at 250.19 48.26)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "4f6b5df7-2d78-449f-91ab-8d5fcae6e85a")
-	)
-	(junction
 		(at 299.72 25.4)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "5468d1b7-e403-4b96-9454-ef335a79d7f6")
+	)
+	(junction
+		(at 393.7 63.5)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "5aef7ebc-2d82-42f9-949c-f87cf13ed45a")
 	)
 	(junction
 		(at 313.69 25.4)
@@ -6056,6 +6102,12 @@
 		(uuid "f0a0c7b6-af51-4773-a3cc-524528577439")
 	)
 	(junction
+		(at 250.19 48.26)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "f1343743-f24b-4865-a486-d12d02262b0e")
+	)
+	(junction
 		(at 152.4 215.9)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -6114,16 +6166,6 @@
 			(type default)
 		)
 		(uuid "04654cdc-1a43-437f-b188-7446d2e1b767")
-	)
-	(wire
-		(pts
-			(xy 393.7 76.2) (xy 393.7 73.66)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "0f662263-cc4c-4c24-99ac-2b7324360c39")
 	)
 	(wire
 		(pts
@@ -8908,7 +8950,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "70ohm min"
+		(property "Value" "33ohm"
 			(at 53.9196 151.2666 0)
 			(effects
 				(font
@@ -8936,6 +8978,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 51.3796 149.9967 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C105588"
 			(at 51.3796 149.9967 0)
 			(effects
 				(font
@@ -9184,7 +9235,7 @@
 				)
 			)
 		)
-		(property "Footprint" "USBC:AMPHENOL_10171746-00021LF"
+		(property "Footprint" "USBC:MOLEX_2171790001"
 			(at 31.75 38.1 0)
 			(effects
 				(font
@@ -9252,13 +9303,22 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C3197684"
+			(at 31.75 38.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "B5"
 			(uuid "6c24b816-1b13-4b79-8e05-a30cbbffec08")
 		)
 		(pin "SH2"
 			(uuid "54bb5e0d-0450-4ff7-9c23-1abd98f58637")
 		)
-		(pin "B1_A12"
+		(pin "B4A9"
 			(uuid "40ff8ade-2c4a-46ec-976d-726524aa9d29")
 		)
 		(pin "A6"
@@ -9276,7 +9336,7 @@
 		(pin "A8"
 			(uuid "2f7ec78c-cb06-4751-baa3-68e3836bd31d")
 		)
-		(pin "A4_B9"
+		(pin "A4B9"
 			(uuid "de3751a2-cd4f-47d7-a963-c01d2bc81ccf")
 		)
 		(pin "A5"
@@ -9288,13 +9348,13 @@
 		(pin "SH1"
 			(uuid "819dabff-13ba-4477-9337-1e1c21a22f2b")
 		)
-		(pin "A1_B12"
+		(pin "B1A12"
 			(uuid "371a214d-25b9-4f6c-9afa-e9c7afc657e8")
 		)
 		(pin "SH4"
 			(uuid "dccd6948-103e-4be9-9d93-07dc5e5e03c5")
 		)
-		(pin "B4_A9"
+		(pin "A1B12"
 			(uuid "118876c8-3d37-4873-a5eb-62b49077df32")
 		)
 		(pin "SH3"
@@ -9364,7 +9424,7 @@
 				(hide yes)
 			)
 		)
-		(property "LCSC" "C95839"
+		(property "LCSC" "C3039698"
 			(at 320.04 201.93 0)
 			(effects
 				(font
@@ -9577,6 +9637,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C1591"
+			(at 25.4 92.71 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "a73f3059-7673-4c32-86cc-62f742d04fd7")
 		)
@@ -9637,6 +9706,15 @@
 			)
 		)
 		(property "Description" "800mA Fixed Low Drop Positive Voltage Regulator, Fixed Output 5.0V, SOT-223"
+			(at 41.91 115.57 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C134077"
 			(at 41.91 115.57 0)
 			(effects
 				(font
@@ -9930,76 +10008,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Switch:SW_Push")
-		(at 393.7 68.58 270)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "28656fa3-e494-4e55-8c91-a3020b37eccb")
-		(property "Reference" "BootSW1"
-			(at 397.51 67.3099 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "SW_Push"
-			(at 397.51 69.8499 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Buttons:R-667843"
-			(at 398.78 68.58 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 398.78 68.58 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Push button switch, generic, two pins"
-			(at 393.7 68.58 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "d9f24343-0c5e-44da-a901-4965aa7a7bc1")
-		)
-		(pin "2"
-			(uuid "a07f7db7-52d2-4d21-90a2-ba35842e1d1b")
-		)
-		(instances
-			(project "Substructure GPU"
-				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
-					(reference "BootSW1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:GND")
 		(at 285.75 161.29 90)
 		(unit 1)
@@ -10187,6 +10195,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C98220"
+			(at 278.13 41.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "18a601aa-f2b9-41b4-9e6f-4a523cf3d56d")
 		)
@@ -10315,6 +10332,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 62.23 50.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C328432"
 			(at 62.23 50.8 0)
 			(effects
 				(font
@@ -10527,7 +10553,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 393.7 76.2 0)
+		(at 393.7 78.74 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -10536,7 +10562,7 @@
 		(fields_autoplaced yes)
 		(uuid "45efdd6b-ba7a-47a1-b937-8c3f65672303")
 		(property "Reference" "#PWR053"
-			(at 393.7 82.55 0)
+			(at 393.7 85.09 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10545,7 +10571,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 393.7 81.28 0)
+			(at 393.7 83.82 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10553,7 +10579,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 393.7 76.2 0)
+			(at 393.7 78.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10562,7 +10588,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 393.7 76.2 0)
+			(at 393.7 78.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10571,7 +10597,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 393.7 76.2 0)
+			(at 393.7 78.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10646,6 +10672,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C84419"
+			(at 175.26 204.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "769a8a69-80eb-4f8d-8093-d7526105b18c")
 		)
@@ -10708,6 +10743,15 @@
 			)
 		)
 		(property "Description" ""
+			(at 152.4 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C587826"
 			(at 152.4 193.04 0)
 			(effects
 				(font
@@ -10879,7 +10923,7 @@
 				(hide yes)
 			)
 		)
-		(property "LCSC" "C30734"
+		(property "LCSC" "C492425"
 			(at 318.77 166.37 0)
 			(effects
 				(font
@@ -11060,6 +11104,15 @@
 		)
 		(property "Description" "Light emitting diode"
 			(at 25.9796 142.3767 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C7207730"
+			(at 25.9796 142.3767 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11479,7 +11532,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 250.19 58.42 0)
+		(at 250.19 63.5 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -11488,7 +11541,7 @@
 		(fields_autoplaced yes)
 		(uuid "6373496e-a888-4552-9b3d-b270ca391553")
 		(property "Reference" "#PWR064"
-			(at 250.19 64.77 0)
+			(at 250.19 69.85 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11497,7 +11550,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 250.19 63.5 0)
+			(at 250.19 68.58 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11505,7 +11558,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 250.19 58.42 0)
+			(at 250.19 63.5 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11514,7 +11567,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 250.19 58.42 0)
+			(at 250.19 63.5 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11523,7 +11576,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 250.19 58.42 0)
+			(at 250.19 63.5 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -11665,6 +11718,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C1591"
+			(at 25.4 119.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "97a0ac7a-528b-4e2f-af76-a9ff0e4a7a56")
 		)
@@ -11794,6 +11856,15 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
+			(at 299.72 31.75 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C84419"
 			(at 299.72 31.75 0)
 			(effects
 				(font
@@ -12138,6 +12209,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C3039698"
+			(at 63.5 30.48 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "4c8dcf4f-99ef-4025-8030-c24b3946b002")
 		)
@@ -12208,6 +12288,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C1591"
+			(at 313.69 31.75 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "c034b88a-4699-4553-9704-3bbc1d528dd6")
 		)
@@ -12269,6 +12358,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 52.07 53.34 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C328432"
 			(at 52.07 53.34 0)
 			(effects
 				(font
@@ -12814,6 +12912,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C95843"
+			(at 246.38 48.26 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "1"
 			(uuid "f0a472c1-88c2-4f1c-8876-2bd9348baa30")
 		)
@@ -12847,7 +12954,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "155ohm min"
+		(property "Value" "147ohm"
 			(at 28.5196 151.2666 0)
 			(effects
 				(font
@@ -12875,6 +12982,15 @@
 			)
 		)
 		(property "Description" "Resistor"
+			(at 25.9796 149.9967 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C2930065"
 			(at 25.9796 149.9967 0)
 			(effects
 				(font
@@ -13082,7 +13198,7 @@
 				(hide yes)
 			)
 		)
-		(property "LCSC" "C30734"
+		(property "LCSC" "C492425"
 			(at 278.13 166.37 0)
 			(effects
 				(font
@@ -13149,6 +13265,146 @@
 		)
 	)
 	(symbol
+		(lib_id "Buttons:B3U-1000P")
+		(at 250.19 55.88 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "9c66a433-672c-4d2b-bb0c-015d623ac789")
+		(property "Reference" "S2"
+			(at 254 54.6099 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "RST"
+			(at 254 57.1499 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Buttons:SW_B3U-1000P"
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" ""
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "MF" "Omron"
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "DESCRIPTION" "Tactile Switch SPST-NO Top Actuated Surface Mount"
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "PACKAGE" "None"
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "PRICE" "None"
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "MP" "B3U-1000P"
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "AVAILABILITY" "Unavailable"
+			(at 250.19 55.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C231329"
+			(at 250.19 55.88 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "78737cdd-edc6-4564-a165-af57211815af")
+		)
+		(pin "1"
+			(uuid "710f086b-064d-4186-bd06-f21f02229fbc")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "S2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C")
 		(at 58.42 92.71 0)
 		(unit 1)
@@ -13195,6 +13451,15 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
+			(at 58.42 92.71 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C3039698"
 			(at 58.42 92.71 0)
 			(effects
 				(font
@@ -13605,7 +13870,7 @@
 				(hide yes)
 			)
 		)
-		(property "LCSC" "C95839"
+		(property "LCSC" "C3039698"
 			(at 242.57 201.93 0)
 			(effects
 				(font
@@ -13763,17 +14028,17 @@
 		)
 	)
 	(symbol
-		(lib_id "Switch:SW_Push")
-		(at 250.19 53.34 270)
+		(lib_id "Buttons:B3U-1000P")
+		(at 393.7 71.12 270)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
-		(uuid "b030b11f-243b-4056-9967-1a093aeed9f6")
-		(property "Reference" "SW2"
-			(at 254 52.0699 90)
+		(uuid "ae21a278-866b-425a-acad-75016a7b9f27")
+		(property "Reference" "S1"
+			(at 397.51 69.8499 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13781,8 +14046,8 @@
 				(justify left)
 			)
 		)
-		(property "Value" "RST"
-			(at 254 54.6099 90)
+		(property "Value" "Boot"
+			(at 397.51 72.3899 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13790,8 +14055,18 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Buttons:R-667843"
-			(at 255.27 53.34 0)
+		(property "Footprint" "Buttons:SW_B3U-1000P"
+			(at 393.7 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 393.7 71.12 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13799,8 +14074,8 @@
 				(hide yes)
 			)
 		)
-		(property "Datasheet" "~"
-			(at 255.27 53.34 0)
+		(property "Description" ""
+			(at 393.7 71.12 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -13808,25 +14083,85 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Push button switch, generic, two pins"
-			(at 250.19 53.34 0)
+		(property "MF" "Omron"
+			(at 393.7 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "DESCRIPTION" "Tactile Switch SPST-NO Top Actuated Surface Mount"
+			(at 393.7 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "PACKAGE" "None"
+			(at 393.7 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "PRICE" "None"
+			(at 393.7 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "MP" "B3U-1000P"
+			(at 393.7 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "AVAILABILITY" "Unavailable"
+			(at 393.7 71.12 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C231329"
+			(at 393.7 71.12 90)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(hide yes)
 			)
-		)
-		(pin "1"
-			(uuid "8400852f-cced-4627-9d65-1cc874ca803e")
 		)
 		(pin "2"
-			(uuid "33f0dd82-0e1d-427d-88dc-fe4685de0814")
+			(uuid "f083c874-59a1-4a6e-84b3-bfc145de37d3")
+		)
+		(pin "1"
+			(uuid "35a07ba3-dbcc-43cf-bea7-8786898ff6ce")
 		)
 		(instances
-			(project "Substructure GPU"
+			(project ""
 				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
-					(reference "SW2")
+					(reference "S1")
 					(unit 1)
 				)
 			)
@@ -14175,6 +14510,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C1591"
+			(at 189.23 204.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "c871ac59-a03c-49a8-9301-f33b9f297d6c")
 		)
@@ -14238,6 +14582,15 @@
 		)
 		(property "Description" "Light emitting diode"
 			(at 51.3796 142.3767 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C7207730"
+			(at 51.3796 142.3767 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -14445,6 +14798,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C86781"
+			(at 41.91 88.9 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "3"
 			(uuid "55117a62-26b4-4946-8d05-3b312ee68b46")
 		)
@@ -14643,6 +15005,15 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor"
+			(at 58.42 119.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C3039698"
 			(at 58.42 119.38 0)
 			(effects
 				(font
@@ -14987,6 +15358,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C98220"
+			(at 393.7 57.15 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "f7f5a2af-9f70-4361-bf84-73e28993054b")
 		)
@@ -15189,6 +15569,15 @@
 					(size 1.27 1.27)
 				)
 				(justify bottom)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C50603"
+			(at 82.55 26.67 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
 				(hide yes)
 			)
 		)
