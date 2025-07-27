@@ -6104,6 +6104,12 @@
 		(color 0 0 0 0)
 		(uuid "f3af9eb2-3f9d-4033-9bad-8c4d24b65b58")
 	)
+	(junction
+		(at 168.91 200.66)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "fe514dd0-23bf-463c-b783-a0feb77764c2")
+	)
 	(no_connect
 		(at 43.18 31.75)
 		(uuid "15b40c12-b5d6-442f-b15e-be9c806520e0")
@@ -6115,10 +6121,6 @@
 	(no_connect
 		(at 369.57 71.12)
 		(uuid "2d8d8889-ef69-43cf-a791-16c56bb50e25")
-	)
-	(no_connect
-		(at 152.4 193.04)
-		(uuid "76070504-802b-4cb5-a869-6dfb17ba5ab3")
 	)
 	(no_connect
 		(at 43.18 62.23)
@@ -6133,10 +6135,6 @@
 		(uuid "ad4d7f42-a895-4fb7-bc87-f899161b2a59")
 	)
 	(no_connect
-		(at 152.4 210.82)
-		(uuid "b0efd2dd-cbea-4326-88f0-b73756fe4f77")
-	)
-	(no_connect
 		(at 43.18 59.69)
 		(uuid "c16688b1-4c41-44c8-aa70-3bf71aebff12")
 	)
@@ -6147,6 +6145,16 @@
 	(no_connect
 		(at 43.18 64.77)
 		(uuid "d77df9a7-1d5f-4f87-93e8-179a0766434b")
+	)
+	(wire
+		(pts
+			(xy 168.91 200.66) (xy 175.26 200.66)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "0143d5cf-f29d-4a49-b6aa-e39359929f1a")
 	)
 	(wire
 		(pts
@@ -6180,6 +6188,16 @@
 	)
 	(wire
 		(pts
+			(xy 152.4 180.34) (xy 179.07 180.34)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "19c4f654-d5f8-489e-accf-8902325ced1f")
+	)
+	(wire
+		(pts
 			(xy 278.13 45.72) (xy 278.13 48.26)
 		)
 		(stroke
@@ -6197,6 +6215,16 @@
 			(type default)
 		)
 		(uuid "24e4e482-5e0a-449c-bbe4-8365e6141c31")
+	)
+	(wire
+		(pts
+			(xy 160.02 210.82) (xy 168.91 210.82)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "29c16a56-bc29-4f26-a537-28d34243ab84")
 	)
 	(wire
 		(pts
@@ -6227,6 +6255,16 @@
 			(type default)
 		)
 		(uuid "32a35cd1-0a93-42f0-9f7f-67f16ead6699")
+	)
+	(wire
+		(pts
+			(xy 152.4 175.26) (xy 161.29 175.26)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3ba18b97-962a-4430-8db3-1c5d5fba7268")
 	)
 	(wire
 		(pts
@@ -6337,6 +6375,16 @@
 			(type default)
 		)
 		(uuid "7f1427a0-b345-45a4-b578-798dfaf4496d")
+	)
+	(wire
+		(pts
+			(xy 168.91 210.82) (xy 168.91 200.66)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7f834eae-7e3c-4dd0-9446-bc4b39fd40eb")
 	)
 	(wire
 		(pts
@@ -6460,6 +6508,16 @@
 	)
 	(wire
 		(pts
+			(xy 160.02 193.04) (xy 168.91 193.04)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "b1b80d4a-b12b-4841-906c-997559729418")
+	)
+	(wire
+		(pts
 			(xy 25.4 96.52) (xy 41.91 96.52)
 		)
 		(stroke
@@ -6510,6 +6568,16 @@
 	)
 	(wire
 		(pts
+			(xy 168.91 193.04) (xy 168.91 200.66)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "c71f584b-a6a4-41a3-a622-1593d5f1887c")
+	)
+	(wire
+		(pts
 			(xy 46.99 54.61) (xy 43.18 54.61)
 		)
 		(stroke
@@ -6530,7 +6598,7 @@
 	)
 	(wire
 		(pts
-			(xy 152.4 200.66) (xy 175.26 200.66)
+			(xy 152.4 200.66) (xy 168.91 200.66)
 		)
 		(stroke
 			(width 0)
@@ -6607,6 +6675,16 @@
 			(type default)
 		)
 		(uuid "f924fe80-9aff-4ee9-8acb-5c437e4790da")
+	)
+	(wire
+		(pts
+			(xy 152.4 177.8) (xy 170.18 177.8)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "faf46354-606a-4ca2-a4f5-4adc03423063")
 	)
 	(global_label "B1"
 		(shape input)
@@ -6841,6 +6919,28 @@
 		(uuid "28070d57-200b-4433-9365-0e90355ea9d5")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 268.7948 171.45 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "SD SPI CS"
+		(shape input)
+		(at 152.4 172.72 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "2988fc55-bfbd-4580-a3aa-a72efd8119b5")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 139.4363 172.72 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7510,6 +7610,28 @@
 			)
 		)
 	)
+	(global_label "SD SPI MOSI"
+		(shape input)
+		(at 152.4 175.26 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "81cf27c4-26b6-464c-9fe8-59bc3e06d109")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 137.3196 175.26 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "D"
 		(shape input)
 		(at 262.89 218.44 180)
@@ -7862,6 +7984,28 @@
 			)
 		)
 	)
+	(global_label "SD SPI MISO"
+		(shape input)
+		(at 152.4 180.34 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "aee1cea8-58e0-4e39-bb7e-ed1e1d757881")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 137.3196 180.34 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "Power UART RX"
 		(shape input)
 		(at 39.37 187.96 0)
@@ -8210,6 +8354,28 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "SD SPI CLK"
+		(shape input)
+		(at 152.4 177.8 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "d5cdd5e7-cc87-4959-a93a-528d7039f48e")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 138.3477 177.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
 				(hide yes)
 			)
 		)
@@ -9574,6 +9740,72 @@
 		)
 	)
 	(symbol
+		(lib_id "power:+3V3")
+		(at 152.4 165.1 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "1c9b4c6a-4979-409f-8689-2c6ad0e099e6")
+		(property "Reference" "#PWR029"
+			(at 152.4 168.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3V3"
+			(at 152.4 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 152.4 165.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 152.4 165.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3V3\""
+			(at 152.4 165.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "4b3fa3c1-2331-4058-afd5-ad4fa0dc595d")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "#PWR029")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C")
 		(at 25.4 92.71 0)
 		(unit 1)
@@ -9794,6 +10026,83 @@
 			(project "Substructure GPU"
 				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
 					(reference "#PWR04")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 156.21 210.82 270)
+		(mirror x)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "231d3644-f8c8-48fa-9b50-6b2558223093")
+		(property "Reference" "R12"
+			(at 156.21 217.17 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10K"
+			(at 156.21 214.63 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 156.21 212.598 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 156.21 210.82 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 156.21 210.82 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C98220"
+			(at 156.21 210.82 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "54745596-6a12-4090-9772-f9d4d349b2f4")
+		)
+		(pin "1"
+			(uuid "3187af9c-64ab-4573-9de3-98973ec8a91f")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "R12")
 					(unit 1)
 				)
 			)
@@ -10537,6 +10846,72 @@
 			(project "Substructure GPU"
 				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
 					(reference "ESP1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+3V3")
+		(at 179.07 172.72 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "444dbf52-bbdf-49c9-9e8f-16a5f8f9b8ce")
+		(property "Reference" "#PWR032"
+			(at 179.07 176.53 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3V3"
+			(at 179.07 167.64 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 179.07 172.72 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 179.07 172.72 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3V3\""
+			(at 179.07 172.72 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "40b546c3-cbfa-44aa-91cf-a9d6e0b19ea2")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "#PWR032")
 					(unit 1)
 				)
 			)
@@ -11880,6 +12255,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R")
+		(at 161.29 171.45 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "754d9cfd-abd7-45e1-904d-fb6e08b25c8c")
+		(property "Reference" "R5"
+			(at 163.83 170.1799 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "10K"
+			(at 163.83 172.7199 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 163.068 171.45 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 161.29 171.45 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 161.29 171.45 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C98220"
+			(at 161.29 171.45 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "a6a34418-76dd-4821-874c-41be7aab60eb")
+		)
+		(pin "1"
+			(uuid "ad70017a-dc2c-4422-a045-d75a08100efb")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "R5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:+3V3")
 		(at 51.3796 138.5667 0)
 		(unit 1)
@@ -12007,6 +12461,85 @@
 			(project "Substructure GPU"
 				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
 					(reference "#PWR014")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 152.4 168.91 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "7d888cd8-2e8f-469b-a609-a49c1bc81763")
+		(property "Reference" "R3"
+			(at 154.94 167.6399 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "10K"
+			(at 154.94 170.1799 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 154.178 168.91 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 152.4 168.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 152.4 168.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C98220"
+			(at 152.4 168.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "1c14a670-d037-4060-a71d-c22ea2623a63")
+		)
+		(pin "1"
+			(uuid "27dbc8c5-3b87-4e0b-bc9d-2f04fa30f2b9")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "R3")
 					(unit 1)
 				)
 			)
@@ -12448,6 +12981,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R")
+		(at 170.18 173.99 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "8b24a890-63f3-4daf-872e-22e22077badb")
+		(property "Reference" "R6"
+			(at 172.72 172.7199 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "10K"
+			(at 172.72 175.2599 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 171.958 173.99 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 170.18 173.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 170.18 173.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C98220"
+			(at 170.18 173.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "5dbff39f-9352-42f8-86ca-230820364ca5")
+		)
+		(pin "1"
+			(uuid "ea0a0bae-2c7e-4857-a0b9-e738e2a7b507")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "R6")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "74HC245:74HC245D_653")
 		(at 356.87 213.36 0)
 		(unit 1)
@@ -12771,6 +13383,72 @@
 			(project "Substructure GPU"
 				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
 					(reference "#PWR010")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+3V3")
+		(at 161.29 167.64 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "916ad346-2475-4e76-8013-bc812558c7ae")
+		(property "Reference" "#PWR030"
+			(at 161.29 171.45 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3V3"
+			(at 161.29 162.56 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 161.29 167.64 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 161.29 167.64 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3V3\""
+			(at 161.29 167.64 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "b66fb099-0f04-454a-a23f-2cb4ef24fc03")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "#PWR030")
 					(unit 1)
 				)
 			)
@@ -13886,6 +14564,85 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R")
+		(at 179.07 176.53 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "a8d4cf03-12a3-4eee-a14d-8a5f30112609")
+		(property "Reference" "R10"
+			(at 181.61 175.2599 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "10K"
+			(at 181.61 177.7999 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 180.848 176.53 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 179.07 176.53 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 179.07 176.53 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C98220"
+			(at 179.07 176.53 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "be4b0a56-23c8-4db8-a826-9bb94b6f885c")
+		)
+		(pin "1"
+			(uuid "b5088872-7b31-4a5a-aaa8-cd552c7273cc")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "R10")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 152.4 220.98 0)
 		(unit 1)
@@ -14605,6 +15362,72 @@
 		)
 	)
 	(symbol
+		(lib_id "power:+3V3")
+		(at 170.18 170.18 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c2f05b8d-3f41-4f75-ad97-bcfd1e23dc0e")
+		(property "Reference" "#PWR031"
+			(at 170.18 173.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3V3"
+			(at 170.18 165.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 170.18 170.18 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 170.18 170.18 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3V3\""
+			(at 170.18 170.18 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "b838ce11-770d-4bb2-8a0d-f9e36eb61c04")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "#PWR031")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 46.99 54.61 0)
 		(unit 1)
@@ -14944,6 +15767,83 @@
 			(project "Substructure GPU"
 				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
 					(reference "#PWR072")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 156.21 193.04 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "d541eeb7-80b2-4ebe-bf1f-30013716f65d")
+		(property "Reference" "R11"
+			(at 156.21 186.69 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10K"
+			(at 156.21 189.23 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 156.21 191.262 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 156.21 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 156.21 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C98220"
+			(at 156.21 193.04 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "b8afe509-471a-448f-ad88-cc98eac0d902")
+		)
+		(pin "1"
+			(uuid "c6958c87-87f4-4efc-8e91-d4b264dcbdef")
+		)
+		(instances
+			(project "Substructure GPU"
+				(path "/e05ba27a-9196-431b-aee3-2a767f8b98be"
+					(reference "R11")
 					(unit 1)
 				)
 			)
