@@ -717,7 +717,7 @@
 			(effects
 				(font
 					(size 0.5 0.5)
-					(thickness 0.15)
+					(thickness 0.125)
 				)
 			)
 		)
@@ -729,7 +729,7 @@
 			(effects
 				(font
 					(size 0.5 0.5)
-					(thickness 0.15)
+					(thickness 0.125)
 				)
 			)
 		)
@@ -742,7 +742,7 @@
 			(effects
 				(font
 					(size 0.5 0.5)
-					(thickness 0.15)
+					(thickness 0.125)
 				)
 			)
 		)
@@ -755,7 +755,7 @@
 			(effects
 				(font
 					(size 0.5 0.5)
-					(thickness 0.15)
+					(thickness 0.125)
 				)
 			)
 		)
@@ -763,7 +763,7 @@
 		(path "/0097c88c-2ebb-44df-ab31-a1686bd7308a")
 		(sheetname "/")
 		(sheetfile "Substructure GPU.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_pos_files exclude_from_bom)
 		(fp_line
 			(start -1.01 2.71)
 			(end 7.71 2.71)
@@ -2935,7 +2935,7 @@
 			(effects
 				(font
 					(size 0.5 0.5)
-					(thickness 0.15)
+					(thickness 0.125)
 				)
 			)
 		)
@@ -2947,7 +2947,7 @@
 			(effects
 				(font
 					(size 0.5 0.5)
-					(thickness 0.15)
+					(thickness 0.125)
 				)
 			)
 		)
@@ -2960,7 +2960,7 @@
 			(effects
 				(font
 					(size 0.5 0.5)
-					(thickness 0.15)
+					(thickness 0.125)
 				)
 			)
 		)
@@ -2973,7 +2973,7 @@
 			(effects
 				(font
 					(size 0.5 0.5)
-					(thickness 0.15)
+					(thickness 0.125)
 				)
 			)
 		)
@@ -2981,7 +2981,7 @@
 		(path "/b6c775cc-1702-4f0a-b6dd-dfd0184fe455")
 		(sheetname "/")
 		(sheetfile "Substructure GPU.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_pos_files exclude_from_bom)
 		(fp_line
 			(start 7.71 -2.71)
 			(end 7.71 2.71)
@@ -7301,7 +7301,7 @@
 		(path "/b96ee93a-da6d-49bf-b274-8d6df08b6dc1")
 		(sheetname "/")
 		(sheetfile "Substructure GPU.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_pos_files exclude_from_bom)
 		(fp_line
 			(start 1.33 -1.33)
 			(end 1.33 0)
@@ -9461,7 +9461,7 @@
 		(descr "Through hole straight socket strip, 1x04, 2.54mm pitch, single row (from Kicad 4.0.7), script generated")
 		(tags "Through hole socket strip THT 1x04 2.54mm single row")
 		(property "Reference" "J5"
-			(at 0 -2.77 270)
+			(at 0 -2.77 90)
 			(layer "F.Fab")
 			(hide yes)
 			(uuid "89b391cc-2700-4a69-9863-a5b56bcd8376")
@@ -9485,7 +9485,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 0 0 270)
+			(at 0 0 90)
 			(layer "F.Fab")
 			(hide yes)
 			(uuid "d8f335b5-cf7b-4fc9-ae78-933321a21dcd")
@@ -9497,7 +9497,7 @@
 			)
 		)
 		(property "Description" "Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)"
-			(at 0 0 270)
+			(at 0 0 90)
 			(layer "F.Fab")
 			(hide yes)
 			(uuid "1ac9d0e3-431b-469e-80b2-ede44a7f5fc4")
@@ -9512,7 +9512,7 @@
 		(path "/b7e5b6bd-545e-4708-8c78-ea64456140e5")
 		(sheetname "/")
 		(sheetfile "Substructure GPU.kicad_sch")
-		(attr through_hole)
+		(attr through_hole exclude_from_pos_files exclude_from_bom)
 		(fp_line
 			(start -1.33 8.95)
 			(end 1.33 8.95)
@@ -12302,7 +12302,7 @@
 		(path "/4348a746-bbb3-43bc-957a-e7520f288b44")
 		(sheetname "/")
 		(sheetfile "Substructure GPU.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_pos_files exclude_from_bom)
 		(fp_line
 			(start 9.2 9.8)
 			(end 9.2 9.1)
@@ -13185,7 +13185,7 @@
 		(path "/91bef5b0-d1be-45d7-9572-757728434ab1")
 		(sheetname "/")
 		(sheetfile "Substructure GPU.kicad_sch")
-		(attr smd)
+		(attr smd exclude_from_pos_files exclude_from_bom)
 		(fp_line
 			(start 3.5 -0.1)
 			(end 3.5 -3.45)
