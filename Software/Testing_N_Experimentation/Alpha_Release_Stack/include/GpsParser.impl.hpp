@@ -1,5 +1,3 @@
-#include "GpsParser.h"
-
 // Constructor
 GpsParser::GpsParser(uint8_t uart_num){
   gps_serial = new HardwareSerial(uart_num);

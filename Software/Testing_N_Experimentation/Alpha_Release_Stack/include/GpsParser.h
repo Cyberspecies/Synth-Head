@@ -82,4 +82,6 @@ private:
   void parseGprmc(String sentence);
 };
 
+#include "GpsParser.impl.hpp"
+
 #endif // GPS_PARSER_H

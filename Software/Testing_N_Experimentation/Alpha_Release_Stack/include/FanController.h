@@ -55,4 +55,6 @@ private:
   unsigned long ramp_duration_;
 };
 
+#include "FanController.impl.hpp"
+
 #endif // FAN_CONTROLLER_H

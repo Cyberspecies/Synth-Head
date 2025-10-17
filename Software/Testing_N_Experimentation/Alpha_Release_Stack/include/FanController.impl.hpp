@@ -1,5 +1,3 @@
-#include "FanController.h"
-
 // Constructor
 FanController::FanController(uint8_t pin, uint8_t pwm_channel){
   pin_ = pin;
