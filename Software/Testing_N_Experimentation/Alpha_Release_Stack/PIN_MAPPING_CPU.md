@@ -15,7 +15,7 @@ This document describes the pin assignments and connected peripherals for the CP
 ### LED Strips
 - **LED Strip 0:** GPIO 16
 - **LED Strip 1 (Left Fin):** GPIO 18 — 13 LEDs in series
-- **LED Strip 2:** GPIO 5
+- **LED Strip 2:** GPIO 8
 - **LED Strip 3:** GPIO 39
 - **LED Strip 4 (Right Fin):** GPIO 38 — 13 LEDs in series
 - **LED Strip 5 (Scale LEDs):** GPIO 37 — 14 LEDs in a row
@@ -58,6 +58,7 @@ All features are used except:
 
 #### LED Strip Details
 - **Strip 1 (Left Fin):** 13 LEDs in series
+- **Strip 2 (Tongue):** 9 LEDs in series
 - **Strip 4 (Right Fin):** 13 LEDs in series
 - **Strip 5 (Scale LEDs):** 14 LEDs in a row
 
