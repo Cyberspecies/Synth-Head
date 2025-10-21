@@ -18,7 +18,10 @@ private:
   static constexpr int LEFT_FIN_LED_COUNT = 13;
   static constexpr int TONGUE_LED_COUNT = 9;
   static constexpr int RIGHT_FIN_LED_COUNT = 13;
-  static constexpr int SCALE_LED_COUNT = 14;
+  static constexpr int DEFAULT_SCALE_LED_COUNT = 14 + 17 + 16 + 16;
+  
+  // Configurable scale LED count
+  int scale_led_count = 0;
 
   // NeoPixel strip objects
   Adafruit_NeoPixel* left_fin_strip;
@@ -44,6 +47,9 @@ public:
 
   // Initialization
   bool initialize();
+  
+  // Configuration
+  void setScaleLedCount(int count);
 
   // Main update loop
   void update();

@@ -29,15 +29,18 @@ void setup(){
   
   Serial.println("LED Controller initialized successfully!");
   Serial.println("");
+  // Example: Configure scale LED count before initialize if different from default (61 LEDs)
+  // led_controller.setScaleLedCount(40); // Uncomment to set custom scale LED count
+  
   Serial.println("WRGB LED Strip Configuration:");
   Serial.println("- Left Fin (GPIO 18): 13 WRGB LEDs (RGB only - no white during cycling)");
   Serial.println("- Tongue (GPIO 8): 9 WRGB LEDs (full WRGB with white channel)");  
   Serial.println("- Right Fin (GPIO 38): 13 WRGB LEDs (RGB only - no white during cycling)");
-  Serial.println("- Scale LEDs (GPIO 37): 14 WRGB LEDs (RGB only - no white during cycling)");
+  Serial.println("- Scale LEDs (GPIO 37): 61 WRGB LEDs default (RGB only - no white during cycling)");
   Serial.println("");
   
   // Test each strip individually first
-  testIndividualStrips();
+  // testIndividualStrips();
   
   Serial.println("Now starting rainbow hue cycle effect...");
   Serial.println("Only the tongue will use white channel for enhanced colors!");

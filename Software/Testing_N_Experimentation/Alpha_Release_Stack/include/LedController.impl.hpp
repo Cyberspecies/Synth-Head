@@ -8,6 +8,7 @@ LedController::LedController() :
   tongue_strip(nullptr),
   right_fin_strip(nullptr),
   scale_strip(nullptr),
+  scale_led_count(DEFAULT_SCALE_LED_COUNT),
   hue_offset(0.0f),
   hue_speed(1.0f),
   last_update_time(0),
@@ -34,7 +35,7 @@ bool LedController::initialize(){
   left_fin_strip = new Adafruit_NeoPixel(LEFT_FIN_LED_COUNT, LED_STRIP_1_PIN, NEO_WRGB + NEO_KHZ800);
   tongue_strip = new Adafruit_NeoPixel(TONGUE_LED_COUNT, LED_STRIP_2_PIN, NEO_WRGB + NEO_KHZ800);
   right_fin_strip = new Adafruit_NeoPixel(RIGHT_FIN_LED_COUNT, LED_STRIP_4_PIN, NEO_WRGB + NEO_KHZ800);
-  scale_strip = new Adafruit_NeoPixel(SCALE_LED_COUNT, LED_STRIP_5_PIN, NEO_WRGB + NEO_KHZ800);
+  scale_strip = new Adafruit_NeoPixel(scale_led_count, LED_STRIP_5_PIN, NEO_WRGB + NEO_KHZ800);
 
   // Check if allocation was successful
   if(!left_fin_strip || !tongue_strip || !right_fin_strip || !scale_strip){
@@ -90,8 +91,8 @@ void LedController::updateRainbowEffect(){
     right_fin_strip->setPixelColor(i, color);
   }
 
-  for(int i = 0; i < SCALE_LED_COUNT; i++){
-    float hue = fmod(hue_offset + (i * 360.0f / SCALE_LED_COUNT), 360.0f);
+  for(int i = 0; i < scale_led_count; i++){
+    float hue = fmod(hue_offset + (i * 360.0f / scale_led_count), 360.0f);
     uint32_t color = hsvToWrgbNoWhite(hue, 1.0f, 0.8f); // No white channel
     scale_strip->setPixelColor(i, color);
   }
@@ -200,6 +201,21 @@ void LedController::setUpdateInterval(unsigned long interval_ms){
   update_interval_ms = interval_ms;
 }
 
+void LedController::setScaleLedCount(int count){
+  if(count > 0){
+    scale_led_count = count;
+    
+    // If scale strip is already initialized, recreate it with new count
+    if(scale_strip){
+      delete scale_strip;
+      scale_strip = new Adafruit_NeoPixel(scale_led_count, LED_STRIP_5_PIN, NEO_WRGB + NEO_KHZ800);
+      scale_strip->begin();
+      scale_strip->clear();
+      scale_strip->show();
+    }
+  }
+}
+
 void LedController::setLeftFinColor(uint32_t color){
   for(int i = 0; i < LEFT_FIN_LED_COUNT; i++){
     left_fin_strip->setPixelColor(i, color);
@@ -222,7 +238,7 @@ void LedController::setRightFinColor(uint32_t color){
 }
 
 void LedController::setScaleColor(uint32_t color){
-  for(int i = 0; i < SCALE_LED_COUNT; i++){
+  for(int i = 0; i < scale_led_count; i++){
     scale_strip->setPixelColor(i, color);
   }
   scale_strip->show();
@@ -267,8 +283,8 @@ void LedController::runRainbowCycle(){
     right_fin_strip->setPixelColor(i, hsvToWrgbNoWhite(hue, 1.0f, 0.8f)); // No white
   }
   
-  for(int i = 0; i < SCALE_LED_COUNT; i++){
-    float hue = fmod(cycle_hue + (i * 360.0f / SCALE_LED_COUNT), 360.0f);
+  for(int i = 0; i < scale_led_count; i++){
+    float hue = fmod(cycle_hue + (i * 360.0f / scale_led_count), 360.0f);
     scale_strip->setPixelColor(i, hsvToWrgbNoWhite(hue, 1.0f, 0.8f)); // No white
   }
   
@@ -291,7 +307,7 @@ void LedController::runChaseEffect(uint32_t color, int delay_ms){
     left_fin_strip->setPixelColor(chase_position % LEFT_FIN_LED_COUNT, color);
     tongue_strip->setPixelColor(chase_position % TONGUE_LED_COUNT, color);
     right_fin_strip->setPixelColor(chase_position % RIGHT_FIN_LED_COUNT, color);
-    scale_strip->setPixelColor(chase_position % SCALE_LED_COUNT, color);
+    scale_strip->setPixelColor(chase_position % scale_led_count, color);
     
     showAllStrips();
     
