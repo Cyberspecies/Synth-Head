@@ -24,7 +24,7 @@ This document describes the pin assignments and connected peripherals for the CP
 - **Button 0 (A):** GPIO 5
 - **Button 1 (B):** GPIO 6
 - **Button 2 (C):** GPIO 7
-- **Button 3 (D):** GPIO 10
+- **Button 3 (D):** GPIO 15
 
 ### Fans (PWM Controlled)
 - **Fan 1:** GPIO 17
