@@ -1095,7 +1095,7 @@
     </mxGraphModel>
   </diagram>
   <diagram id="COouUxV1SYNP--HKafSG" name="Alpha Release Stack">
-    <mxGraphModel dx="813" dy="570" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="530" math="0" shadow="0">
+    <mxGraphModel dx="599" dy="420" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="530" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -1656,17 +1656,32 @@
         <mxCell id="URau6TSNv1GAJ-X7jyq2-102" value="Mode: Loop, Repeat" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" parent="URau6TSNv1GAJ-X7jyq2-88" vertex="1">
           <mxGeometry y="140" width="140" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="Sbfq0F_6YhfXQmoVcLt_-1" value="Builtin Effects" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=20;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;rounded=1;container=1;" vertex="1" parent="1">
+        <mxCell id="Sbfq0F_6YhfXQmoVcLt_-1" value="Builtin Effects" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=20;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;rounded=1;container=1;" parent="1" vertex="1">
           <mxGeometry x="1800" y="880" width="140" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="Sbfq0F_6YhfXQmoVcLt_-2" value="Raining (High humidity)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="Sbfq0F_6YhfXQmoVcLt_-1">
+        <mxCell id="Sbfq0F_6YhfXQmoVcLt_-2" value="Raining (High humidity)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="Sbfq0F_6YhfXQmoVcLt_-1" vertex="1">
           <mxGeometry y="20" width="140" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="Sbfq0F_6YhfXQmoVcLt_-3" value="Embers (High Temp)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="Sbfq0F_6YhfXQmoVcLt_-1">
+        <mxCell id="Sbfq0F_6YhfXQmoVcLt_-3" value="Embers (High Temp)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="Sbfq0F_6YhfXQmoVcLt_-1" vertex="1">
           <mxGeometry y="40" width="140" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="Sbfq0F_6YhfXQmoVcLt_-4" value="Snowing (Low Temp)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="Sbfq0F_6YhfXQmoVcLt_-1">
+        <mxCell id="Sbfq0F_6YhfXQmoVcLt_-4" value="Snowing (Low Temp)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="Sbfq0F_6YhfXQmoVcLt_-1" vertex="1">
           <mxGeometry y="60" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="KPk34OFQJrVHOWmeud7a-6" value="Demo + Production Ready" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;absoluteArcSize=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;labelPosition=center;verticalLabelPosition=top;align=center;verticalAlign=bottom;" vertex="1" parent="1">
+          <mxGeometry x="80" y="840" width="220" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="KPk34OFQJrVHOWmeud7a-2" value="Folder of faces (Simple), contains just single eye pics" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="KPk34OFQJrVHOWmeud7a-6">
+          <mxGeometry x="10" y="10" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="KPk34OFQJrVHOWmeud7a-3" value="Buttons AB (sets face up or down), C turns on or off the shader, D changes brightness" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="KPk34OFQJrVHOWmeud7a-6">
+          <mxGeometry x="10" y="90" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="KPk34OFQJrVHOWmeud7a-4" value="Gyroscope is sent to the eye jiggle physics, GPS time is sent to the GPU for Idle Face" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="KPk34OFQJrVHOWmeud7a-6">
+          <mxGeometry x="10" y="170" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="KPk34OFQJrVHOWmeud7a-5" value="LED has some set animations: Chaser, rainbow, solid, gradient. The config file is the same name as the eye pic, and is sent to the CPU." style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;" vertex="1" parent="KPk34OFQJrVHOWmeud7a-6">
+          <mxGeometry x="10" y="250" width="200" height="60" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
