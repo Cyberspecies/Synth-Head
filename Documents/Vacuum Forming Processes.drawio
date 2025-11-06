@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/28.2.8 Chrome/140.0.7339.240 Electron/38.4.0 Safari/537.36" version="28.2.8" pages="3">
   <diagram id="y2ZoJT96wKUQnLYxtm1I" name="Issues">
-    <mxGraphModel dx="1654" dy="984" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="400" math="0" shadow="0">
+    <mxGraphModel dx="1998" dy="1189" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="400" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -13,20 +13,65 @@
         <mxCell id="ZYDDBQHuXnXvif4KB3ez-33" value="ASA Buck Surface" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;horizontal=0;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="40" y="80" width="880" height="160" as="geometry" />
         </mxCell>
-        <mxCell id="ZYDDBQHuXnXvif4KB3ez-23" value="Sub 120C (PETG)&lt;div&gt;Sub 160C (PC)&lt;/div&gt;" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;fillColor=none;verticalAlign=top;container=1;connectable=0;allowArrows=0;collapsible=0;recursiveResize=0;expand=0;" vertex="1" parent="1">
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-23" value="Sub 120C (PETG)&lt;div&gt;Sub 180C (PC)&lt;/div&gt;" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;fillColor=none;verticalAlign=top;container=1;connectable=0;allowArrows=0;collapsible=0;recursiveResize=0;expand=0;" vertex="1" parent="1">
           <mxGeometry x="80" y="40" width="560" height="560" as="geometry" />
         </mxCell>
-        <mxCell id="ZYDDBQHuXnXvif4KB3ez-24" value="Above 120C (PETG)&lt;br&gt;Above 160C (PC)" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;fillColor=none;verticalAlign=top;container=1;connectable=0;allowArrows=0;collapsible=0;recursiveResize=0;expand=0;" vertex="1" parent="1">
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-52" value="Surface fully adheres and no obvious surface to surface deviation" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;labelBackgroundColor=none;strokeColor=#33FF33;fillColor=#d5e8d4;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-23">
+          <mxGeometry x="80" y="250" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-24" value="Above 120C (PETG)&lt;br&gt;Above 180C (PC)" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;fillColor=none;verticalAlign=top;container=1;connectable=0;allowArrows=0;collapsible=0;recursiveResize=0;expand=0;" vertex="1" parent="1">
           <mxGeometry x="360" y="40" width="560" height="560" as="geometry" />
         </mxCell>
-        <mxCell id="ZYDDBQHuXnXvif4KB3ez-35" value="Surfaces not fully adhering and random patches are floating" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
-          <mxGeometry x="65" y="120" width="150" height="40" as="geometry" />
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-64" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0;entryDx=0;entryDy=0;strokeColor=#b85450;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;fillColor=#f8cecc;" edge="1" parent="ZYDDBQHuXnXvif4KB3ez-24" source="ZYDDBQHuXnXvif4KB3ez-35" target="ZYDDBQHuXnXvif4KB3ez-44">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="ZYDDBQHuXnXvif4KB3ez-36" value="Surfaces are welted (wet like texture)" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-35" value="Surfaces not fully adhering and random patches are floating" style="text;html=1;whiteSpace=wrap;strokeColor=#FF0000;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
+          <mxGeometry x="65" y="140" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-36" value="Surfaces are welted (wet like texture)" style="text;html=1;whiteSpace=wrap;strokeColor=#FF0000;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
           <mxGeometry x="320" y="115" width="110" height="45" as="geometry" />
         </mxCell>
-        <mxCell id="ZYDDBQHuXnXvif4KB3ez-44" value="Surfaces not fully adhering and random patches are floating" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
-          <mxGeometry x="350" y="260" width="150" height="40" as="geometry" />
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-44" value="Surfaces not fully adhering and random patches are floating (Only PC Tested)" style="text;html=1;whiteSpace=wrap;strokeColor=#FF0000;fillColor=#d5e8d4;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=11;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
+          <mxGeometry x="350" y="230" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-53" value="Buck surface doesnt buckle quickly" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;labelBackgroundColor=none;strokeColor=#33FF33;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
+          <mxGeometry x="85" y="90" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-56" value="Buck surface buckles and causes warping" style="text;html=1;whiteSpace=wrap;strokeColor=#FF0000;fillColor=#d5e8d4;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=11;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
+          <mxGeometry x="65" y="260" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-57" value="Surface adheres too well" style="text;html=1;whiteSpace=wrap;strokeColor=#FF0000;fillColor=#d5e8d4;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=11;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-24">
+          <mxGeometry x="350" y="290" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-45" value="Legend" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=20;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;rounded=1;container=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="80" width="80" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-51" value="Good" style="text;strokeColor=#33FF33;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-45">
+          <mxGeometry y="20" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-50" value="Bad" style="text;strokeColor=#FF0000;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-45">
+          <mxGeometry y="40" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-46" value="Only PETG" style="text;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-45">
+          <mxGeometry y="60" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-47" value="Only PC" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-45">
+          <mxGeometry y="80" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-48" value="Both" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=none;" vertex="1" parent="ZYDDBQHuXnXvif4KB3ez-45">
+          <mxGeometry y="100" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-58" value="Hot Plastic" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;verticalAlign=bottom;labelPosition=center;verticalLabelPosition=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="200" y="800" width="30" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-59" value="Printed Shell" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;verticalAlign=top;labelPosition=center;verticalLabelPosition=bottom;align=center;" vertex="1" parent="1">
+          <mxGeometry x="180" y="800" width="20" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-60" value="Plaster" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;verticalAlign=bottom;labelPosition=center;verticalLabelPosition=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="80" y="800" width="100" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="ZYDDBQHuXnXvif4KB3ez-63" value="&lt;h1 style=&quot;margin-top: 0px;&quot;&gt;Heat Retention Theory&lt;/h1&gt;&lt;p&gt;The plaster backing is insulating the printed shell and preventing the hot plastic from releasing the heat into the air and causes the shell te absorb all of the dissapated energy from the plastic sheet. For ASA, this is causing it to bake and release gasses.&lt;/p&gt;" style="text;html=1;whiteSpace=wrap;overflow=hidden;rounded=0;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="1">
+          <mxGeometry x="260" y="800" width="280" height="120" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
