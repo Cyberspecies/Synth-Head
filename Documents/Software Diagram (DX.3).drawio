@@ -1095,7 +1095,7 @@
     </mxGraphModel>
   </diagram>
   <diagram id="Ys26qN6Z_m9l3-__re1e" name="Alpha Release Stack">
-    <mxGraphModel dx="820" dy="493" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="600" math="0" shadow="0">
+    <mxGraphModel dx="1171" dy="705" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="600" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -1216,6 +1216,27 @@
         </mxCell>
         <mxCell id="DLC8cBC6pawV1xATvoAJ-74" value="60/s" style="edgeStyle=none;shape=connector;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=classic;" edge="1" parent="1" source="DLC8cBC6pawV1xATvoAJ-72" target="DLC8cBC6pawV1xATvoAJ-73">
           <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="DLC8cBC6pawV1xATvoAJ-75" value="GPU System" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=20;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;rounded=1;container=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="1">
+          <mxGeometry x="120" y="560" width="420" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="DLC8cBC6pawV1xATvoAJ-76" value="MAX 128x128 sprites" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="DLC8cBC6pawV1xATvoAJ-75">
+          <mxGeometry y="20" width="420" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="DLC8cBC6pawV1xATvoAJ-77" value="Each sprite is a single eye element" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="DLC8cBC6pawV1xATvoAJ-75">
+          <mxGeometry y="40" width="420" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="DLC8cBC6pawV1xATvoAJ-78" value="Shaders are applied after" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="DLC8cBC6pawV1xATvoAJ-75">
+          <mxGeometry y="60" width="420" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="DLC8cBC6pawV1xATvoAJ-81" value="Buttons simply select which eye element" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="DLC8cBC6pawV1xATvoAJ-75">
+          <mxGeometry y="80" width="420" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="DLC8cBC6pawV1xATvoAJ-82" value="Effects are applied after" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="DLC8cBC6pawV1xATvoAJ-75">
+          <mxGeometry y="100" width="420" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="DLC8cBC6pawV1xATvoAJ-80" value="Mode button simply changes between Shader Select, Anim Select &amp;amp; Element Select" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;" vertex="1" parent="DLC8cBC6pawV1xATvoAJ-75">
+          <mxGeometry y="120" width="420" height="20" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
