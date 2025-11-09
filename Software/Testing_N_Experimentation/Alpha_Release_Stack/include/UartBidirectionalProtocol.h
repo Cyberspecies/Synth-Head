@@ -19,7 +19,7 @@ namespace arcos::communication{
 constexpr uint8_t UART_START_BYTE = 0xAA;
 constexpr uint8_t UART_END_BYTE = 0x55;
 constexpr int MAX_PAYLOAD_SIZE = 256;
-constexpr int BAUD_RATE = 115200;
+constexpr int BAUD_RATE = 921600;  // Increased from 115200 for higher throughput
 
 /** Message types for bidirectional communication */
 enum class MessageType : uint8_t{
