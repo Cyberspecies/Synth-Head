@@ -2,4 +2,4 @@
 # without default 'CMakeLists.txt' file.
 
 # Only compile GPU bidirectional UART files for ESP-IDF
-idf_component_register(SRCS "uart_gpu_bidirectional.cpp" "GpuUartBidirectional.cpp")
+idf_component_register(SRCS "uart_gpu_bidirectional.cpp")

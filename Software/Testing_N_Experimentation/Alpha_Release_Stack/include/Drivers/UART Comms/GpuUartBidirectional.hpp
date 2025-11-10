@@ -1,5 +1,5 @@
 /*****************************************************************
- * File:      GpuUartBidirectional.h
+ * File:      GpuUartBidirectional.hpp
  * Category:  communication/implementations
  * Author:    XCR1793 (Feather Forge)
  * 
@@ -9,8 +9,8 @@
  *    Receives 316 bits (40 bytes) from CPU at 60Hz.
  *****************************************************************/
 
-#ifndef ARCOS_COMMUNICATION_GPU_UART_BIDIRECTIONAL_H_
-#define ARCOS_COMMUNICATION_GPU_UART_BIDIRECTIONAL_H_
+#ifndef ARCOS_COMMUNICATION_GPU_UART_BIDIRECTIONAL_HPP_
+#define ARCOS_COMMUNICATION_GPU_UART_BIDIRECTIONAL_HPP_
 
 #include "driver/uart.h"
 #include "UartBidirectionalProtocol.h"
@@ -32,7 +32,7 @@ constexpr int GPU_FRAME_TIME_MS = 1000 / GPU_TARGET_FPS;
 struct GpuAnalytics{
   uint32_t frames_sent;
   uint32_t frames_received;
-  uint32_t packets_lost;
+  uint32_t packets_dropped;           // Sequence gaps (actual dropped packets)
   uint32_t checksum_errors;
   uint32_t timeout_errors;
   uint32_t total_bytes_sent;
@@ -40,6 +40,14 @@ struct GpuAnalytics{
   uint32_t start_time;
   uint32_t last_report_time;
   uint32_t expected_sequence;
+  
+  // Per-report period tracking
+  uint32_t frames_sent_last_report;
+  uint32_t frames_received_last_report;
+  uint32_t packets_dropped_last_report;
+  uint32_t bytes_sent_last_report;
+  uint32_t bytes_received_last_report;
+  uint32_t last_recv_time;
 };
 
 /** GPU-side UART bidirectional implementation */
@@ -68,4 +76,7 @@ private:
 
 } // namespace arcos::communication
 
-#endif // ARCOS_COMMUNICATION_GPU_UART_BIDIRECTIONAL_H_
+// Include implementation
+#include "GpuUartBidirectional.impl.hpp"
+
+#endif // ARCOS_COMMUNICATION_GPU_UART_BIDIRECTIONAL_HPP_

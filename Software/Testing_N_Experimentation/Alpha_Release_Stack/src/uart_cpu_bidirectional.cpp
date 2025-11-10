@@ -9,7 +9,7 @@
  *****************************************************************/
 
 #include <Arduino.h>
-#include "CpuUartBidirectional.h"
+#include "Drivers/UART Comms/CpuUartBidirectional.hpp"
 
 using namespace arcos::communication;
 

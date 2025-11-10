@@ -1,19 +1,23 @@
 /*****************************************************************
- * File:      CpuUartBidirectional.cpp
+ * File:      CpuUartBidirectional.impl.hpp
  * Category:  communication/implementations
  * Author:    XCR1793 (Feather Forge)
  * 
  * Purpose:
  *    CPU-side UART bidirectional communication implementation.
+ *    Header-only implementation file.
  *****************************************************************/
+
+#ifndef ARCOS_COMMUNICATION_CPU_UART_BIDIRECTIONAL_IMPL_HPP_
+#define ARCOS_COMMUNICATION_CPU_UART_BIDIRECTIONAL_IMPL_HPP_
 
 #include <Arduino.h>
 #include <cstring>
-#include "../include/CpuUartBidirectional.h"
+#include "CpuUartBidirectional.hpp"
 
-using namespace arcos::communication;
+namespace arcos::communication{
 
-CpuUartBidirectional::CpuUartBidirectional()
+inline CpuUartBidirectional::CpuUartBidirectional()
   : initialized_(false)
   , frame_counter_(0)
   , last_frame_time_(0)
@@ -21,7 +25,7 @@ CpuUartBidirectional::CpuUartBidirectional()
   memset(&analytics_, 0, sizeof(analytics_));
 }
 
-bool CpuUartBidirectional::init(int baud_rate){
+inline bool CpuUartBidirectional::init(int baud_rate){
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n========================================");
@@ -68,7 +72,7 @@ bool CpuUartBidirectional::init(int baud_rate){
   return true;
 }
 
-bool CpuUartBidirectional::sendPacket(MessageType type, const uint8_t* payload, uint8_t length){
+inline bool CpuUartBidirectional::sendPacket(MessageType type, const uint8_t* payload, uint8_t length){
   if(!initialized_ || length > MAX_PAYLOAD_SIZE){
     return false;
   }
@@ -108,7 +112,7 @@ bool CpuUartBidirectional::sendPacket(MessageType type, const uint8_t* payload, 
   return true;
 }
 
-bool CpuUartBidirectional::receivePacket(UartPacket& packet){
+inline bool CpuUartBidirectional::receivePacket(UartPacket& packet){
   if(!initialized_){
     return false;
   }
@@ -179,22 +183,22 @@ bool CpuUartBidirectional::receivePacket(UartPacket& packet){
   return true;
 }
 
-int CpuUartBidirectional::available(){
+inline int CpuUartBidirectional::available(){
   size_t available_bytes = 0;
   uart_get_buffered_data_len(CPU_UART_NUM, &available_bytes);
   return available_bytes;
 }
 
-bool CpuUartBidirectional::sendPing(){
+inline bool CpuUartBidirectional::sendPing(){
   uint8_t ping_data = 0xAB;
   return sendPacket(MessageType::PING, &ping_data, 1);
 }
 
-bool CpuUartBidirectional::sendAck(uint8_t ack_data){
+inline bool CpuUartBidirectional::sendAck(uint8_t ack_data){
   return sendPacket(MessageType::ACK, &ack_data, 1);
 }
 
-bool CpuUartBidirectional::sendDataFrame(){
+inline bool CpuUartBidirectional::sendDataFrame(){
   uint8_t frame_data[CPU_SEND_BYTES];
   
   uint32_t counter = frame_counter_;
@@ -212,28 +216,46 @@ bool CpuUartBidirectional::sendDataFrame(){
   return success;
 }
 
-void CpuUartBidirectional::printAnalytics(){
+inline void CpuUartBidirectional::printAnalytics(){
   unsigned long current_time = millis();
-  unsigned long elapsed = current_time - analytics_.start_time;
-  float elapsed_sec = elapsed / 1000.0f;
+  unsigned long elapsed_total = current_time - analytics_.start_time;
+  unsigned long elapsed_report = current_time - analytics_.last_report_time;
+  float elapsed_sec = elapsed_report / 1000.0f;
   
-  float send_fps = analytics_.frames_sent / elapsed_sec;
-  float recv_fps = analytics_.frames_received / elapsed_sec;
-  float send_kbps = (analytics_.total_bytes_sent * 8.0f) / (elapsed_sec * 1000.0f);
-  float recv_kbps = (analytics_.total_bytes_received * 8.0f) / (elapsed_sec * 1000.0f);
-  float packet_loss = 0.0f;
+  // Calculate frames/bytes since last report
+  uint32_t frames_sent_delta = analytics_.frames_sent - analytics_.frames_sent_last_report;
+  uint32_t frames_received_delta = analytics_.frames_received - analytics_.frames_received_last_report;
+  uint32_t packets_dropped_delta = analytics_.packets_dropped - analytics_.packets_dropped_last_report;
+  uint32_t bytes_sent_delta = analytics_.total_bytes_sent - analytics_.bytes_sent_last_report;
+  uint32_t bytes_received_delta = analytics_.total_bytes_received - analytics_.bytes_received_last_report;
   
-  if(analytics_.frames_sent > 0){
-    packet_loss = (analytics_.packets_lost * 100.0f) / analytics_.frames_sent;
+  // Calculate averages for this report period
+  float send_fps = frames_sent_delta / elapsed_sec;
+  float recv_fps = frames_received_delta / elapsed_sec;
+  float send_kbps = (bytes_sent_delta * 8.0f) / (elapsed_sec * 1000.0f);
+  float recv_kbps = (bytes_received_delta * 8.0f) / (elapsed_sec * 1000.0f);
+  
+  // Calculate link reliability: we expect to receive at ~60Hz (frames expected in this time period)
+  float link_reliability = 100.0f;
+  uint32_t expected_frames = (uint32_t)(elapsed_sec * TARGET_FPS);
+  if(expected_frames > 0){
+    link_reliability = (frames_received_delta * 100.0f) / expected_frames;
+    if(link_reliability > 100.0f) link_reliability = 100.0f;  // Cap at 100%
   }
+  
+  // Check connection status
+  bool is_connected = (current_time - analytics_.last_recv_time) < 1000;
   
   Serial.println("\n========================================");
   Serial.println("        CPU ANALYTICS REPORT");
   Serial.println("========================================");
-  Serial.printf("Runtime:       %.1f sec\n", elapsed_sec);
-  Serial.printf("Frames Sent:   %u (%.1f fps)\n", analytics_.frames_sent, send_fps);
-  Serial.printf("Frames Recv:   %u (%.1f fps)\n", analytics_.frames_received, recv_fps);
-  Serial.printf("Packet Loss:   %u (%.2f%%)\n", analytics_.packets_lost, packet_loss);
+  Serial.printf("Runtime:       %.1f sec (total)\n", elapsed_total / 1000.0f);
+  Serial.printf("Report Period: %.1f sec\n", elapsed_sec);
+  Serial.printf("Connection:    %s\n", is_connected ? "CONNECTED" : "DISCONNECTED");
+  Serial.printf("Frames Sent:   %u total (+%u, %.1f fps)\n", analytics_.frames_sent, frames_sent_delta, send_fps);
+  Serial.printf("Frames Recv:   %u total (+%u, %.1f fps)\n", analytics_.frames_received, frames_received_delta, recv_fps);
+  Serial.printf("Link Reliab:   %.2f%% (recv:%u / exp:%u)\n", link_reliability, frames_received_delta, expected_frames);
+  Serial.printf("Pkts Dropped:  %u total (+%u this period)\n", analytics_.packets_dropped, packets_dropped_delta);
   Serial.printf("Checksum Err:  %u\n", analytics_.checksum_errors);
   Serial.printf("Timeout Err:   %u\n", analytics_.timeout_errors);
   Serial.printf("TX Throughput: %.2f kbps\n", send_kbps);
@@ -256,10 +278,16 @@ void CpuUartBidirectional::printAnalytics(){
   
   Serial.println("========================================\n");
   
+  // Update tracking variables for next report
   analytics_.last_report_time = current_time;
+  analytics_.frames_sent_last_report = analytics_.frames_sent;
+  analytics_.frames_received_last_report = analytics_.frames_received;
+  analytics_.packets_dropped_last_report = analytics_.packets_dropped;
+  analytics_.bytes_sent_last_report = analytics_.total_bytes_sent;
+  analytics_.bytes_received_last_report = analytics_.total_bytes_received;
 }
 
-void CpuUartBidirectional::update(){
+inline void CpuUartBidirectional::update(){
   UartPacket packet;
   int max_packets_per_cycle = 5;
   int packets_processed = 0;
@@ -272,7 +300,12 @@ void CpuUartBidirectional::update(){
   unsigned long current_time = millis();
   if(current_time - last_frame_time_ >= FRAME_TIME_MS){
     sendDataFrame();
-    last_frame_time_ = current_time;
+    last_frame_time_ += FRAME_TIME_MS;  // Maintain consistent timing
+    
+    // If we've fallen too far behind, resync
+    if(current_time - last_frame_time_ > FRAME_TIME_MS * 2){
+      last_frame_time_ = current_time;
+    }
   }
   
   if(current_time - analytics_.last_report_time >= 2000){
@@ -280,7 +313,9 @@ void CpuUartBidirectional::update(){
   }
 }
 
-void CpuUartBidirectional::handleReceivedPacket(const UartPacket& packet){
+inline void CpuUartBidirectional::handleReceivedPacket(const UartPacket& packet){
+  analytics_.last_recv_time = millis();  // Update connection timestamp
+  
   switch(packet.message_type){
     case MessageType::DATA_REQUEST:
       if(packet.payload_length == CPU_RECV_BYTES){
@@ -288,7 +323,7 @@ void CpuUartBidirectional::handleReceivedPacket(const UartPacket& packet){
         memcpy(&sequence, packet.payload, sizeof(sequence));
         
         if(analytics_.frames_received > 0 && sequence > analytics_.expected_sequence){
-          analytics_.packets_lost += (sequence - analytics_.expected_sequence);
+          analytics_.packets_dropped += (sequence - analytics_.expected_sequence);
         }
         analytics_.expected_sequence = sequence + 1;
         
@@ -304,3 +339,7 @@ void CpuUartBidirectional::handleReceivedPacket(const UartPacket& packet){
       break;
   }
 }
+
+} // namespace arcos::communication
+
+#endif // ARCOS_COMMUNICATION_CPU_UART_BIDIRECTIONAL_IMPL_HPP_
