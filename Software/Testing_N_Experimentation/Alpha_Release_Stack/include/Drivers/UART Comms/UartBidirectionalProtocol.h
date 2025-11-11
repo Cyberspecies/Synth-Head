@@ -143,10 +143,14 @@ struct __attribute__((packed)) RgbwColor{
 };
 
 /** LED data payload structure (GPU -> CPU)
- * Flattened array of all LEDs in strip order
+ * Flattened array of all LEDs in strip order + fan control
  */
 struct __attribute__((packed)) LedDataPayload{
   RgbwColor leds[LED_COUNT_TOTAL];  // 49 LEDs × 4 bytes = 196 bytes
+  uint8_t fan_speed;                // Fan PWM speed (0-255): 0=off, 255=full speed
+  uint8_t _reserved[3];             // Reserved for future use (alignment to 200 bytes)
+  
+  // Total: 196 + 1 + 3 = 200 bytes
   
   // Helper methods to access LED strips
   inline RgbwColor* getLeftFinLeds(){ return &leds[LED_OFFSET_LEFT_FIN]; }

@@ -693,26 +693,40 @@ void displaySystemPage(const SensorDataPayload& data){
   
   char buf[32];
   
-  drawText(0, 15, "Data Rate:");
-  snprintf(buf, sizeof(buf), " %lu FPS", stats.sensor_fps);
-  drawText(0, 55, buf);
+  // Data rates
+  drawText(0, 12, "Data Rate:");
+  snprintf(buf, sizeof(buf), " RX:%lu TX:%lu FPS", stats.sensor_fps, stats.led_fps);
+  drawText(0, 22, buf);
   
-  drawText(0, 43, "Buttons:");
+  // Fan speed
+  drawText(0, 34, "Fan Speed:");
+  snprintf(buf, sizeof(buf), " %u%% (%u/255)", (led_data.fan_speed * 100) / 255, led_data.fan_speed);
+  drawText(0, 44, buf);
+  
+  // Buttons
+  drawText(0, 56, "Buttons:");
   snprintf(buf, sizeof(buf), " A:%u B:%u C:%u D:%u",
     data.getButtonA(), data.getButtonB(), data.getButtonC(), data.getButtonD());
-  drawText(0, 55, buf);
+  drawText(0, 66, buf);
   
-  drawText(0, 71, "Sensors:");
+  // Sensor validity
+  drawText(0, 78, "Sensors:");
   snprintf(buf, sizeof(buf), " IMU:%u ENV:%u",
     data.getImuValid(), data.getEnvValid());
-  drawText(0, 83, buf);
+  drawText(0, 88, buf);
   snprintf(buf, sizeof(buf), " GPS:%u MIC:%u",
     data.getGpsValidFlag(), data.getMicValid());
-  drawText(0, 95, buf);
+  drawText(0, 98, buf);
   
-  drawText(0, 111, "Page: ");
-  snprintf(buf, sizeof(buf), "%d/%d", current_page + 1, TOTAL_PAGES);
-  drawText(48, 111, buf);
+  // Current animation
+  drawText(0, 110, "Anim:");
+  const char* anim_names[] = {"Rainbow", "Breath", "Wave"};
+  snprintf(buf, sizeof(buf), " %s", anim_names[current_animation]);
+  drawText(35, 110, buf);
+  
+  // Page indicator
+  snprintf(buf, sizeof(buf), "Pg %d/%d", current_page + 1, TOTAL_PAGES);
+  drawText(95, 110, buf);
   
   updateDisplay();
 }
@@ -826,6 +840,17 @@ void ledSendTask(void* parameter){
       // Update animation
       animation_time_ms = current_time / 1000;
       updateAnimation();
+      
+      // Update fan speed based on animation (more intense = faster fan)
+      // Animation 0 (Rainbow): 60% speed
+      // Animation 1 (Breathing): 40% speed
+      // Animation 2 (Wave): 80% speed
+      switch(current_animation){
+        case 0: led_data.fan_speed = 153; break; // 60%
+        case 1: led_data.fan_speed = 102; break; // 40%
+        case 2: led_data.fan_speed = 204; break; // 80%
+        default: led_data.fan_speed = 128; break; // 50%
+      }
       
       // Send LED data via UART
       if(uart_comm.sendPacket(
@@ -984,10 +1009,12 @@ extern "C" void app_main(void){
   }
   ESP_LOGI(TAG, "UART initialized (2 Mbps, RX=GPIO13, TX=GPIO12)");
   
-  // Initialize LED data
+  // Initialize LED data and fan control
   led_data.setAllColor(RgbwColor(0, 0, 0, 0));
+  led_data.fan_speed = 128;  // Start at 50% speed
   ESP_LOGI(TAG, "LED animation system initialized (%d LEDs, %d bytes)", 
            LED_COUNT_TOTAL, sizeof(LedDataPayload));
+  ESP_LOGI(TAG, "Fan control initialized (default: 50%%)");
   
   // Create mutex for shared data protection
   sensor_data_mutex = xSemaphoreCreateMutex();

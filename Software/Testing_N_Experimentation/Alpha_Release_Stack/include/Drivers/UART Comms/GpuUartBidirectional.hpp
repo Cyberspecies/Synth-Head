@@ -23,8 +23,8 @@ constexpr int GPU_RX_PIN = 13;
 constexpr uart_port_t GPU_UART_NUM = UART_NUM_1;
 
 /** Data size configuration */
-constexpr int GPU_SEND_BYTES = 196;  // 1568 bits = 196 bytes
-constexpr int GPU_RECV_BYTES = 40;   // 316 bits rounded up to 40 bytes
+constexpr int GPU_SEND_BYTES = 200;  // LED data (196) + fan (1) + reserved (3) = 200 bytes
+constexpr int GPU_RECV_BYTES = 40;   // 316 bits rounded up to 40 bytes (sensor data)
 constexpr int GPU_TARGET_FPS = 60;
 constexpr int GPU_FRAME_TIME_MS = 1000 / GPU_TARGET_FPS;
 

@@ -44,6 +44,12 @@ constexpr int LED_PIN_STRIP2 = 8;   // Tongue
 constexpr int LED_PIN_STRIP4 = 38;  // Right Fin
 constexpr int LED_PIN_STRIP5 = 37;  // Scale
 
+// Fan PWM Configuration
+constexpr int FAN_PIN = 17;         // Fan 1 on GPIO 17
+constexpr int FAN_PWM_CHANNEL = 0;  // LEDC channel 0
+constexpr int FAN_PWM_FREQ = 25000; // 25kHz PWM frequency
+constexpr int FAN_PWM_RESOLUTION = 8; // 8-bit resolution (0-255)
+
 // ============== Timing Configuration ==============
 constexpr uint32_t CPU_TARGET_FPS = 60;
 constexpr uint32_t FRAME_TIME_US = 1000000 / CPU_TARGET_FPS;  // 16666 microseconds
@@ -88,6 +94,7 @@ struct Statistics{
   uint8_t last_led_g = 0;
   uint8_t last_led_b = 0;
   uint8_t last_led_w = 0;
+  uint8_t fan_speed = 0;  // Current fan speed (0-255)
 };
 Statistics stats;
 
@@ -314,7 +321,7 @@ void uartSendTask(void* parameter){
         stats.sensor_fps = stats.sensor_frames_sent;
         stats.led_fps = stats.led_frames_received;
         
-        Serial.printf("CPU Stats: Sensor TX: %u fps | LED RX: %u fps | LEDs: %u upd/s | Sensors: %u/s | LED[0]: R=%d G=%d B=%d W=%d\n",
+        Serial.printf("CPU Stats: Sensor TX: %u fps | LED RX: %u fps | LEDs: %u upd/s | Sensors: %u/s | LED[0]: R=%d G=%d B=%d W=%d | Fan: %d%%\n",
           stats.sensor_fps,
           stats.led_fps,
           stats.leds_updated,
@@ -322,7 +329,8 @@ void uartSendTask(void* parameter){
           stats.last_led_r,
           stats.last_led_g,
           stats.last_led_b,
-          stats.last_led_w
+          stats.last_led_w,
+          (stats.fan_speed * 100) / 255
         );
         
         stats.sensor_frames_sent = 0;
@@ -358,12 +366,16 @@ void uartReceiveTask(void* parameter){
             last_led_data_time = millis();
             stats.led_frames_received++;
             
-            // Store first LED color for stats display
+            // Store first LED color and fan speed for stats display
             const RgbwColor& first_led = shared_led_data.leds[0];
             stats.last_led_r = first_led.r;
             stats.last_led_g = first_led.g;
             stats.last_led_b = first_led.b;
             stats.last_led_w = first_led.w;
+            stats.fan_speed = shared_led_data.fan_speed;
+            
+            // Update fan speed immediately
+            ledcWrite(FAN_PWM_CHANNEL, shared_led_data.fan_speed);
             
             xSemaphoreGive(led_data_mutex);
           }
@@ -489,6 +501,14 @@ void setup(){
   
   // Test LED strips
   testLedStrips();
+  
+  // Initialize fan PWM
+  Serial.println("CPU: Initializing fan control...");
+  ledcSetup(FAN_PWM_CHANNEL, FAN_PWM_FREQ, FAN_PWM_RESOLUTION);
+  ledcAttachPin(FAN_PIN, FAN_PWM_CHANNEL);
+  ledcWrite(FAN_PWM_CHANNEL, 0);  // Start with fan off
+  Serial.printf("CPU: Fan initialized on GPIO %d (PWM channel %d, %d Hz)\n", 
+                FAN_PIN, FAN_PWM_CHANNEL, FAN_PWM_FREQ);
   
   // Initialize sensor manager
   Serial.println("CPU: Initializing sensors...");
