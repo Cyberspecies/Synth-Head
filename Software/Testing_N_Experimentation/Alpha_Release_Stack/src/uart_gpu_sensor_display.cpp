@@ -841,15 +841,26 @@ void ledSendTask(void* parameter){
       animation_time_ms = current_time / 1000;
       updateAnimation();
       
-      // Update fan speed based on animation (more intense = faster fan)
-      // Animation 0 (Rainbow): 60% speed
-      // Animation 1 (Breathing): 40% speed
-      // Animation 2 (Wave): 80% speed
-      switch(current_animation){
-        case 0: led_data.fan_speed = 153; break; // 60%
-        case 1: led_data.fan_speed = 102; break; // 40%
-        case 2: led_data.fan_speed = 204; break; // 80%
-        default: led_data.fan_speed = 128; break; // 50%
+      // Smooth fan speed animation: 12-second cycle
+      // 0-3s: Ramp up from 0% to 100%
+      // 3-6s: Hold at 100%
+      // 6-9s: Ramp down from 100% to 0%
+      // 9-12s: Hold at 0%
+      uint32_t cycle_time_ms = animation_time_ms % 12000;  // 12-second cycle
+      
+      if(cycle_time_ms < 3000){
+        // Ramp up: 0-3 seconds
+        led_data.fan_speed = (uint8_t)((cycle_time_ms * 255) / 3000);
+      }else if(cycle_time_ms < 6000){
+        // Hold at 100%: 3-6 seconds
+        led_data.fan_speed = 255;
+      }else if(cycle_time_ms < 9000){
+        // Ramp down: 6-9 seconds
+        uint32_t ramp_down_time = cycle_time_ms - 6000;
+        led_data.fan_speed = (uint8_t)(255 - ((ramp_down_time * 255) / 3000));
+      }else{
+        // Hold at 0%: 9-12 seconds
+        led_data.fan_speed = 0;
       }
       
       // Send LED data via UART

@@ -47,7 +47,7 @@ constexpr int LED_PIN_STRIP5 = 37;  // Scale
 // Fan PWM Configuration
 constexpr int FAN_PIN = 17;         // Fan 1 on GPIO 17
 constexpr int FAN_PWM_CHANNEL = 0;  // LEDC channel 0
-constexpr int FAN_PWM_FREQ = 25000; // 25kHz PWM frequency
+constexpr int FAN_PWM_FREQ = 40000; // 40kHz PWM frequency (above human hearing, eliminates whine)
 constexpr int FAN_PWM_RESOLUTION = 8; // 8-bit resolution (0-255)
 
 // ============== Timing Configuration ==============
