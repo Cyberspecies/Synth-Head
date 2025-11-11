@@ -66,7 +66,7 @@ inline bool CpuUartBidirectional::init(int baud_rate){
   analytics_.start_time = millis();
   analytics_.last_report_time = millis();
   
-  Serial.printf("CPU: UART2 initialized at %d baud (RX=%d, TX=%d)\n", 
+  Serial.printf("CPU: UART1 initialized at %d baud (RX=%d, TX=%d)\n", 
                 baud_rate, CPU_RX_PIN, CPU_TX_PIN);
   Serial.println("Starting communication...\n");
   return true;
@@ -308,9 +308,10 @@ inline void CpuUartBidirectional::update(){
     }
   }
   
-  if(current_time - analytics_.last_report_time >= 2000){
-    printAnalytics();
-  }
+  // Analytics reporting disabled
+  // if(current_time - analytics_.last_report_time >= 2000){
+  //   printAnalytics();
+  // }
 }
 
 inline void CpuUartBidirectional::handleReceivedPacket(const UartPacket& packet){

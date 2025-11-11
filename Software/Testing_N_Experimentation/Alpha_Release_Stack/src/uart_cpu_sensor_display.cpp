@@ -1,0 +1,328 @@
+/*****************************************************************
+ * File:      uart_cpu_sensor_display.cpp
+ * Category:  communication/applications
+ * Author:    XCR1793 (Feather Forge)
+ * 
+ * Purpose:
+ *    CPU-side application that reads all sensors (IMU, BME280, GPS,
+ *    Microphone) and 4 buttons, packages the data, and sends it to
+ *    GPU via UART at 60Hz using dual-core processing.
+ * 
+ * Hardware:
+ *    - ESP32-S3 (CPU)
+ *    - ICM20948 IMU (I2C: SDA=GPIO9, SCL=GPIO10)
+ *    - BME280 Environmental Sensor (I2C: SDA=GPIO9, SCL=GPIO10)
+ *    - NEO-8M GPS (UART: TX=GPIO43, RX=GPIO44)
+ *    - INMP441 Microphone (I2S)
+ *    - 4 Buttons: A=GPIO5, B=GPIO6, C=GPIO7, D=GPIO15
+ * 
+ * Communication:
+ *    - UART to GPU: RX=GPIO11, TX=GPIO12
+ *    - Baud Rate: 2 Mbps
+ *    - Update Rate: 60Hz
+ *    - Payload Size: 120 bytes
+ *****************************************************************/
+
+#include <Arduino.h>
+#include "Drivers/UART Comms/CpuUartBidirectional.hpp"
+#include "Drivers/Sensors/SensorManager.h"
+
+using namespace arcos::communication;
+using namespace sensors;
+
+// ============== Pin Definitions ==============
+constexpr uint8_t BUTTON_A_PIN = 5;
+constexpr uint8_t BUTTON_B_PIN = 6;
+constexpr uint8_t BUTTON_C_PIN = 7;
+constexpr uint8_t BUTTON_D_PIN = 15;
+
+// ============== Timing Configuration ==============
+constexpr uint32_t CPU_TARGET_FPS = 60;
+constexpr uint32_t FRAME_TIME_US = 1000000 / CPU_TARGET_FPS;  // 16666 microseconds
+
+// ============== Global Instances ==============
+SensorManager sensor_manager;
+CpuUartBidirectional uart_comm;
+
+// ============== Dual-Core Task Handles ==============
+TaskHandle_t sensor_task_handle = NULL;
+TaskHandle_t uart_task_handle = NULL;
+
+// ============== Shared Data (Protected by Mutex) ==============
+SemaphoreHandle_t data_mutex;
+SensorDataPayload shared_sensor_data;
+
+// ============== Statistics ==============
+struct Statistics{
+  uint32_t frames_sent = 0;
+  uint32_t sensor_reads = 0;
+  uint32_t last_report_time = 0;
+  uint32_t frames_per_second = 0;
+  uint32_t sensor_reads_per_second = 0;
+};
+Statistics stats;
+
+/**
+ * @brief Initialize button GPIOs with internal pull-ups
+ */
+void initializeButtons(){
+  pinMode(BUTTON_A_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_B_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_C_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_D_PIN, INPUT_PULLUP);
+  
+  Serial.println("CPU: Buttons initialized (A=GPIO5, B=GPIO6, C=GPIO7, D=GPIO15)");
+}
+
+/**
+ * @brief Read button states (active LOW with pull-ups)
+ * @return Button states (0=released, 1=pressed)
+ */
+void readButtons(uint8_t& btn_a, uint8_t& btn_b, uint8_t& btn_c, uint8_t& btn_d){
+  // Buttons are active LOW (pressed = LOW)
+  btn_a = !digitalRead(BUTTON_A_PIN);
+  btn_b = !digitalRead(BUTTON_B_PIN);
+  btn_c = !digitalRead(BUTTON_C_PIN);
+  btn_d = !digitalRead(BUTTON_D_PIN);
+}
+
+/**
+ * @brief Core 0 Task: Read sensors and update shared data structure
+ * Runs at maximum speed, continuously updating sensor readings
+ */
+void sensorReadTask(void* parameter){
+  Serial.println("CPU: Sensor read task started on Core 0");
+  
+  while(true){
+    // Update sensor manager (reads all sensors)
+    sensor_manager.update();
+    
+    // Acquire mutex to update shared data
+    if(xSemaphoreTake(data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
+      // Read IMU data
+      if(sensor_manager.isImuValid()){
+        const Icm20948Data& imu = sensor_manager.getImuData();
+        shared_sensor_data.accel_x = imu.accel_x;
+        shared_sensor_data.accel_y = imu.accel_y;
+        shared_sensor_data.accel_z = imu.accel_z;
+        shared_sensor_data.gyro_x = imu.gyro_x;
+        shared_sensor_data.gyro_y = imu.gyro_y;
+        shared_sensor_data.gyro_z = imu.gyro_z;
+        shared_sensor_data.mag_x = imu.mag_x;
+        shared_sensor_data.mag_y = imu.mag_y;
+        shared_sensor_data.mag_z = imu.mag_z;
+        shared_sensor_data.setImuValid(true);
+      }else{
+        shared_sensor_data.setImuValid(false);
+      }
+      
+      // Read environmental data
+      if(sensor_manager.isEnvironmentalValid()){
+        const Bme280Data& env = sensor_manager.getEnvironmentalData();
+        shared_sensor_data.temperature = env.temperature;
+        shared_sensor_data.humidity = env.humidity;
+        shared_sensor_data.pressure = env.pressure;
+        shared_sensor_data.setEnvValid(true);
+      }else{
+        shared_sensor_data.setEnvValid(false);
+      }
+      
+      // Read GPS data
+      if(sensor_manager.isGpsValid()){
+        const Neo8mGpsData& gps = sensor_manager.getGpsData();
+        shared_sensor_data.latitude = gps.latitude;
+        shared_sensor_data.longitude = gps.longitude;
+        shared_sensor_data.altitude = gps.altitude;
+        shared_sensor_data.speed_knots = gps.speed_knots;
+        shared_sensor_data.course = gps.course;
+        shared_sensor_data.setGpsFixQuality(static_cast<uint8_t>(gps.fix_quality));
+        shared_sensor_data.gps_satellites = gps.satellites;
+        shared_sensor_data.gps_hour = gps.hour;
+        shared_sensor_data.gps_minute = gps.minute;
+        shared_sensor_data.gps_second = gps.second;
+        shared_sensor_data.setGpsValid(gps.valid);
+        shared_sensor_data.setGpsValidFlag(true);
+      }else{
+        shared_sensor_data.setGpsValidFlag(false);
+      }
+      
+      // Read microphone data
+      if(sensor_manager.isMicrophoneValid()){
+        const Inmp441AudioData& mic = sensor_manager.getMicrophoneData();
+        shared_sensor_data.mic_current_sample = mic.current_sample;
+        shared_sensor_data.mic_peak_amplitude = mic.peak_amplitude;
+        shared_sensor_data.mic_db_level = mic.db_level;
+        shared_sensor_data.setMicClipping(mic.clipping);
+        shared_sensor_data.setMicValid(true);
+      }else{
+        shared_sensor_data.setMicValid(false);
+      }
+      
+      // Read button states
+      uint8_t btn_a, btn_b, btn_c, btn_d;
+      readButtons(btn_a, btn_b, btn_c, btn_d);
+      shared_sensor_data.setButtonA(btn_a);
+      shared_sensor_data.setButtonB(btn_b);
+      shared_sensor_data.setButtonC(btn_c);
+      shared_sensor_data.setButtonD(btn_d);
+      
+      stats.sensor_reads++;
+      
+      xSemaphoreGive(data_mutex);
+    }
+    
+    // Small delay to prevent task starvation
+    vTaskDelay(1);
+  }
+}
+
+/**
+ * @brief Core 1 Task: Package and send sensor data via UART at 60Hz
+ * Maintains precise 60Hz timing using high-resolution timer
+ */
+void uartSendTask(void* parameter){
+  Serial.println("CPU: UART send task started on Core 1");
+  
+  uint32_t last_frame_time = micros();
+  SensorDataPayload local_copy;
+  
+  while(true){
+    uint32_t current_time = micros();
+    uint32_t elapsed = current_time - last_frame_time;
+    
+    // Wait until frame time elapsed (60Hz = 16666 microseconds)
+    if(elapsed >= FRAME_TIME_US){
+      last_frame_time = current_time;
+      
+      // Copy shared data to local buffer
+      if(xSemaphoreTake(data_mutex, pdMS_TO_TICKS(2)) == pdTRUE){
+        memcpy(&local_copy, &shared_sensor_data, sizeof(SensorDataPayload));
+        xSemaphoreGive(data_mutex);
+      }
+      
+      // Send sensor data packet via UART
+      if(uart_comm.sendPacket(
+        MessageType::SENSOR_DATA,
+        reinterpret_cast<const uint8_t*>(&local_copy),
+        sizeof(SensorDataPayload)
+      )){
+        stats.frames_sent++;
+      }
+      
+      // Print statistics every second
+      if(current_time - stats.last_report_time >= 1000000){
+        stats.frames_per_second = stats.frames_sent;
+        stats.sensor_reads_per_second = stats.sensor_reads;
+        
+        Serial.printf("CPU Stats: %u fps | %u sensor reads/s | Buttons: A=%u B=%u C=%u D=%u\n",
+          stats.frames_per_second,
+          stats.sensor_reads_per_second,
+          local_copy.getButtonA(),
+          local_copy.getButtonB(),
+          local_copy.getButtonC(),
+          local_copy.getButtonD()
+        );
+        
+        stats.frames_sent = 0;
+        stats.sensor_reads = 0;
+        stats.last_report_time = current_time;
+      }
+    }else{
+      // Not time to send yet - small delay to prevent busy-waiting
+      delayMicroseconds(100);
+    }
+  }
+}
+
+/**
+ * @brief Arduino setup function
+ */
+void setup(){
+  Serial.begin(115200);
+  delay(1000);
+  
+  Serial.println("\n\n");
+  Serial.println("================================================");
+  Serial.println("    CPU Sensor + Button UART Display System    ");
+  Serial.println("================================================");
+  Serial.println();
+  
+  // Initialize buttons
+  initializeButtons();
+  
+  // Initialize sensor manager
+  Serial.println("CPU: Initializing sensors...");
+  if(!sensor_manager.init()){
+    Serial.println("CPU: [ERROR] Sensor manager initialization failed!");
+    Serial.println("CPU: System halted. Check sensor wiring.");
+    while(1){
+      delay(1000);
+    }
+  }
+  Serial.println("CPU: Sensors initialized successfully");
+  
+  // Initialize UART communication
+  Serial.println("CPU: Initializing UART communication...");
+  if(!uart_comm.init()){
+    Serial.println("CPU: [ERROR] UART initialization failed!");
+    Serial.println("CPU: System halted. Check UART wiring.");
+    while(1){
+      delay(1000);
+    }
+  }
+  Serial.println("CPU: UART initialized (2 Mbps, RX=GPIO11, TX=GPIO12)");
+  
+  // Create mutex for shared data protection
+  data_mutex = xSemaphoreCreateMutex();
+  if(data_mutex == NULL){
+    Serial.println("CPU: [ERROR] Failed to create mutex!");
+    while(1){
+      delay(1000);
+    }
+  }
+  
+  // Initialize shared sensor data
+  memset(&shared_sensor_data, 0, sizeof(SensorDataPayload));
+  
+  Serial.println();
+  Serial.println("CPU: Creating dual-core tasks...");
+  
+  // Create sensor read task on Core 0
+  xTaskCreatePinnedToCore(
+    sensorReadTask,
+    "sensor_read",
+    8192,              // Stack size
+    NULL,
+    2,                 // Priority
+    &sensor_task_handle,
+    0                  // Core 0
+  );
+  
+  // Create UART send task on Core 1
+  xTaskCreatePinnedToCore(
+    uartSendTask,
+    "uart_send",
+    8192,              // Stack size
+    NULL,
+    3,                 // Higher priority for timing-critical task
+    &uart_task_handle,
+    1                  // Core 1
+  );
+  
+  Serial.println("CPU: Dual-core system active!");
+  Serial.println("CPU: Core 0 - Sensor reading");
+  Serial.println("CPU: Core 1 - UART transmission @ 60Hz");
+  Serial.println();
+  Serial.println("Press buttons A/B/C/D to test button detection");
+  Serial.println("================================================");
+  Serial.println();
+}
+
+/**
+ * @brief Arduino loop function (runs on Core 1)
+ * Main loop is not used - all work done in FreeRTOS tasks
+ */
+void loop(){
+  // Main loop idle - all work done in tasks
+  vTaskDelay(pdMS_TO_TICKS(1000));
+}

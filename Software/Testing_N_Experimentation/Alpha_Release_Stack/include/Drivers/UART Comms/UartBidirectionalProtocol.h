@@ -27,11 +27,88 @@ enum class MessageType : uint8_t{
   PONG = 0x02,           // Response to ping
   DATA_REQUEST = 0x10,   // Request data from peer
   DATA_RESPONSE = 0x11,  // Response with data
+  SENSOR_DATA = 0x12,    // Sensor data frame from CPU
   COMMAND = 0x20,        // Send command to peer
   ACK = 0x30,            // Acknowledge received message
   NACK = 0x31,           // Negative acknowledgment
   STATUS = 0x40,         // Status update
   ERROR = 0xE0           // Error notification
+};
+
+/** Packed sensor data payload structure (CPU -> GPU)
+ * Optimized for 60Hz transmission with bit-packed flags
+ */
+struct __attribute__((packed)) SensorDataPayload{
+  // IMU Data (9 floats = 36 bytes)
+  float accel_x, accel_y, accel_z;           // Accelerometer (g)
+  float gyro_x, gyro_y, gyro_z;              // Gyroscope (deg/s)
+  float mag_x, mag_y, mag_z;                 // Magnetometer (μT)
+  
+  // Environmental Data (3 floats = 12 bytes)
+  float temperature;                         // °C
+  float humidity;                            // %
+  float pressure;                            // Pa
+  
+  // GPS Data (26 bytes)
+  float latitude;                            // Decimal degrees
+  float longitude;                           // Decimal degrees
+  float altitude;                            // Meters
+  float speed_knots;                         // Speed in knots
+  float course;                              // Course in degrees
+  uint8_t gps_satellites;                    // Number of satellites
+  uint8_t gps_hour;                          // UTC hour
+  uint8_t gps_minute;                        // UTC minute
+  uint8_t gps_second;                        // UTC second
+  uint8_t gps_flags;                         // Bit-packed: [7:4]=reserved, [3:2]=fix_quality, [1]=valid, [0]=reserved
+  uint8_t _reserved_gps;                     // Alignment padding
+  
+  // Microphone Data (13 bytes)
+  int32_t mic_current_sample;                // Current sample
+  int32_t mic_peak_amplitude;                // Peak amplitude
+  float mic_db_level;                        // dB level
+  uint8_t mic_flags;                         // Bit-packed: [7:1]=reserved, [0]=clipping
+  
+  // Button States (1 byte)
+  uint8_t button_flags;                      // Bit-packed: [7:4]=reserved, [3]=D, [2]=C, [1]=B, [0]=A
+  
+  // Validity Flags (1 byte)
+  uint8_t sensor_valid_flags;                // Bit-packed: [7:4]=reserved, [3]=mic, [2]=gps, [1]=env, [0]=imu
+  
+  uint8_t _reserved_padding;                 // Final alignment padding
+  
+  // Total: 36 + 12 + 26 + 13 + 1 + 1 + 1 = 90 bytes (was 120 bytes, saved 30 bytes!)
+  
+  // Helper methods for bit manipulation
+  
+  // GPS flags helpers
+  inline uint8_t getGpsFixQuality() const{ return (gps_flags >> 2) & 0x03; }
+  inline bool getGpsValid() const{ return (gps_flags >> 1) & 0x01; }
+  inline void setGpsFixQuality(uint8_t quality){ gps_flags = (gps_flags & 0xF3) | ((quality & 0x03) << 2); }
+  inline void setGpsValid(bool valid){ gps_flags = (gps_flags & 0xFD) | ((valid ? 1 : 0) << 1); }
+  
+  // Microphone flags helpers
+  inline bool getMicClipping() const{ return mic_flags & 0x01; }
+  inline void setMicClipping(bool clipping){ mic_flags = (mic_flags & 0xFE) | (clipping ? 1 : 0); }
+  
+  // Button flags helpers
+  inline bool getButtonA() const{ return button_flags & 0x01; }
+  inline bool getButtonB() const{ return (button_flags >> 1) & 0x01; }
+  inline bool getButtonC() const{ return (button_flags >> 2) & 0x01; }
+  inline bool getButtonD() const{ return (button_flags >> 3) & 0x01; }
+  inline void setButtonA(bool pressed){ button_flags = (button_flags & 0xFE) | (pressed ? 1 : 0); }
+  inline void setButtonB(bool pressed){ button_flags = (button_flags & 0xFD) | ((pressed ? 1 : 0) << 1); }
+  inline void setButtonC(bool pressed){ button_flags = (button_flags & 0xFB) | ((pressed ? 1 : 0) << 2); }
+  inline void setButtonD(bool pressed){ button_flags = (button_flags & 0xF7) | ((pressed ? 1 : 0) << 3); }
+  
+  // Sensor validity flags helpers
+  inline bool getImuValid() const{ return sensor_valid_flags & 0x01; }
+  inline bool getEnvValid() const{ return (sensor_valid_flags >> 1) & 0x01; }
+  inline bool getGpsValidFlag() const{ return (sensor_valid_flags >> 2) & 0x01; }
+  inline bool getMicValid() const{ return (sensor_valid_flags >> 3) & 0x01; }
+  inline void setImuValid(bool valid){ sensor_valid_flags = (sensor_valid_flags & 0xFE) | (valid ? 1 : 0); }
+  inline void setEnvValid(bool valid){ sensor_valid_flags = (sensor_valid_flags & 0xFD) | ((valid ? 1 : 0) << 1); }
+  inline void setGpsValidFlag(bool valid){ sensor_valid_flags = (sensor_valid_flags & 0xFB) | ((valid ? 1 : 0) << 2); }
+  inline void setMicValid(bool valid){ sensor_valid_flags = (sensor_valid_flags & 0xF7) | ((valid ? 1 : 0) << 3); }
 };
 
 /** Message packet structure */

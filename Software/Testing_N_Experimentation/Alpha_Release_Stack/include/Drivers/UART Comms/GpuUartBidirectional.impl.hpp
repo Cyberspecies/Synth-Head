@@ -296,9 +296,10 @@ inline void GpuUartBidirectional::update(){
     }
   }
   
-  if(current_time - analytics_.last_report_time >= 2000){
-    printAnalytics();
-  }
+  // Analytics reporting disabled
+  // if(current_time - analytics_.last_report_time >= 2000){
+  //   printAnalytics();
+  // }
 }
 
 inline void GpuUartBidirectional::handleReceivedPacket(const UartPacket& packet){

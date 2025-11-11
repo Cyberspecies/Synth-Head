@@ -20,7 +20,7 @@ namespace arcos::communication{
 /** CPU UART Configuration */
 constexpr int CPU_RX_PIN = 11;
 constexpr int CPU_TX_PIN = 12;
-constexpr uart_port_t CPU_UART_NUM = UART_NUM_2;
+constexpr uart_port_t CPU_UART_NUM = UART_NUM_1;  // Use UART1 (GPS uses UART2)
 
 /** Data size configuration */
 constexpr int CPU_SEND_BYTES = 40;   // 316 bits rounded up to 40 bytes
