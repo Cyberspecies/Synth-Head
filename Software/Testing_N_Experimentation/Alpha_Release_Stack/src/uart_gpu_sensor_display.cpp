@@ -4,21 +4,21 @@
  * Author:    XCR1793 (Feather Forge)
  * 
  * Purpose:
- *    GPU-side application that receives sensor data from CPU via
- *    UART at 60Hz, displays it on OLED SH1107 with page-based
- *    navigation using buttons A and B.
+ *    GPU-side bidirectional application:
+ *    - Receives sensor data from CPU and displays on OLED with pages
+ *    - Generates LED animations and sends RGBW data to CPU at 60Hz
  * 
  * Hardware:
  *    - ESP32-S3 (GPU)
  *    - OLED SH1107 128x128 display (I2C: SDA=GPIO2, SCL=GPIO1)
- *    - UART from CPU: RX=GPIO13, TX=GPIO12
+ *    - UART to CPU: RX=GPIO13, TX=GPIO12
  * 
  * Display Layout:
  *    - Page 0: IMU Data (Accelerometer, Gyroscope, Magnetometer)
  *    - Page 1: Environmental Data (Temperature, Humidity, Pressure)
  *    - Page 2: GPS Data (Position, Satellites, Time)
- *    - Page 3: Microphone Data (Audio levels, dB)
- *    - Page 4: System Info (FPS, Button states)
+ *    - Page 3: Microphone Data with waveform graph
+ *    - Page 4: System Info (FPS, Button states, LED animation)
  * 
  * Controls:
  *    - Button A: Previous page
@@ -28,13 +28,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include <cmath>
 #include "Drivers/UART Comms/GpuUartBidirectional.hpp"
 #include "abstraction/drivers/components/OLED/driver_oled_sh1107.hpp"
 
 using namespace arcos::communication;
 using namespace arcos::abstraction;
 
-static const char* TAG = "GPU_SENSOR_DISPLAY";
+static const char* TAG = "GPU_BIDIRECTIONAL";
 
 // ============== Display Configuration ==============
 constexpr int DISPLAY_WIDTH = 128;
@@ -51,15 +52,23 @@ constexpr int MIC_GRAPH_SAMPLES = MIC_GRAPH_WIDTH;  // One sample per pixel
 constexpr float MIC_DB_MIN = -60.0f;            // Minimum dB for graph
 constexpr float MIC_DB_MAX = 0.0f;              // Maximum dB for graph
 
+// ============== LED Configuration ==============
+constexpr uint32_t LED_FPS = 60;
+constexpr uint32_t LED_FRAME_INTERVAL_US = 1000000 / LED_FPS;
+
 // ============== Global Instances ==============
 GpuUartBidirectional uart_comm;
 DRIVER_OLED_SH1107 oled_display;
 
-// ============== Shared Data (Protected by Mutex) ==============
-SemaphoreHandle_t data_mutex;
+// ============== Shared Data (Protected by Mutexes) ==============
+SemaphoreHandle_t sensor_data_mutex;
 SensorDataPayload current_sensor_data;
 bool data_received = false;
 uint32_t last_data_time = 0;
+
+LedDataPayload led_data;
+uint8_t current_animation = 0;
+uint32_t animation_time_ms = 0;
 
 // ============== Display State ==============
 int current_page = 0;
@@ -73,13 +82,15 @@ uint32_t last_mic_sample_time = 0;             // Last time we added a sample
 uint32_t mic_sample_interval_ms = 0;           // Calculated from graph duration
 
 // ============== Statistics ==============
-struct DisplayStats{
-  uint32_t frames_received = 0;
+struct Stats{
+  uint32_t sensor_frames_received = 0;
+  uint32_t led_frames_sent = 0;
   uint32_t display_updates = 0;
   uint32_t last_report_time = 0;
-  uint32_t fps = 0;
+  uint32_t sensor_fps = 0;
+  uint32_t led_fps = 0;
 };
-DisplayStats stats;
+Stats stats;
 
 /**
  * @brief Initialize OLED display
@@ -252,6 +263,72 @@ void addMicSample(float db_level){
   mic_history_index = (mic_history_index + 1) % MIC_GRAPH_SAMPLES;
 }
 
+// ============== LED Animation Functions ==============
+
+/**
+ * @brief Rainbow wave animation
+ */
+void animationRainbow(){
+  float time_sec = animation_time_ms / 1000.0f;
+  
+  for(uint16_t i = 0; i < LED_COUNT_TOTAL; i++){
+    float hue = fmodf((i / (float)LED_COUNT_TOTAL) + (time_sec * 0.2f), 1.0f);
+    float h = hue * 6.0f;
+    int region = (int)h;
+    float f = h - region;
+    
+    uint8_t q = (uint8_t)(255 * (1.0f - f));
+    uint8_t t = (uint8_t)(255 * f);
+    
+    switch(region % 6){
+      case 0: led_data.leds[i] = RgbwColor(255, t, 0, 0); break;
+      case 1: led_data.leds[i] = RgbwColor(q, 255, 0, 0); break;
+      case 2: led_data.leds[i] = RgbwColor(0, 255, t, 0); break;
+      case 3: led_data.leds[i] = RgbwColor(0, q, 255, 0); break;
+      case 4: led_data.leds[i] = RgbwColor(t, 0, 255, 0); break;
+      case 5: led_data.leds[i] = RgbwColor(255, 0, q, 0); break;
+    }
+  }
+}
+
+/**
+ * @brief Breathing animation with different colors per strip
+ */
+void animationBreathing(){
+  float time_sec = animation_time_ms / 1000.0f;
+  uint8_t brightness = (uint8_t)(127.5f + 127.5f * sinf(time_sec * 2.0f));
+  
+  led_data.setLeftFinColor(RgbwColor(brightness, 0, 0, 0));
+  led_data.setTongueColor(RgbwColor(0, brightness, 0, 0));
+  led_data.setRightFinColor(RgbwColor(0, 0, brightness, 0));
+  led_data.setScaleColor(RgbwColor(0, 0, 0, brightness));
+}
+
+/**
+ * @brief Wave animation across all strips
+ */
+void animationWave(){
+  float time_sec = animation_time_ms / 1000.0f;
+  
+  for(uint16_t i = 0; i < LED_COUNT_TOTAL; i++){
+    float wave = sinf((i * 0.3f) + (time_sec * 3.0f));
+    uint8_t brightness = (uint8_t)(127.5f + 127.5f * wave);
+    led_data.leds[i] = RgbwColor(brightness, brightness / 2, 0, 0);
+  }
+}
+
+/**
+ * @brief Update current animation
+ */
+void updateAnimation(){
+  switch(current_animation){
+    case 0: animationRainbow(); break;
+    case 1: animationBreathing(); break;
+    case 2: animationWave(); break;
+    default: animationRainbow(); break;
+  }
+}
+
 /**
  * @brief Draw microphone waveform graph
  */
@@ -350,8 +427,8 @@ void displaySystemPage(const SensorDataPayload& data){
   char buf[32];
   
   drawText(0, 15, "Data Rate:");
-  snprintf(buf, sizeof(buf), " %lu FPS", stats.fps);
-  drawText(0, 27, buf);
+  snprintf(buf, sizeof(buf), " %lu FPS", stats.sensor_fps);
+  drawText(0, 55, buf);
   
   drawText(0, 43, "Buttons:");
   snprintf(buf, sizeof(buf), " A:%u B:%u C:%u D:%u",
@@ -443,18 +520,56 @@ void uartReceiveTask(void* parameter){
       if(packet.message_type == MessageType::SENSOR_DATA){
         // Parse sensor data payload
         if(packet.payload_length == sizeof(SensorDataPayload)){
-          if(xSemaphoreTake(data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
+          if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
             memcpy(&current_sensor_data, packet.payload, sizeof(SensorDataPayload));
             data_received = true;
             last_data_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            stats.frames_received++;
-            xSemaphoreGive(data_mutex);
+            stats.sensor_frames_received++;
+            xSemaphoreGive(sensor_data_mutex);
           }
         }
       }
     }
     
     // Small delay to prevent task starvation
+    vTaskDelay(1);
+  }
+}
+
+/**
+ * @brief LED Send Task - generates animations and sends to CPU at 60 FPS
+ */
+void ledSendTask(void* parameter){
+  ESP_LOGI(TAG, "LED send task started on Core 0");
+  
+  uint64_t next_frame_time = esp_timer_get_time();
+  
+  while(true){
+    uint64_t current_time = esp_timer_get_time();
+    
+    if(current_time >= next_frame_time){
+      // Update animation
+      animation_time_ms = current_time / 1000;
+      updateAnimation();
+      
+      // Send LED data via UART
+      if(uart_comm.sendPacket(
+        MessageType::LED_DATA,
+        reinterpret_cast<uint8_t*>(&led_data),
+        sizeof(LedDataPayload)
+      )){
+        stats.led_frames_sent++;
+      }
+      
+      // Calculate next frame time
+      next_frame_time += LED_FRAME_INTERVAL_US;
+      
+      // Resync if fallen behind
+      if(current_time > next_frame_time + LED_FRAME_INTERVAL_US){
+        next_frame_time = current_time;
+      }
+    }
+    
     vTaskDelay(1);
   }
 }
@@ -481,12 +596,12 @@ void displayUpdateTask(void* parameter){
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
     // Copy shared data to local buffer
-    if(xSemaphoreTake(data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
+    if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
       if(data_received){
         memcpy(&local_copy, &current_sensor_data, sizeof(SensorDataPayload));
         have_data = true;
       }
-      xSemaphoreGive(data_mutex);
+      xSemaphoreGive(sensor_data_mutex);
     }
     
     // Update microphone history buffer at calculated interval
@@ -515,14 +630,22 @@ void displayUpdateTask(void* parameter){
     
     // Print statistics every second
     if(current_time - stats.last_report_time >= 1000){
-      stats.fps = stats.frames_received;
+      stats.sensor_fps = stats.sensor_frames_received;
+      stats.led_fps = stats.led_frames_sent;
       
-      ESP_LOGI(TAG, "Stats: %lu fps | Display updates: %lu | Page: %d",
-        stats.fps, stats.display_updates, current_page);
+      ESP_LOGI(TAG, "Stats: Sensor RX: %lu fps | LED TX: %lu fps | Display: %lu | Page: %d | Anim: %d",
+        stats.sensor_fps, stats.led_fps, stats.display_updates, current_page, current_animation);
       
-      stats.frames_received = 0;
+      stats.sensor_frames_received = 0;
+      stats.led_frames_sent = 0;
       stats.display_updates = 0;
       stats.last_report_time = current_time;
+      
+      // Cycle animation every 10 seconds
+      if((current_time / 10000) % 3 != current_animation){
+        current_animation = (current_time / 10000) % 3;
+        ESP_LOGI(TAG, "Switching to animation %d", current_animation);
+      }
     }
     
     // Update at ~20Hz to avoid flickering
@@ -535,9 +658,9 @@ void displayUpdateTask(void* parameter){
  */
 extern "C" void app_main(void){
   ESP_LOGI(TAG, "");
-  ESP_LOGI(TAG, "================================================");
-  ESP_LOGI(TAG, "    GPU Sensor Display System with OLED        ");
-  ESP_LOGI(TAG, "================================================");
+  ESP_LOGI(TAG, "========================================================");
+  ESP_LOGI(TAG, "  GPU Bidirectional: Sensor Display + LED Animations   ");
+  ESP_LOGI(TAG, "========================================================");
   ESP_LOGI(TAG, "");
   
   // Initialize OLED display
@@ -549,8 +672,10 @@ extern "C" void app_main(void){
   
   // Show startup message
   clearDisplay();
-  drawText(10, 40, "GPU System");
-  drawText(10, 52, "Initializing...");
+  drawText(10, 30, "GPU System");
+  drawText(10, 42, "Initializing...");
+  drawText(10, 54, "Sensor RX");
+  drawText(10, 66, "LED TX @ 60fps");
   updateDisplay();
   vTaskDelay(pdMS_TO_TICKS(1000));
   
@@ -568,9 +693,14 @@ extern "C" void app_main(void){
   }
   ESP_LOGI(TAG, "UART initialized (2 Mbps, RX=GPIO13, TX=GPIO12)");
   
+  // Initialize LED data
+  led_data.setAllColor(RgbwColor(0, 0, 0, 0));
+  ESP_LOGI(TAG, "LED animation system initialized (%d LEDs, %d bytes)", 
+           LED_COUNT_TOTAL, sizeof(LedDataPayload));
+  
   // Create mutex for shared data protection
-  data_mutex = xSemaphoreCreateMutex();
-  if(data_mutex == NULL){
+  sensor_data_mutex = xSemaphoreCreateMutex();
+  if(sensor_data_mutex == NULL){
     ESP_LOGE(TAG, "FATAL: Failed to create mutex!");
     return;
   }
@@ -578,33 +708,43 @@ extern "C" void app_main(void){
   // Initialize shared sensor data
   memset(&current_sensor_data, 0, sizeof(SensorDataPayload));
   
-  ESP_LOGI(TAG, "Creating dual-core tasks...");
+  ESP_LOGI(TAG, "Creating tasks on both cores...");
   
-  // Create UART receive task on Core 0
+  // Core 0 tasks
   xTaskCreatePinnedToCore(
     uartReceiveTask,
     "uart_receive",
     8192,
     NULL,
-    3,                 // High priority for data reception
+    3,
     NULL,
-    0                  // Core 0
+    0  // Core 0
   );
   
-  // Create display update task on Core 1
+  xTaskCreatePinnedToCore(
+    ledSendTask,
+    "led_send",
+    8192,
+    NULL,
+    3,
+    NULL,
+    0  // Core 0
+  );
+  
+  // Core 1 tasks
   xTaskCreatePinnedToCore(
     displayUpdateTask,
     "display_update",
     8192,
     NULL,
-    2,                 // Normal priority
+    2,
     NULL,
-    1                  // Core 1
+    1  // Core 1
   );
   
-  ESP_LOGI(TAG, "Dual-core system active!");
-  ESP_LOGI(TAG, "Core 0 - UART reception @ 60Hz");
-  ESP_LOGI(TAG, "Core 1 - Display updates");
+  ESP_LOGI(TAG, "All tasks created!");
+  ESP_LOGI(TAG, "Core 0 - UART RX (Sensors @ 60Hz) + LED TX @ 60Hz");
+  ESP_LOGI(TAG, "Core 1 - Display updates @ 20Hz");
   ESP_LOGI(TAG, "");
   ESP_LOGI(TAG, "Controls:");
   ESP_LOGI(TAG, "  Button A - Previous page");

@@ -28,6 +28,7 @@ enum class MessageType : uint8_t{
   DATA_REQUEST = 0x10,   // Request data from peer
   DATA_RESPONSE = 0x11,  // Response with data
   SENSOR_DATA = 0x12,    // Sensor data frame from CPU
+  LED_DATA = 0x13,       // LED RGBW data frame from GPU
   COMMAND = 0x20,        // Send command to peer
   ACK = 0x30,            // Acknowledge received message
   NACK = 0x31,           // Negative acknowledgment
@@ -109,6 +110,73 @@ struct __attribute__((packed)) SensorDataPayload{
   inline void setEnvValid(bool valid){ sensor_valid_flags = (sensor_valid_flags & 0xFD) | ((valid ? 1 : 0) << 1); }
   inline void setGpsValidFlag(bool valid){ sensor_valid_flags = (sensor_valid_flags & 0xFB) | ((valid ? 1 : 0) << 2); }
   inline void setMicValid(bool valid){ sensor_valid_flags = (sensor_valid_flags & 0xF7) | ((valid ? 1 : 0) << 3); }
+};
+
+/** LED strip configuration for the robot head
+ * - Strip 1 (Left Fin): 13 LEDs - GPIO 18
+ * - Strip 2 (Tongue): 9 LEDs - GPIO 8
+ * - Strip 4 (Right Fin): 13 LEDs - GPIO 38
+ * - Strip 5 (Scale): 14 LEDs - GPIO 37
+ * Total: 49 LEDs
+ */
+constexpr uint16_t LED_COUNT_LEFT_FIN = 13;
+constexpr uint16_t LED_COUNT_TONGUE = 9;
+constexpr uint16_t LED_COUNT_RIGHT_FIN = 13;
+constexpr uint16_t LED_COUNT_SCALE = 14;
+constexpr uint16_t LED_COUNT_TOTAL = LED_COUNT_LEFT_FIN + LED_COUNT_TONGUE + LED_COUNT_RIGHT_FIN + LED_COUNT_SCALE; // 49
+
+constexpr uint16_t LED_OFFSET_LEFT_FIN = 0;
+constexpr uint16_t LED_OFFSET_TONGUE = LED_OFFSET_LEFT_FIN + LED_COUNT_LEFT_FIN;     // 13
+constexpr uint16_t LED_OFFSET_RIGHT_FIN = LED_OFFSET_TONGUE + LED_COUNT_TONGUE;      // 22
+constexpr uint16_t LED_OFFSET_SCALE = LED_OFFSET_RIGHT_FIN + LED_COUNT_RIGHT_FIN;    // 35
+
+/** RGBW color structure (4 bytes per LED) */
+struct __attribute__((packed)) RgbwColor{
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+  uint8_t w;
+  
+  RgbwColor() : r(0), g(0), b(0), w(0) {}
+  RgbwColor(uint8_t red, uint8_t green, uint8_t blue, uint8_t white = 0)
+    : r(red), g(green), b(blue), w(white) {}
+};
+
+/** LED data payload structure (GPU -> CPU)
+ * Flattened array of all LEDs in strip order
+ */
+struct __attribute__((packed)) LedDataPayload{
+  RgbwColor leds[LED_COUNT_TOTAL];  // 49 LEDs × 4 bytes = 196 bytes
+  
+  // Helper methods to access LED strips
+  inline RgbwColor* getLeftFinLeds(){ return &leds[LED_OFFSET_LEFT_FIN]; }
+  inline RgbwColor* getTongueLeds(){ return &leds[LED_OFFSET_TONGUE]; }
+  inline RgbwColor* getRightFinLeds(){ return &leds[LED_OFFSET_RIGHT_FIN]; }
+  inline RgbwColor* getScaleLeds(){ return &leds[LED_OFFSET_SCALE]; }
+  
+  inline const RgbwColor* getLeftFinLeds() const{ return &leds[LED_OFFSET_LEFT_FIN]; }
+  inline const RgbwColor* getTongueLeds() const{ return &leds[LED_OFFSET_TONGUE]; }
+  inline const RgbwColor* getRightFinLeds() const{ return &leds[LED_OFFSET_RIGHT_FIN]; }
+  inline const RgbwColor* getScaleLeds() const{ return &leds[LED_OFFSET_SCALE]; }
+  
+  // Set entire strip to a single color
+  void setLeftFinColor(const RgbwColor& color){
+    for(uint16_t i = 0; i < LED_COUNT_LEFT_FIN; i++) leds[LED_OFFSET_LEFT_FIN + i] = color;
+  }
+  void setTongueColor(const RgbwColor& color){
+    for(uint16_t i = 0; i < LED_COUNT_TONGUE; i++) leds[LED_OFFSET_TONGUE + i] = color;
+  }
+  void setRightFinColor(const RgbwColor& color){
+    for(uint16_t i = 0; i < LED_COUNT_RIGHT_FIN; i++) leds[LED_OFFSET_RIGHT_FIN + i] = color;
+  }
+  void setScaleColor(const RgbwColor& color){
+    for(uint16_t i = 0; i < LED_COUNT_SCALE; i++) leds[LED_OFFSET_SCALE + i] = color;
+  }
+  
+  // Set all LEDs to a single color
+  void setAllColor(const RgbwColor& color){
+    for(uint16_t i = 0; i < LED_COUNT_TOTAL; i++) leds[i] = color;
+  }
 };
 
 /** Message packet structure */
