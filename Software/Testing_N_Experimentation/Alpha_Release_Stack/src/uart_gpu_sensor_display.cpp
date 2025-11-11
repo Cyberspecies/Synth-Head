@@ -6,11 +6,13 @@
  * Purpose:
  *    GPU-side bidirectional application:
  *    - Receives sensor data from CPU and displays on OLED with pages
+ *    - Displays HUB75 LED matrix visualizations
  *    - Generates LED animations and sends RGBW data to CPU at 60Hz
  * 
  * Hardware:
  *    - ESP32-S3 (GPU)
  *    - OLED SH1107 128x128 display (I2C: SDA=GPIO2, SCL=GPIO1)
+ *    - HUB75 Dual LED Matrix (128x32 total, dual OE pins)
  *    - UART to CPU: RX=GPIO13, TX=GPIO12
  * 
  * Display Layout:
@@ -31,9 +33,11 @@
 #include <cmath>
 #include "Drivers/UART Comms/GpuUartBidirectional.hpp"
 #include "abstraction/drivers/components/OLED/driver_oled_sh1107.hpp"
+#include "abstraction/drivers/components/HUB75/driver_hub75_simple.hpp"
 
 using namespace arcos::communication;
 using namespace arcos::abstraction;
+using namespace arcos::abstraction::drivers;
 
 static const char* TAG = "GPU_BIDIRECTIONAL";
 
@@ -43,6 +47,10 @@ constexpr int DISPLAY_HEIGHT = 128;
 constexpr int LINE_HEIGHT = 10;
 constexpr int LINES_PER_PAGE = 12;
 constexpr int TOTAL_PAGES = 5;
+
+// ============== HUB75 Configuration ==============
+constexpr int HUB75_WIDTH = 128;
+constexpr int HUB75_HEIGHT = 32;
 
 // ============== Microphone Graph Configuration ==============
 constexpr float MIC_GRAPH_DURATION_SEC = 1.5f;  // Graph width in seconds (adjustable)
@@ -59,6 +67,7 @@ constexpr uint32_t LED_FRAME_INTERVAL_US = 1000000 / LED_FPS;
 // ============== Global Instances ==============
 GpuUartBidirectional uart_comm;
 DRIVER_OLED_SH1107 oled_display;
+SimpleHUB75Display hub75_display;
 
 // ============== Shared Data (Protected by Mutexes) ==============
 SemaphoreHandle_t sensor_data_mutex;
@@ -95,7 +104,7 @@ Stats stats;
 /**
  * @brief Initialize OLED display
  */
-bool initializeDisplay(){
+bool initializeOLED(){
   ESP_LOGI(TAG, "Initializing OLED SH1107 display...");
   
   // Initialize I2C bus: bus_id=0, SDA=GPIO2, SCL=GPIO1, 400kHz
@@ -126,6 +135,24 @@ bool initializeDisplay(){
 }
 
 /**
+ * @brief Initialize HUB75 LED matrix display
+ */
+bool initializeHUB75(){
+  ESP_LOGI(TAG, "Initializing HUB75 dual LED matrix (128x32)...");
+  
+  // Initialize with dual OE pins mode
+  if(!hub75_display.begin(true)){
+    ESP_LOGE(TAG, "Failed to initialize HUB75 display!");
+    return false;
+  }
+  
+  ESP_LOGI(TAG, "HUB75 display initialized successfully");
+  ESP_LOGI(TAG, "Display size: %dx%d pixels", hub75_display.getWidth(), hub75_display.getHeight());
+  
+  return true;
+}
+
+/**
  * @brief Draw text at specified position
  */
 void drawText(int x, int y, const char* text){
@@ -144,6 +171,246 @@ void clearDisplay(){
  */
 void updateDisplay(){
   oled_display.updateDisplay();
+}
+
+// ============== HUB75 Visualization Functions ==============
+
+/**
+ * @brief Visualize IMU data on HUB75 as colored bars
+ */
+void hub75VisualizeIMU(const SensorDataPayload& data){
+  hub75_display.fill({0, 0, 0});  // Clear to black
+  
+  // Normalize accelerometer values (-2g to +2g) to 0-31 pixels
+  int acc_x = static_cast<int>((data.accel_x / 2.0f + 1.0f) * 15.5f);
+  int acc_y = static_cast<int>((data.accel_y / 2.0f + 1.0f) * 15.5f);
+  int acc_z = static_cast<int>((data.accel_z / 2.0f + 1.0f) * 15.5f);
+  
+  // Clamp values
+  acc_x = (acc_x < 0) ? 0 : (acc_x > 31 ? 31 : acc_x);
+  acc_y = (acc_y < 0) ? 0 : (acc_y > 31 ? 31 : acc_y);
+  acc_z = (acc_z < 0) ? 0 : (acc_z > 31 ? 31 : acc_z);
+  
+  // Draw vertical bars for each axis
+  // Red = X, Green = Y, Blue = Z
+  for(int x = 0; x < 40; x++){
+    for(int y = 0; y < acc_x; y++){
+      hub75_display.setPixel(x, 31 - y, {255, 0, 0});
+    }
+  }
+  
+  for(int x = 44; x < 84; x++){
+    for(int y = 0; y < acc_y; y++){
+      hub75_display.setPixel(x, 31 - y, {0, 255, 0});
+    }
+  }
+  
+  for(int x = 88; x < 128; x++){
+    for(int y = 0; y < acc_z; y++){
+      hub75_display.setPixel(x, 31 - y, {0, 0, 255});
+    }
+  }
+  
+  hub75_display.show();
+}
+
+/**
+ * @brief Visualize environmental data as horizontal bars
+ */
+void hub75VisualizeEnvironmental(const SensorDataPayload& data){
+  hub75_display.fill({0, 0, 0});
+  
+  // Temperature: 0-40°C mapped to width
+  int temp_width = static_cast<int>((data.temperature / 40.0f) * 128.0f);
+  temp_width = (temp_width < 0) ? 0 : (temp_width > 128 ? 128 : temp_width);
+  
+  // Humidity: 0-100% mapped to width
+  int humid_width = static_cast<int>((data.humidity / 100.0f) * 128.0f);
+  humid_width = (humid_width < 0) ? 0 : (humid_width > 128 ? 128 : humid_width);
+  
+  // Pressure: 900-1100 hPa mapped to width
+  int pressure_width = static_cast<int>(((data.pressure - 900.0f) / 200.0f) * 128.0f);
+  pressure_width = (pressure_width < 0) ? 0 : (pressure_width > 128 ? 128 : pressure_width);
+  
+  // Draw horizontal bars (Red, Yellow, Cyan)
+  for(int x = 0; x < temp_width; x++){
+    for(int y = 0; y < 8; y++){
+      hub75_display.setPixel(x, y, {255, 0, 0});
+    }
+  }
+  
+  for(int x = 0; x < humid_width; x++){
+    for(int y = 12; y < 20; y++){
+      hub75_display.setPixel(x, y, {255, 255, 0});
+    }
+  }
+  
+  for(int x = 0; x < pressure_width; x++){
+    for(int y = 24; y < 32; y++){
+      hub75_display.setPixel(x, y, {0, 255, 255});
+    }
+  }
+  
+  hub75_display.show();
+}
+
+/**
+ * @brief Visualize microphone data as waveform
+ */
+void hub75VisualizeMicrophone(const SensorDataPayload& data){
+  hub75_display.fill({0, 0, 0});
+  
+  // Map decibel value (-60 to 0 dB) to height
+  float normalized = (data.mic_db_level - MIC_DB_MIN) / (MIC_DB_MAX - MIC_DB_MIN);
+  int wave_height = static_cast<int>(normalized * 32.0f);
+  wave_height = (wave_height < 0) ? 0 : (wave_height > 32 ? 32 : wave_height);
+  
+  // Draw waveform from center
+  int center_y = 16;
+  for(int x = 0; x < 128; x++){
+    float phase = (x / 128.0f) * 6.28318f;  // One full wave
+    int offset = static_cast<int>(sinf(phase) * wave_height * 0.5f);
+    int y = center_y + offset;
+    
+    if(y >= 0 && y < 32){
+      // Gradient from blue to magenta based on amplitude
+      uint8_t blue = 255;
+      uint8_t red = static_cast<uint8_t>((normalized * 255.0f));
+      hub75_display.setPixel(x, y, {red, 0, blue});
+    }
+  }
+  
+  hub75_display.show();
+}
+
+/**
+ * @brief Windows-style spinning loading animation
+ * Shows circles rotating around a center pivot on each display
+ */
+void hub75SpinningLoadingAnimation(){
+  static uint32_t animation_start = 0;
+  static bool initialized = false;
+  
+  if(!initialized){
+    animation_start = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    initialized = true;
+  }
+  
+  hub75_display.fill({0, 0, 0});
+  
+  // Animation parameters
+  uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+  float angle = ((current_time - animation_start) % 2000) / 2000.0f * 6.28318f;  // Full rotation in 2 seconds
+  
+  // Number of circles and their properties
+  const int num_circles = 5;
+  const int orbit_radius = 10;  // Distance from center
+  const int circle_radius = 2;  // Fixed size for all circles
+  
+  // Draw spinning circles on left display (64x32)
+  const int center_x1 = 32;
+  const int center_y1 = 16;
+  
+  for(int i = 0; i < num_circles; i++){
+    // Calculate angle for this circle
+    float circle_angle = angle + (i * 6.28318f / num_circles);
+    
+    // Calculate position
+    int x = center_x1 + static_cast<int>(cosf(circle_angle) * orbit_radius);
+    int y = center_y1 + static_cast<int>(sinf(circle_angle) * orbit_radius * 0.5f);  // Compressed vertically
+    
+    // Color based on position in circle
+    uint8_t hue = static_cast<uint8_t>((i * 255) / num_circles);
+    RGB color = {static_cast<uint8_t>(255 - hue), hue, 255};
+    
+    // Draw filled circle
+    for(int dy = -circle_radius; dy <= circle_radius; dy++){
+      for(int dx = -circle_radius; dx <= circle_radius; dx++){
+        if(dx * dx + dy * dy <= circle_radius * circle_radius){
+          int px = x + dx;
+          int py = y + dy;
+          if(px >= 0 && px < 64 && py >= 0 && py < 32){
+            hub75_display.setPixel(px, py, color);
+          }
+        }
+      }
+    }
+  }
+  
+  // Draw center pivot point for left display
+  for(int dy = -1; dy <= 1; dy++){
+    for(int dx = -1; dx <= 1; dx++){
+      hub75_display.setPixel(center_x1 + dx, center_y1 + dy, {255, 255, 255});
+    }
+  }
+  
+  // Draw spinning circles on right display (64x32) - opposite rotation
+  const int center_x2 = 96;
+  const int center_y2 = 16;
+  
+  for(int i = 0; i < num_circles; i++){
+    // Calculate angle for this circle (opposite direction)
+    float circle_angle = -angle + (i * 6.28318f / num_circles);
+    
+    // Calculate position
+    int x = center_x2 + static_cast<int>(cosf(circle_angle) * orbit_radius);
+    int y = center_y2 + static_cast<int>(sinf(circle_angle) * orbit_radius * 0.5f);
+    
+    // Different color scheme for right display
+    uint8_t hue = static_cast<uint8_t>((i * 255) / num_circles);
+    RGB color = {hue, static_cast<uint8_t>(255 - hue), 255};
+    
+    // Draw filled circle
+    for(int dy = -circle_radius; dy <= circle_radius; dy++){
+      for(int dx = -circle_radius; dx <= circle_radius; dx++){
+        if(dx * dx + dy * dy <= circle_radius * circle_radius){
+          int px = x + dx;
+          int py = y + dy;
+          if(px >= 64 && px < 128 && py >= 0 && py < 32){
+            hub75_display.setPixel(px, py, color);
+          }
+        }
+      }
+    }
+  }
+  
+  // Draw center pivot point for right display
+  for(int dy = -1; dy <= 1; dy++){
+    for(int dx = -1; dx <= 1; dx++){
+      hub75_display.setPixel(center_x2 + dx, center_y2 + dy, {255, 255, 255});
+    }
+  }
+  
+  hub75_display.show();
+}
+
+/**
+ * @brief Show system info visualization
+ */
+void hub75VisualizeSystemInfo(){
+  hub75_display.fill({0, 0, 0});
+  
+  // Draw frame around display
+  for(int x = 0; x < 128; x++){
+    hub75_display.setPixel(x, 0, {255, 255, 255});
+    hub75_display.setPixel(x, 31, {255, 255, 255});
+  }
+  
+  for(int y = 0; y < 32; y++){
+    hub75_display.setPixel(0, y, {255, 255, 255});
+    hub75_display.setPixel(127, y, {255, 255, 255});
+  }
+  
+  // Draw checkered pattern in center
+  for(int y = 8; y < 24; y++){
+    for(int x = 8; x < 120; x++){
+      if((x / 4 + y / 4) % 2 == 0){
+        hub75_display.setPixel(x, y, {0, 128, 128});
+      }
+    }
+  }
+  
+  hub75_display.show();
 }
 
 /**
@@ -483,25 +750,33 @@ void handlePageNavigation(const SensorDataPayload& data){
  * @brief Display current page based on page number
  */
 void displayCurrentPage(const SensorDataPayload& data){
+  // Update OLED display based on page
+  // Show spinning loading animation on all HUB75 pages for visual interest
   switch(current_page){
     case 0:
       displayImuPage(data);
+      hub75SpinningLoadingAnimation();
       break;
     case 1:
       displayEnvironmentalPage(data);
+      hub75SpinningLoadingAnimation();
       break;
     case 2:
       displayGpsPage(data);
+      hub75SpinningLoadingAnimation();
       break;
     case 3:
       displayMicrophonePage(data);
+      hub75SpinningLoadingAnimation();
       break;
     case 4:
       displaySystemPage(data);
+      hub75SpinningLoadingAnimation();
       break;
     default:
       current_page = 0;
       displayImuPage(data);
+      hub75SpinningLoadingAnimation();
       break;
   }
 }
@@ -621,11 +896,14 @@ void displayUpdateTask(void* parameter){
       displayCurrentPage(local_copy);
       stats.display_updates++;
     }else{
-      // No data received yet - show waiting message
+      // No data received yet - show waiting message and spinning loading animation
       clearDisplay();
       drawText(10, 50, "Waiting for");
       drawText(10, 62, "sensor data...");
       updateDisplay();
+      
+      // Show spinning loading animation on HUB75 while waiting
+      hub75SpinningLoadingAnimation();
     }
     
     // Print statistics every second
@@ -648,8 +926,8 @@ void displayUpdateTask(void* parameter){
       }
     }
     
-    // Update at ~20Hz to avoid flickering
-    vTaskDelay(pdMS_TO_TICKS(50));
+    // Update at 60fps for smooth animation
+    vTaskDelay(pdMS_TO_TICKS(16));  // ~60Hz (16.67ms)
   }
 }
 
@@ -664,19 +942,32 @@ extern "C" void app_main(void){
   ESP_LOGI(TAG, "");
   
   // Initialize OLED display
-  if(!initializeDisplay()){
-    ESP_LOGE(TAG, "FATAL: Display initialization failed!");
+  if(!initializeOLED()){
+    ESP_LOGE(TAG, "FATAL: OLED initialization failed!");
     ESP_LOGE(TAG, "System halted.");
     return;
   }
   
-  // Show startup message
+  // Initialize HUB75 LED matrix display
+  if(!initializeHUB75()){
+    ESP_LOGE(TAG, "FATAL: HUB75 initialization failed!");
+    ESP_LOGE(TAG, "System halted.");
+    return;
+  }
+  
+  // Show startup message on OLED
   clearDisplay();
-  drawText(10, 30, "GPU System");
-  drawText(10, 42, "Initializing...");
-  drawText(10, 54, "Sensor RX");
-  drawText(10, 66, "LED TX @ 60fps");
+  drawText(10, 20, "GPU System");
+  drawText(10, 32, "Initializing...");
+  drawText(10, 44, "OLED: OK");
+  drawText(10, 56, "HUB75: OK");
+  drawText(10, 68, "Sensor RX");
+  drawText(10, 80, "LED TX @ 60fps");
   updateDisplay();
+  
+  // Show startup animation on HUB75
+  hub75_display.fill({0, 128, 255});  // Cyan startup color
+  hub75_display.show();
   vTaskDelay(pdMS_TO_TICKS(1000));
   
   // Initialize UART communication
@@ -744,7 +1035,7 @@ extern "C" void app_main(void){
   
   ESP_LOGI(TAG, "All tasks created!");
   ESP_LOGI(TAG, "Core 0 - UART RX (Sensors @ 60Hz) + LED TX @ 60Hz");
-  ESP_LOGI(TAG, "Core 1 - Display updates @ 20Hz");
+  ESP_LOGI(TAG, "Core 1 - Display updates @ 60Hz (OLED + HUB75)");
   ESP_LOGI(TAG, "");
   ESP_LOGI(TAG, "Controls:");
   ESP_LOGI(TAG, "  Button A - Previous page");

@@ -83,6 +83,11 @@ struct Statistics{
   uint32_t last_report_time = 0;
   uint32_t sensor_fps = 0;
   uint32_t led_fps = 0;
+  // Last received LED color for display
+  uint8_t last_led_r = 0;
+  uint8_t last_led_g = 0;
+  uint8_t last_led_b = 0;
+  uint8_t last_led_w = 0;
 };
 Statistics stats;
 
@@ -309,11 +314,15 @@ void uartSendTask(void* parameter){
         stats.sensor_fps = stats.sensor_frames_sent;
         stats.led_fps = stats.led_frames_received;
         
-        Serial.printf("CPU Stats: Sensor TX: %u fps | LED RX: %u fps | LEDs: %u upd/s | Sensors: %u/s\n",
+        Serial.printf("CPU Stats: Sensor TX: %u fps | LED RX: %u fps | LEDs: %u upd/s | Sensors: %u/s | LED[0]: R=%d G=%d B=%d W=%d\n",
           stats.sensor_fps,
           stats.led_fps,
           stats.leds_updated,
-          stats.sensor_reads
+          stats.sensor_reads,
+          stats.last_led_r,
+          stats.last_led_g,
+          stats.last_led_b,
+          stats.last_led_w
         );
         
         stats.sensor_frames_sent = 0;
@@ -348,15 +357,15 @@ void uartReceiveTask(void* parameter){
             led_data_received = true;
             last_led_data_time = millis();
             stats.led_frames_received++;
-            xSemaphoreGive(led_data_mutex);
             
-            // Debug: Print first LED color every 2 seconds
-            if(millis() - last_debug_time > 2000){
-              const RgbwColor& first_led = shared_led_data.leds[0];
-              Serial.printf("CPU: LED RX - First LED: R=%d G=%d B=%d W=%d\n", 
-                           first_led.r, first_led.g, first_led.b, first_led.w);
-              last_debug_time = millis();
-            }
+            // Store first LED color for stats display
+            const RgbwColor& first_led = shared_led_data.leds[0];
+            stats.last_led_r = first_led.r;
+            stats.last_led_g = first_led.g;
+            stats.last_led_b = first_led.b;
+            stats.last_led_w = first_led.w;
+            
+            xSemaphoreGive(led_data_mutex);
           }
         }else{
           Serial.printf("CPU: ERROR - Invalid LED payload size: %d (expected %d)\n",
@@ -383,14 +392,6 @@ void ledDisplayTask(void* parameter){
   
   while(true){
     loop_count++;
-    
-    // Debug: Print loop counter every second to prove task is running
-    if(millis() - last_status_print > 1000){
-      Serial.printf("CPU: *** LED DISPLAY LOOP %lu *** have_data=%d\n", 
-                   loop_count, have_led_data);
-      last_status_print = millis();
-      loop_count = 0;
-    }
     
     // Copy shared LED data to local buffer
     if(xSemaphoreTake(led_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
