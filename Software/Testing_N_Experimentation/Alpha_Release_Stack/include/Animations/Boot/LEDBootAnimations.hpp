@@ -69,9 +69,7 @@ inline void bootSequentialActivation(LedDataPayload& led_data, uint32_t time_ms)
   uint8_t brightness = 200;
   
   // Left fin - Red (phase 0+)
-  if(phase >= 0){
-    led_data.setLeftFinColor(RgbwColor(brightness, 0, 0, 0));
-  }
+  led_data.setLeftFinColor(RgbwColor(brightness, 0, 0, 0));
   // Tongue - Green (phase 1+)
   if(phase >= 1){
     led_data.setTongueColor(RgbwColor(0, brightness, 0, 0));

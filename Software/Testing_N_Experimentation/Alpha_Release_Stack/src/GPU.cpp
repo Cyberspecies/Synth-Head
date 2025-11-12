@@ -25,8 +25,10 @@
  *    5. Enter normal operation mode
  * 
  * Controls:
- *    - Button A: Previous page
- *    - Button B: Next page
+ *    - Button 1 (A): Set/Enter (not used in debug mode)
+ *    - Button 2 (B): Navigate Up / Previous
+ *    - Button 3 (C): Navigate Down / Next
+ *    - Button 4 (D): Mode selector (hold to access menu)
  *****************************************************************/
 
 #include "freertos/FreeRTOS.h"
@@ -42,13 +44,18 @@
 #include "Manager/LEDAnimationManager.hpp"
 
 // Boot animations
-#include "Animations/HUB75BootAnimations.hpp"
-#include "Animations/OLEDBootAnimations.hpp"
-#include "Animations/LEDBootAnimations.hpp"
+#include "Animations/Boot/HUB75BootAnimations.hpp"
+#include "Animations/Boot/OLEDBootAnimations.hpp"
+#include "Animations/Boot/LEDBootAnimations.hpp"
 
 // Test animations
-#include "Animations/HUB75TestAnimations.hpp"
-#include "Animations/LEDTestAnimations.hpp"
+#include "Animations/Test/HUB75TestAnimations.hpp"
+#include "Animations/Test/LEDTestAnimations.hpp"
+
+// UI System
+#include "UI/ButtonManager.hpp"
+#include "UI/Menu/MenuSystem.hpp"
+#include "UI/Menu/MenuRenderer.hpp"
 
 // UART communication
 #include "Drivers/UART Comms/GpuUartBidirectional.hpp"
@@ -56,8 +63,16 @@
 using namespace arcos::communication;
 using namespace arcos::manager;
 using namespace arcos::animations;
+using namespace arcos::ui;
 
 static const char* TAG = "GPU_MAIN";
+
+// Global stats for menu system (required by MenuRenderer)
+namespace arcos::ui::menu {
+  uint32_t g_sensor_fps = 0;
+  uint32_t g_led_fps = 0;
+  uint8_t g_fan_speed = 0;
+}
 
 // ============== Configuration ==============
 constexpr int DISPLAY_WIDTH = 128;
@@ -79,10 +94,9 @@ SensorDataPayload current_sensor_data;
 bool data_received = false;
 uint32_t last_data_time = 0;
 
-// ============== Display State ==============
-int current_page = 0;
-bool button_a_prev = false;
-bool button_b_prev = false;
+// ============== UI System ==============
+ButtonManager button_manager;
+menu::MenuSystem menu_system;
 
 // ============== Boot State ==============
 enum class BootPhase{
@@ -146,7 +160,7 @@ void registerAllAnimations(){
   hub75::registerTestAnimations(hub75_manager);
   
   // Register OLED boot animations
-  oled::registerBootAnimations(oled_manager);
+  arcos::animations::oled::registerBootAnimations(oled_manager);
   
   // Register LED animations
   led::registerBootAnimations(led_manager);
@@ -290,202 +304,6 @@ void runBootSequence(){
 }
 
 /**
- * @brief OLED page displays - same as original uart_gpu_sensor_display.cpp
- */
-void displayImuPage(const SensorDataPayload& data){
-  oled_manager.clear();
-  oled_manager.drawText(0, 0, "===== IMU DATA =====", true);
-  
-  if(data.getImuValid()){
-    char buf[32];
-    oled_manager.drawText(0, 12, "Accel (g):", true);
-    snprintf(buf, sizeof(buf), " X:%.2f", data.accel_x);
-    oled_manager.drawText(0, 22, buf, true);
-    snprintf(buf, sizeof(buf), " Y:%.2f", data.accel_y);
-    oled_manager.drawText(0, 32, buf, true);
-    snprintf(buf, sizeof(buf), " Z:%.2f", data.accel_z);
-    oled_manager.drawText(0, 42, buf, true);
-    
-    oled_manager.drawText(0, 54, "Gyro (dps):", true);
-    snprintf(buf, sizeof(buf), " X:%.1f", data.gyro_x);
-    oled_manager.drawText(0, 64, buf, true);
-    snprintf(buf, sizeof(buf), " Y:%.1f", data.gyro_y);
-    oled_manager.drawText(0, 74, buf, true);
-    snprintf(buf, sizeof(buf), " Z:%.1f", data.gyro_z);
-    oled_manager.drawText(0, 84, buf, true);
-    
-    oled_manager.drawText(0, 96, "Mag (uT):", true);
-    snprintf(buf, sizeof(buf), " X:%.1f", data.mag_x);
-    oled_manager.drawText(0, 106, buf, true);
-    snprintf(buf, sizeof(buf), " Y:%.1f Z:%.1f", data.mag_y, data.mag_z);
-    oled_manager.drawText(0, 116, buf, true);
-  }else{
-    oled_manager.drawText(10, 60, "NO IMU DATA", true);
-  }
-  
-  oled_manager.show();
-}
-
-void displayEnvironmentalPage(const SensorDataPayload& data){
-  oled_manager.clear();
-  oled_manager.drawText(0, 0, "=== ENVIRONMENT ===", true);
-  
-  if(data.getEnvValid()){
-    char buf[32];
-    oled_manager.drawText(0, 20, "Temperature:", true);
-    snprintf(buf, sizeof(buf), "  %.2f C", data.temperature);
-    oled_manager.drawText(0, 32, buf, true);
-    
-    oled_manager.drawText(0, 50, "Humidity:", true);
-    snprintf(buf, sizeof(buf), "  %.1f %%", data.humidity);
-    oled_manager.drawText(0, 62, buf, true);
-    
-    oled_manager.drawText(0, 80, "Pressure:", true);
-    snprintf(buf, sizeof(buf), "  %.2f hPa", data.pressure / 100.0f);
-    oled_manager.drawText(0, 92, buf, true);
-  }else{
-    oled_manager.drawText(10, 60, "NO ENV DATA", true);
-  }
-  
-  oled_manager.show();
-}
-
-void displayGpsPage(const SensorDataPayload& data){
-  oled_manager.clear();
-  oled_manager.drawText(0, 0, "===== GPS DATA =====", true);
-  
-  if(data.getGpsValid()){
-    char buf[32];
-    oled_manager.drawText(0, 12, "Position:", true);
-    snprintf(buf, sizeof(buf), " Lat:%.5f", data.latitude);
-    oled_manager.drawText(0, 22, buf, true);
-    snprintf(buf, sizeof(buf), " Lon:%.5f", data.longitude);
-    oled_manager.drawText(0, 32, buf, true);
-    snprintf(buf, sizeof(buf), " Alt:%.1fm", data.altitude);
-    oled_manager.drawText(0, 42, buf, true);
-    
-    oled_manager.drawText(0, 54, "Navigation:", true);
-    snprintf(buf, sizeof(buf), " Spd:%.1fkn", data.speed_knots);
-    oled_manager.drawText(0, 64, buf, true);
-    snprintf(buf, sizeof(buf), " Crs:%.1fdeg", data.course);
-    oled_manager.drawText(0, 74, buf, true);
-    
-    oled_manager.drawText(0, 86, "Status:", true);
-    snprintf(buf, sizeof(buf), " Sats:%u Fix:%u", data.gps_satellites, data.getGpsFixQuality());
-    oled_manager.drawText(0, 96, buf, true);
-    
-    snprintf(buf, sizeof(buf), "Time: %02u:%02u:%02u", 
-      data.gps_hour, data.gps_minute, data.gps_second);
-    oled_manager.drawText(0, 108, buf, true);
-  }else{
-    oled_manager.drawText(10, 60, "NO GPS FIX", true);
-  }
-  
-  oled_manager.show();
-}
-
-void displayMicrophonePage(const SensorDataPayload& data){
-  oled_manager.clear();
-  oled_manager.drawText(0, 0, "==== MIC DATA =====", true);
-  
-  if(data.getMicValid()){
-    char buf[32];
-    oled_manager.drawText(0, 12, "Level:", true);
-    snprintf(buf, sizeof(buf), " %.1f dB", data.mic_db_level);
-    oled_manager.drawText(42, 12, buf, true);
-    
-    if(data.getMicClipping()){
-      oled_manager.drawText(90, 12, "[CLIP]", true);
-    }
-    
-    oled_manager.drawText(0, 30, "Peak:", true);
-    snprintf(buf, sizeof(buf), " %ld", data.mic_peak_amplitude);
-    oled_manager.drawText(36, 30, buf, true);
-    
-    // Simple level bar
-    int bar_width = static_cast<int>((data.mic_db_level + 60.0f) / 60.0f * 100.0f);
-    if(bar_width < 0) bar_width = 0;
-    if(bar_width > 100) bar_width = 100;
-    
-    oled_manager.drawRect(10, 50, 108, 20, false, true);
-    oled_manager.fillRect(12, 52, bar_width, 16, true);
-  }else{
-    oled_manager.drawText(10, 60, "NO MIC DATA", true);
-  }
-  
-  oled_manager.show();
-}
-
-void displaySystemPage(const SensorDataPayload& data){
-  oled_manager.clear();
-  oled_manager.drawText(0, 0, "==== SYSTEM INFO ====", true);
-  
-  char buf[32];
-  oled_manager.drawText(0, 12, "Data Rate:", true);
-  snprintf(buf, sizeof(buf), " RX:%lu TX:%lu FPS", stats.sensor_fps, stats.led_fps);
-  oled_manager.drawText(0, 22, buf, true);
-  
-  oled_manager.drawText(0, 34, "Fan Speed:", true);
-  snprintf(buf, sizeof(buf), " %u%%", (led_manager.getFanSpeed() * 100) / 255);
-  oled_manager.drawText(0, 44, buf, true);
-  
-  oled_manager.drawText(0, 56, "Buttons:", true);
-  snprintf(buf, sizeof(buf), " A:%u B:%u C:%u D:%u",
-    data.getButtonA(), data.getButtonB(), data.getButtonC(), data.getButtonD());
-  oled_manager.drawText(0, 66, buf, true);
-  
-  oled_manager.drawText(0, 78, "Sensors:", true);
-  snprintf(buf, sizeof(buf), " IMU:%u ENV:%u",
-    data.getImuValid(), data.getEnvValid());
-  oled_manager.drawText(0, 88, buf, true);
-  snprintf(buf, sizeof(buf), " GPS:%u MIC:%u",
-    data.getGpsValidFlag(), data.getMicValid());
-  oled_manager.drawText(0, 98, buf, true);
-  
-  snprintf(buf, sizeof(buf), "Pg %d/%d", current_page + 1, TOTAL_PAGES);
-  oled_manager.drawText(90, 110, buf, true);
-  
-  oled_manager.show();
-}
-
-/**
- * @brief Handle page navigation
- */
-void handlePageNavigation(const SensorDataPayload& data){
-  bool button_a = data.getButtonA();
-  bool button_b = data.getButtonB();
-  
-  if(button_a && !button_a_prev){
-    current_page--;
-    if(current_page < 0) current_page = TOTAL_PAGES - 1;
-    ESP_LOGI(TAG, "Page: %d", current_page);
-  }
-  
-  if(button_b && !button_b_prev){
-    current_page++;
-    if(current_page >= TOTAL_PAGES) current_page = 0;
-    ESP_LOGI(TAG, "Page: %d", current_page);
-  }
-  
-  button_a_prev = button_a;
-  button_b_prev = button_b;
-}
-
-/**
- * @brief Display current page
- */
-void displayCurrentPage(const SensorDataPayload& data){
-  switch(current_page){
-    case 0: displayImuPage(data); break;
-    case 1: displayEnvironmentalPage(data); break;
-    case 2: displayGpsPage(data); break;
-    case 3: displayMicrophonePage(data); break;
-    case 4: displaySystemPage(data); break;
-    default: current_page = 0; displayImuPage(data); break;
-  }
-}
-
-/**
  * @brief Core 0 Task: Receive UART data
  */
 void uartReceiveTask(void* parameter){
@@ -525,21 +343,41 @@ void uartReceiveTask(void* parameter){
 }
 
 /**
- * @brief LED Send Task - sends animations at 60 FPS
+ * @brief LED Send Task - sends animations at 60 FPS (controlled by menu)
  */
 void ledSendTask(void* parameter){
   ESP_LOGI(TAG, "LED send task started on Core 0");
   
   uint64_t next_frame_time = esp_timer_get_time();
   
-  // Set initial animation
-  led_manager.setCurrentAnimation("test_rainbow");
+  // Animation names for each LED mode
+  const char* led_animation_names[] = {
+    "test_rainbow",       // DYNAMIC_DISPLAY (placeholder, will be implemented)
+    "test_rainbow",       // RAINBOW
+    "test_breathing",     // BREATHING
+    "test_wave",          // WAVE
+    "test_fire",          // FIRE
+    "test_theater_chase"  // THEATER_CHASE
+  };
+  
+  menu::LedStripMode last_mode = menu::LedStripMode::RAINBOW;
+  led_manager.setCurrentAnimation(led_animation_names[static_cast<uint8_t>(last_mode)]);
   
   while(true){
     uint64_t current_time = esp_timer_get_time();
     
     if(current_time >= next_frame_time){
       uint32_t time_ms = current_time / 1000;
+      
+      // Get current LED mode from menu system
+      menu::LedStripMode current_mode = menu_system.getLedStripMode();
+      
+      // Switch animation if mode changed
+      if(current_mode != last_mode){
+        led_manager.setCurrentAnimation(led_animation_names[static_cast<uint8_t>(current_mode)]);
+        last_mode = current_mode;
+        ESP_LOGI(TAG, "LED mode changed to: %s", led_animation_names[static_cast<uint8_t>(current_mode)]);
+      }
       
       // Update current animation
       led_manager.updateCurrentAnimation(time_ms);
@@ -610,7 +448,7 @@ void hub75UpdateTask(void* parameter){
   }
   
   ESP_LOGI(TAG, "HUB75: NORMAL_OPERATION detected! Waited %lu iterations", wait_count);
-  ESP_LOGI(TAG, "HUB75 entering 30Hz rendering loop (balanced for dual-core)!");
+  ESP_LOGI(TAG, "HUB75 entering 30Hz rendering loop (menu-controlled)!");
   
   uint32_t hub75_anim_start = xTaskGetTickCount() * portTICK_PERIOD_MS;
   ESP_LOGI(TAG, "HUB75: Animation start time = %lu ms", hub75_anim_start);
@@ -625,8 +463,246 @@ void hub75UpdateTask(void* parameter){
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     uint32_t anim_time = current_time - hub75_anim_start;
     
-    // Update HUB75 at 60Hz - RGB cycle (solid color fills)
-    hub75_manager.executeAnimation("test_rgb_cycle", anim_time);
+    // Get current display settings from menu
+    menu::DisplayFace face = menu_system.getDisplayFace();
+    menu::DisplayEffect effect = menu_system.getDisplayEffect();
+    menu::DisplayShader shader = menu_system.getDisplayShader();
+    
+    // Clear display
+    hub75_manager.clear();
+    
+    // Draw selected face on BOTH panels independently
+    // Panel 0 (left display): x = 0-63, center at (32, 16)
+    // Panel 1 (right display): x = 64-127, center at (96, 16)
+    constexpr int cx0 = 32;   // Panel 0 center X
+    constexpr int cx1 = 96;   // Panel 1 center X
+    constexpr int cy = 16;    // Both panels center Y
+    constexpr int size = 12;
+    
+    switch(face){
+      case menu::DisplayFace::CIRCLE:
+        // Draw on both panels
+        hub75_manager.drawCircle(cx0, cy, size, RGB(255, 0, 255));
+        hub75_manager.drawCircle(cx1, cy, size, RGB(255, 0, 255));
+        break;
+      case menu::DisplayFace::SQUARE:
+        // Draw on both panels
+        hub75_manager.drawRect(cx0 - size, cy - size, size * 2, size * 2, RGB(0, 255, 255));
+        hub75_manager.drawRect(cx1 - size, cy - size, size * 2, size * 2, RGB(0, 255, 255));
+        break;
+      case menu::DisplayFace::TRIANGLE:
+        // Draw on both panels
+        hub75_manager.drawLine(cx0, cy - size, cx0 - size, cy + size, RGB(255, 255, 0));
+        hub75_manager.drawLine(cx0 - size, cy + size, cx0 + size, cy + size, RGB(255, 255, 0));
+        hub75_manager.drawLine(cx0 + size, cy + size, cx0, cy - size, RGB(255, 255, 0));
+        
+        hub75_manager.drawLine(cx1, cy - size, cx1 - size, cy + size, RGB(255, 255, 0));
+        hub75_manager.drawLine(cx1 - size, cy + size, cx1 + size, cy + size, RGB(255, 255, 0));
+        hub75_manager.drawLine(cx1 + size, cy + size, cx1, cy - size, RGB(255, 255, 0));
+        break;
+      case menu::DisplayFace::HEXAGON:
+        // Proper hexagon with 6 sides - draw on both panels
+        {
+          // Panel 0
+          int hex_points0[6][2];
+          for(int i = 0; i < 6; i++){
+            float angle = (i * 60.0f - 90.0f) * 3.14159f / 180.0f;
+            hex_points0[i][0] = cx0 + static_cast<int>(size * cosf(angle));
+            hex_points0[i][1] = cy + static_cast<int>(size * sinf(angle));
+          }
+          for(int i = 0; i < 6; i++){
+            int next = (i + 1) % 6;
+            hub75_manager.drawLine(hex_points0[i][0], hex_points0[i][1], 
+                                  hex_points0[next][0], hex_points0[next][1], 
+                                  RGB(0, 255, 0));
+          }
+          
+          // Panel 1
+          int hex_points1[6][2];
+          for(int i = 0; i < 6; i++){
+            float angle = (i * 60.0f - 90.0f) * 3.14159f / 180.0f;
+            hex_points1[i][0] = cx1 + static_cast<int>(size * cosf(angle));
+            hex_points1[i][1] = cy + static_cast<int>(size * sinf(angle));
+          }
+          for(int i = 0; i < 6; i++){
+            int next = (i + 1) % 6;
+            hub75_manager.drawLine(hex_points1[i][0], hex_points1[i][1], 
+                                  hex_points1[next][0], hex_points1[next][1], 
+                                  RGB(0, 255, 0));
+          }
+        }
+        break;
+      case menu::DisplayFace::STAR:
+        // Star using lines from center - draw on both panels
+        for(int angle = 0; angle < 360; angle += 72){
+          float rad = angle * 3.14159f / 180.0f;
+          // Panel 0
+          int x0 = cx0 + static_cast<int>(size * cosf(rad));
+          int y0 = cy + static_cast<int>(size * sinf(rad));
+          hub75_manager.drawLine(cx0, cy, x0, y0, RGB(255, 100, 0));
+          // Panel 1
+          int x1 = cx1 + static_cast<int>(size * cosf(rad));
+          int y1 = cy + static_cast<int>(size * sinf(rad));
+          hub75_manager.drawLine(cx1, cy, x1, y1, RGB(255, 100, 0));
+        }
+        break;
+      case menu::DisplayFace::PANEL_NUMBER:
+        // Show panel numbers for dual panel setup (left=0, right=1)
+        // Draw large "0" on left panel (pixels 0-63)
+        // Vertical lines
+        for(int y = 8; y < 24; y++){
+          hub75_manager.setPixel(20, y, RGB(255, 255, 255));
+          hub75_manager.setPixel(21, y, RGB(255, 255, 255));
+          hub75_manager.setPixel(40, y, RGB(255, 255, 255));
+          hub75_manager.setPixel(41, y, RGB(255, 255, 255));
+        }
+        // Horizontal lines top
+        for(int x = 20; x <= 41; x++){
+          hub75_manager.setPixel(x, 8, RGB(255, 255, 255));
+          hub75_manager.setPixel(x, 9, RGB(255, 255, 255));
+        }
+        // Horizontal lines bottom
+        for(int x = 20; x <= 41; x++){
+          hub75_manager.setPixel(x, 22, RGB(255, 255, 255));
+          hub75_manager.setPixel(x, 23, RGB(255, 255, 255));
+        }
+        
+        // Draw large "1" on right panel (pixels 64-127)
+        // Vertical line
+        for(int y = 8; y < 24; y++){
+          hub75_manager.setPixel(94, y, RGB(255, 255, 255));
+          hub75_manager.setPixel(95, y, RGB(255, 255, 255));
+        }
+        // Top diagonal
+        hub75_manager.setPixel(90, 10, RGB(255, 255, 255));
+        hub75_manager.setPixel(91, 10, RGB(255, 255, 255));
+        hub75_manager.setPixel(91, 9, RGB(255, 255, 255));
+        hub75_manager.setPixel(92, 9, RGB(255, 255, 255));
+        hub75_manager.setPixel(92, 8, RGB(255, 255, 255));
+        hub75_manager.setPixel(93, 8, RGB(255, 255, 255));
+        break;
+      case menu::DisplayFace::ORIENTATION:
+        // Show orientation arrows: UP and FORWARD on BOTH panels
+        // PANEL 0 (left display)
+        // UP arrow - Yellow on left side
+        hub75_manager.drawLine(20, 24, 20, 8, RGB(255, 255, 0)); // Vertical shaft
+        hub75_manager.drawLine(20, 8, 16, 12, RGB(255, 255, 0)); // Left arrowhead
+        hub75_manager.drawLine(20, 8, 24, 12, RGB(255, 255, 0)); // Right arrowhead
+        // FORWARD arrow - Cyan on right side
+        hub75_manager.drawLine(35, cy, 50, cy, RGB(0, 255, 255)); // Horizontal shaft
+        hub75_manager.drawLine(50, cy, 46, cy - 3, RGB(0, 255, 255)); // Top arrowhead
+        hub75_manager.drawLine(50, cy, 46, cy + 3, RGB(0, 255, 255)); // Bottom arrowhead
+        
+        // PANEL 1 (right display)
+        // UP arrow - Yellow on left side
+        hub75_manager.drawLine(84, 24, 84, 8, RGB(255, 255, 0)); // Vertical shaft
+        hub75_manager.drawLine(84, 8, 80, 12, RGB(255, 255, 0)); // Left arrowhead
+        hub75_manager.drawLine(84, 8, 88, 12, RGB(255, 255, 0)); // Right arrowhead
+        // FORWARD arrow - Cyan on right side
+        hub75_manager.drawLine(99, cy, 114, cy, RGB(0, 255, 255)); // Horizontal shaft
+        hub75_manager.drawLine(114, cy, 110, cy - 3, RGB(0, 255, 255)); // Top arrowhead
+        hub75_manager.drawLine(114, cy, 110, cy + 3, RGB(0, 255, 255)); // Bottom arrowhead
+        break;
+      default:
+        break;
+    }
+    
+    // Apply effects overlay
+    switch(effect){
+      case menu::DisplayEffect::WAVE:
+        // Animated wave lines across display
+        for(int x = 0; x < 128; x += 4){
+          int wave_y = cy + static_cast<int>(6 * sinf((anim_time / 200.0f) + (x / 10.0f)));
+          if(wave_y >= 0 && wave_y < 32){
+            hub75_manager.setPixel(x, wave_y, RGB(100, 100, 255));
+            if(wave_y + 1 < 32) hub75_manager.setPixel(x, wave_y + 1, RGB(80, 80, 200));
+          }
+        }
+        break;
+      case menu::DisplayEffect::GRID:
+        // Draw grid overlay
+        for(int x = 0; x < 128; x += 16){
+          hub75_manager.drawLine(x, 0, x, 31, RGB(50, 50, 50));
+        }
+        for(int y = 0; y < 32; y += 8){
+          hub75_manager.drawLine(0, y, 127, y, RGB(50, 50, 50));
+        }
+        break;
+      case menu::DisplayEffect::PARTICLES:
+        // Simple particle effect - random dots
+        for(int i = 0; i < 20; i++){
+          int px = (anim_time * 3 + i * 17) % 128;
+          int py = (anim_time * 2 + i * 13) % 32;
+          hub75_manager.setPixel(px, py, RGB(255, 200, 100));
+        }
+        break;
+      case menu::DisplayEffect::TRAILS:
+        // Trailing dots moving across screen
+        for(int i = 0; i < 5; i++){
+          int tx = (anim_time / 10 + i * 25) % 128;
+          int ty = 4 + i * 6;
+          for(int trail = 0; trail < 5; trail++){
+            int trail_x = tx - trail * 3;
+            if(trail_x >= 0 && trail_x < 128){
+              uint8_t brightness = 255 - trail * 50;
+              hub75_manager.setPixel(trail_x, ty, RGB(brightness, brightness / 2, 0));
+            }
+          }
+        }
+        break;
+      case menu::DisplayEffect::NONE:
+      default:
+        break;
+    }
+    
+    // Apply shader effects (post-processing on entire display)
+    switch(shader){
+      case menu::DisplayShader::SCANLINES:
+        // Darken every other line for CRT effect
+        for(int y = 0; y < 32; y += 2){
+          for(int x = 0; x < 128; x++){
+            // This would need framebuffer access for proper implementation
+            // Drawing dark line as overlay for now
+            hub75_manager.setPixel(x, y, RGB(0, 0, 0));
+          }
+        }
+        break;
+      case menu::DisplayShader::INVERT:
+        // Would need framebuffer access to invert colors properly
+        // Drawing indicator border for now
+        hub75_manager.drawRect(0, 0, 128, 32, RGB(255, 0, 255));
+        break;
+      case menu::DisplayShader::PIXELATE:
+        // Draw pixelation effect indicator (checkerboard overlay)
+        for(int y = 0; y < 32; y += 4){
+          for(int x = 0; x < 128; x += 4){
+            if((x / 4 + y / 4) % 2 == 0){
+              hub75_manager.drawRect(x, y, 4, 4, RGB(30, 30, 30));
+            }
+          }
+        }
+        break;
+      case menu::DisplayShader::RGB_SPLIT:
+        // Color separation effect - draw colored borders
+        hub75_manager.drawLine(0, 0, 127, 0, RGB(255, 0, 0));
+        hub75_manager.drawLine(0, 31, 127, 31, RGB(0, 0, 255));
+        hub75_manager.drawLine(0, 0, 0, 31, RGB(0, 255, 0));
+        hub75_manager.drawLine(127, 0, 127, 31, RGB(255, 255, 0));
+        break;
+      case menu::DisplayShader::DITHER:
+        // Dither pattern overlay
+        for(int y = 0; y < 32; y++){
+          for(int x = 0; x < 128; x++){
+            if((x + y) % 3 == 0){
+              hub75_manager.setPixel(x, y, RGB(20, 20, 20));
+            }
+          }
+        }
+        break;
+      default:
+        break;
+    }
+    
     hub75_manager.show();  // Call show() ONCE per frame in main loop
     
     stats.hub75_frames++;
@@ -657,7 +733,7 @@ void hub75UpdateTask(void* parameter){
 }
 
 /**
- * @brief Core 0 Task: OLED display updates
+ * @brief Core 0 Task: OLED display updates with menu system
  */
 void oledUpdateTask(void* parameter){
   ESP_LOGI(TAG, "OLED update task started on Core 0");
@@ -679,9 +755,19 @@ void oledUpdateTask(void* parameter){
     
     // Display based on boot phase
     if(boot_phase == BootPhase::NORMAL_OPERATION && have_data){
-      // Normal operation
-      handlePageNavigation(local_copy);
-      displayCurrentPage(local_copy);
+      // Update button manager
+      button_manager.update(local_copy, current_time);
+      
+      // Update menu system
+      menu_system.update(button_manager, local_copy, current_time);
+      
+      // Update global stats for menu system
+      menu::g_sensor_fps = stats.sensor_fps;
+      menu::g_led_fps = stats.led_fps;
+      menu::g_fan_speed = led_manager.getFanSpeed();
+      
+      // Render current menu state
+      menu_system.render(oled_manager);
       
       stats.display_updates++;
     }else{
@@ -699,8 +785,10 @@ void oledUpdateTask(void* parameter){
       stats.hub75_fps = stats.hub75_frames;
       
       if(boot_phase == BootPhase::NORMAL_OPERATION){
-        ESP_LOGI(TAG, "Stats: RX:%lu | TX:%lu | HUB75:%lu | OLED:%lu fps | Page:%d",
-          stats.sensor_fps, stats.led_fps, stats.hub75_fps, stats.display_updates, current_page);
+        const char* mode_names[] = {"SCREENSAVER", "IDLE_GPS", "DEBUG", "FACES", "EFFECTS", "SHADERS", "LED_CFG"};
+        ESP_LOGI(TAG, "Stats: RX:%lu | TX:%lu | HUB75:%lu | OLED:%lu fps | Mode:%s",
+          stats.sensor_fps, stats.led_fps, stats.hub75_fps, stats.display_updates, 
+          mode_names[static_cast<uint8_t>(menu_system.getCurrentMode())]);
       }
       
       stats.sensor_frames_received = 0;
@@ -708,15 +796,6 @@ void oledUpdateTask(void* parameter){
       stats.display_updates = 0;
       stats.hub75_frames = 0;
       stats.last_report_time = current_time;
-      
-      // Cycle LED animation every 10 seconds
-      static uint32_t last_anim_change = 0;
-      if(current_time - last_anim_change >= 10000){
-        led_manager.nextAnimation();
-        last_anim_change = current_time;
-        ESP_LOGI(TAG, "LED animation: %s", 
-                 led_manager.getAnimationName(led_manager.getCurrentAnimationIndex()));
-      }
     }
     
     // OLED updates as fast as possible (limited by I2C transfer time)
