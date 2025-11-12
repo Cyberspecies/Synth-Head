@@ -12,9 +12,7 @@
  * Hardware:
  *    - ESP32-S3 (GPU)
  *    - OLED SH1107 128x128 display (I2C: SDA=GPIO2, SCL=GPIO1)
- *    - HUB75 Dual LED Matrix: TWO separate 64x32 panels (dual OE pins)
- *      * Left Panel: X=0-63, Y=0-31
- *      * Right Panel: X=64-127, Y=0-31
+ *    - HUB75 Dual LED Matrix (128x32 total, dual OE pins)
  *    - UART to CPU: RX=GPIO13, TX=GPIO12
  * 
  * Display Layout:
@@ -35,8 +33,7 @@
 #include <cmath>
 #include "Drivers/UART Comms/GpuUartBidirectional.hpp"
 #include "abstraction/drivers/components/OLED/driver_oled_sh1107.hpp"
-#include "Manager/DisplayManagerHUB75.hpp"
-#include "Manager/DisplayManagerHUB75.impl.hpp"
+#include "abstraction/drivers/components/HUB75/driver_hub75_simple.hpp"
 
 using namespace arcos::communication;
 using namespace arcos::abstraction;
@@ -70,7 +67,7 @@ constexpr uint32_t LED_FRAME_INTERVAL_US = 1000000 / LED_FPS;
 // ============== Global Instances ==============
 GpuUartBidirectional uart_comm;
 DRIVER_OLED_SH1107 oled_display;
-DisplayManagerHUB75 hub75_display;
+SimpleHUB75Display hub75_display;
 
 // ============== Shared Data (Protected by Mutexes) ==============
 SemaphoreHandle_t sensor_data_mutex;
@@ -144,17 +141,13 @@ bool initializeHUB75(){
   ESP_LOGI(TAG, "Initializing HUB75 dual LED matrix (128x32)...");
   
   // Initialize with dual OE pins mode
-  if(!hub75_display.initialize(true)){
+  if(!hub75_display.begin(true)){
     ESP_LOGE(TAG, "Failed to initialize HUB75 display!");
     return false;
   }
   
   ESP_LOGI(TAG, "HUB75 display initialized successfully");
   ESP_LOGI(TAG, "Display size: %dx%d pixels", hub75_display.getWidth(), hub75_display.getHeight());
-  
-  // Show boot screen
-  hub75_display.showScreen(ScreenType::BOOT);
-  vTaskDelay(pdMS_TO_TICKS(1000));
   
   return true;
 }
@@ -184,13 +177,11 @@ void updateDisplay(){
 
 /**
  * @brief Visualize IMU data on HUB75 as colored bars
- * Left Panel (64x32): Accelerometer (X, Y, Z)
- * Right Panel (64x32): Gyroscope (X, Y, Z)
  */
 void hub75VisualizeIMU(const SensorDataPayload& data){
-  hub75_display.clear();
+  hub75_display.fill({0, 0, 0});  // Clear to black
   
-  // LEFT PANEL: Accelerometer (-2g to +2g) mapped to 0-31 pixels
+  // Normalize accelerometer values (-2g to +2g) to 0-31 pixels
   int acc_x = static_cast<int>((data.accel_x / 2.0f + 1.0f) * 15.5f);
   int acc_y = static_cast<int>((data.accel_y / 2.0f + 1.0f) * 15.5f);
   int acc_z = static_cast<int>((data.accel_z / 2.0f + 1.0f) * 15.5f);
@@ -200,145 +191,94 @@ void hub75VisualizeIMU(const SensorDataPayload& data){
   acc_y = (acc_y < 0) ? 0 : (acc_y > 31 ? 31 : acc_y);
   acc_z = (acc_z < 0) ? 0 : (acc_z > 31 ? 31 : acc_z);
   
-  // Draw accelerometer bars on left panel (0-63)
-  hub75_display.drawRect(2, 31 - acc_x, 18, acc_x, RGB(255, 0, 0), true, false);    // Red = X
-  hub75_display.drawRect(23, 31 - acc_y, 18, acc_y, RGB(0, 255, 0), true, false);   // Green = Y
-  hub75_display.drawRect(44, 31 - acc_z, 18, acc_z, RGB(0, 0, 255), true, false);   // Blue = Z
+  // Draw vertical bars for each axis
+  // Red = X, Green = Y, Blue = Z
+  for(int x = 0; x < 40; x++){
+    for(int y = 0; y < acc_x; y++){
+      hub75_display.setPixel(x, 31 - y, {255, 0, 0});
+    }
+  }
   
-  // Labels for left panel
-  hub75_display.drawText(7, 2, "X", 1, RGB(255, 100, 100));
-  hub75_display.drawText(28, 2, "Y", 1, RGB(100, 255, 100));
-  hub75_display.drawText(49, 2, "Z", 1, RGB(100, 100, 255));
-  hub75_display.drawText(18, 25, "ACCEL", 1, RGB(200, 200, 200));
+  for(int x = 44; x < 84; x++){
+    for(int y = 0; y < acc_y; y++){
+      hub75_display.setPixel(x, 31 - y, {0, 255, 0});
+    }
+  }
   
-  // RIGHT PANEL: Gyroscope (-250 to +250 dps) mapped to 0-31 pixels
-  int gyro_x = static_cast<int>((data.gyro_x / 250.0f + 1.0f) * 15.5f);
-  int gyro_y = static_cast<int>((data.gyro_y / 250.0f + 1.0f) * 15.5f);
-  int gyro_z = static_cast<int>((data.gyro_z / 250.0f + 1.0f) * 15.5f);
-  
-  // Clamp values
-  gyro_x = (gyro_x < 0) ? 0 : (gyro_x > 31 ? 31 : gyro_x);
-  gyro_y = (gyro_y < 0) ? 0 : (gyro_y > 31 ? 31 : gyro_y);
-  gyro_z = (gyro_z < 0) ? 0 : (gyro_z > 31 ? 31 : gyro_z);
-  
-  // Draw gyroscope bars on right panel (64-127)
-  hub75_display.drawRect(66, 31 - gyro_x, 18, gyro_x, RGB(255, 128, 0), true, false);   // Orange = X
-  hub75_display.drawRect(87, 31 - gyro_y, 18, gyro_y, RGB(128, 255, 0), true, false);   // Yellow-Green = Y
-  hub75_display.drawRect(108, 31 - gyro_z, 18, gyro_z, RGB(0, 128, 255), true, false);  // Light Blue = Z
-  
-  // Labels for right panel
-  hub75_display.drawText(71, 2, "X", 1, RGB(255, 128, 100));
-  hub75_display.drawText(92, 2, "Y", 1, RGB(128, 255, 100));
-  hub75_display.drawText(113, 2, "Z", 1, RGB(100, 128, 255));
-  hub75_display.drawText(82, 25, "GYRO", 1, RGB(200, 200, 200));
+  for(int x = 88; x < 128; x++){
+    for(int y = 0; y < acc_z; y++){
+      hub75_display.setPixel(x, 31 - y, {0, 0, 255});
+    }
+  }
   
   hub75_display.show();
 }
 
 /**
  * @brief Visualize environmental data as horizontal bars
- * Left Panel (64x32): Temperature & Humidity bars
- * Right Panel (64x32): Pressure bar with numeric values
  */
 void hub75VisualizeEnvironmental(const SensorDataPayload& data){
-  hub75_display.clear();
+  hub75_display.fill({0, 0, 0});
   
-  // LEFT PANEL: Temperature & Humidity
-  // Temperature: 0-40°C mapped to panel width (64)
-  int temp_width = static_cast<int>((data.temperature / 40.0f) * 64.0f);
-  temp_width = (temp_width < 0) ? 0 : (temp_width > 64 ? 64 : temp_width);
+  // Temperature: 0-40°C mapped to width
+  int temp_width = static_cast<int>((data.temperature / 40.0f) * 128.0f);
+  temp_width = (temp_width < 0) ? 0 : (temp_width > 128 ? 128 : temp_width);
   
-  // Humidity: 0-100% mapped to panel width (64)
-  int humid_width = static_cast<int>((data.humidity / 100.0f) * 64.0f);
-  humid_width = (humid_width < 0) ? 0 : (humid_width > 64 ? 64 : humid_width);
+  // Humidity: 0-100% mapped to width
+  int humid_width = static_cast<int>((data.humidity / 100.0f) * 128.0f);
+  humid_width = (humid_width < 0) ? 0 : (humid_width > 128 ? 128 : humid_width);
   
-  // Draw bars on left panel
-  hub75_display.drawRect(0, 2, temp_width, 10, RGB(255, 0, 0), true, false);      // Red = Temp
-  hub75_display.drawRect(0, 20, humid_width, 10, RGB(0, 255, 255), true, false);  // Cyan = Humidity
+  // Pressure: 900-1100 hPa mapped to width
+  int pressure_width = static_cast<int>(((data.pressure - 900.0f) / 200.0f) * 128.0f);
+  pressure_width = (pressure_width < 0) ? 0 : (pressure_width > 128 ? 128 : pressure_width);
   
-  // Labels
-  hub75_display.drawText(2, 14, "TEMP", 1, RGB(200, 200, 200));
+  // Draw horizontal bars (Red, Yellow, Cyan)
+  for(int x = 0; x < temp_width; x++){
+    for(int y = 0; y < 8; y++){
+      hub75_display.setPixel(x, y, {255, 0, 0});
+    }
+  }
   
-  // Temperature value
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%.1fC", data.temperature);
-  hub75_display.drawText(28, 14, buf, 1, RGB(255, 100, 100));
+  for(int x = 0; x < humid_width; x++){
+    for(int y = 12; y < 20; y++){
+      hub75_display.setPixel(x, y, {255, 255, 0});
+    }
+  }
   
-  // RIGHT PANEL: Pressure
-  // Pressure: 900-1100 hPa mapped to panel width (64)
-  int pressure_width = static_cast<int>(((data.pressure / 100.0f - 900.0f) / 200.0f) * 64.0f);
-  pressure_width = (pressure_width < 0) ? 0 : (pressure_width > 64 ? 64 : pressure_width);
-  
-  // Draw pressure bar on right panel
-  hub75_display.drawRect(64, 2, pressure_width, 10, RGB(255, 255, 0), true, false);  // Yellow = Pressure
-  
-  // Humidity value on right panel
-  snprintf(buf, sizeof(buf), "%.0f%%", data.humidity);
-  hub75_display.drawText(66, 14, buf, 1, RGB(100, 255, 255));
-  
-  // Pressure value
-  hub75_display.drawRect(64, 20, pressure_width, 10, RGB(255, 128, 0), true, false);  // Orange bar
-  snprintf(buf, sizeof(buf), "%.0fhPa", data.pressure / 100.0f);
-  hub75_display.drawText(66, 24, buf, 1, RGB(255, 200, 100));
+  for(int x = 0; x < pressure_width; x++){
+    for(int y = 24; y < 32; y++){
+      hub75_display.setPixel(x, y, {0, 255, 255});
+    }
+  }
   
   hub75_display.show();
 }
 
 /**
  * @brief Visualize microphone data as waveform
- * Left Panel (64x32): Real-time waveform
- * Right Panel (64x32): VU meter style bars
  */
 void hub75VisualizeMicrophone(const SensorDataPayload& data){
-  hub75_display.clear();
+  hub75_display.fill({0, 0, 0});
   
   // Map decibel value (-60 to 0 dB) to height
   float normalized = (data.mic_db_level - MIC_DB_MIN) / (MIC_DB_MAX - MIC_DB_MIN);
+  int wave_height = static_cast<int>(normalized * 32.0f);
+  wave_height = (wave_height < 0) ? 0 : (wave_height > 32 ? 32 : wave_height);
   
-  // LEFT PANEL: Waveform
-  float wave_height = normalized * 12.0f;
-  
-  // Draw center line
-  hub75_display.drawLine(0, 16, 64, 16, RGB(50, 50, 50), false);
-  
-  // Draw waveform using antialiased lines
-  hub75_display.setAntialiasing(true);
-  
-  for(int x = 0; x < 63; x++){
-    float phase1 = (x / 64.0f) * 6.28318f;  // One full wave per panel
-    float phase2 = ((x + 1) / 64.0f) * 6.28318f;
+  // Draw waveform from center
+  int center_y = 16;
+  for(int x = 0; x < 128; x++){
+    float phase = (x / 128.0f) * 6.28318f;  // One full wave
+    int offset = static_cast<int>(sinf(phase) * wave_height * 0.5f);
+    int y = center_y + offset;
     
-    float y1 = 16 + sinf(phase1) * wave_height;
-    float y2 = 16 + sinf(phase2) * wave_height;
-    
-    // Gradient from blue to magenta based on amplitude
-    uint8_t blue = 255;
-    uint8_t red = static_cast<uint8_t>(normalized * 255.0f);
-    
-    hub75_display.drawLine(x, y1, x + 1, y2, RGB(red, 0, blue), true);
+    if(y >= 0 && y < 32){
+      // Gradient from blue to magenta based on amplitude
+      uint8_t blue = 255;
+      uint8_t red = static_cast<uint8_t>((normalized * 255.0f));
+      hub75_display.setPixel(x, y, {red, 0, blue});
+    }
   }
-  
-  // RIGHT PANEL: VU Meter bars
-  int bar_height = static_cast<int>(normalized * 30.0f);
-  
-  // Draw multiple bars for VU meter effect
-  for(int i = 0; i < 5; i++){
-    int bar_x = 66 + i * 11;
-    int this_height = bar_height - (i * 2);
-    if(this_height < 0) this_height = 0;
-    
-    // Color gradient from green to red
-    uint8_t red_level = static_cast<uint8_t>((i / 5.0f) * 255);
-    uint8_t green_level = static_cast<uint8_t>((1.0f - i / 5.0f) * 255);
-    
-    hub75_display.drawRect(bar_x, 31 - this_height, 9, this_height, 
-                          RGB(red_level, green_level, 0), true, false);
-  }
-  
-  // dB level text
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%.0fdB", data.mic_db_level);
-  hub75_display.drawText(78, 2, buf, 1, RGB(200, 200, 200));
   
   hub75_display.show();
 }
@@ -356,7 +296,7 @@ void hub75SpinningLoadingAnimation(){
     initialized = true;
   }
   
-  hub75_display.clear();
+  hub75_display.fill({0, 0, 0});
   
   // Animation parameters
   uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -364,113 +304,111 @@ void hub75SpinningLoadingAnimation(){
   
   // Number of circles and their properties
   const int num_circles = 5;
-  const float orbit_radius = 10.0f;  // Distance from center
-  const float circle_radius = 2.0f;  // Fixed size for all circles
-  
-  // Enable antialiasing for smooth circles
-  hub75_display.setAntialiasing(true);
+  const int orbit_radius = 10;  // Distance from center
+  const int circle_radius = 2;  // Fixed size for all circles
   
   // Draw spinning circles on left display (64x32)
-  const float center_x1 = 32.0f;
-  const float center_y1 = 16.0f;
+  const int center_x1 = 32;
+  const int center_y1 = 16;
   
   for(int i = 0; i < num_circles; i++){
     // Calculate angle for this circle
     float circle_angle = angle + (i * 6.28318f / num_circles);
     
     // Calculate position
-    float x = center_x1 + cosf(circle_angle) * orbit_radius;
-    float y = center_y1 + sinf(circle_angle) * orbit_radius * 0.5f;  // Compressed vertically
+    int x = center_x1 + static_cast<int>(cosf(circle_angle) * orbit_radius);
+    int y = center_y1 + static_cast<int>(sinf(circle_angle) * orbit_radius * 0.5f);  // Compressed vertically
     
     // Color based on position in circle
     uint8_t hue = static_cast<uint8_t>((i * 255) / num_circles);
     RGB color = {static_cast<uint8_t>(255 - hue), hue, 255};
     
-    // Draw filled circle with antialiasing
-    hub75_display.drawCircle(x, y, circle_radius, color, true, true);
+    // Draw filled circle
+    for(int dy = -circle_radius; dy <= circle_radius; dy++){
+      for(int dx = -circle_radius; dx <= circle_radius; dx++){
+        if(dx * dx + dy * dy <= circle_radius * circle_radius){
+          int px = x + dx;
+          int py = y + dy;
+          if(px >= 0 && px < 64 && py >= 0 && py < 32){
+            hub75_display.setPixel(px, py, color);
+          }
+        }
+      }
+    }
   }
   
   // Draw center pivot point for left display
-  hub75_display.drawCircle(center_x1, center_y1, 1.5f, RGB(255, 255, 255), true, true);
+  for(int dy = -1; dy <= 1; dy++){
+    for(int dx = -1; dx <= 1; dx++){
+      hub75_display.setPixel(center_x1 + dx, center_y1 + dy, {255, 255, 255});
+    }
+  }
   
   // Draw spinning circles on right display (64x32) - opposite rotation
-  const float center_x2 = 96.0f;
-  const float center_y2 = 16.0f;
+  const int center_x2 = 96;
+  const int center_y2 = 16;
   
   for(int i = 0; i < num_circles; i++){
     // Calculate angle for this circle (opposite direction)
     float circle_angle = -angle + (i * 6.28318f / num_circles);
     
     // Calculate position
-    float x = center_x2 + cosf(circle_angle) * orbit_radius;
-    float y = center_y2 + sinf(circle_angle) * orbit_radius * 0.5f;
+    int x = center_x2 + static_cast<int>(cosf(circle_angle) * orbit_radius);
+    int y = center_y2 + static_cast<int>(sinf(circle_angle) * orbit_radius * 0.5f);
     
     // Different color scheme for right display
     uint8_t hue = static_cast<uint8_t>((i * 255) / num_circles);
     RGB color = {hue, static_cast<uint8_t>(255 - hue), 255};
     
-    // Draw filled circle with antialiasing
-    hub75_display.drawCircle(x, y, circle_radius, color, true, true);
+    // Draw filled circle
+    for(int dy = -circle_radius; dy <= circle_radius; dy++){
+      for(int dx = -circle_radius; dx <= circle_radius; dx++){
+        if(dx * dx + dy * dy <= circle_radius * circle_radius){
+          int px = x + dx;
+          int py = y + dy;
+          if(px >= 64 && px < 128 && py >= 0 && py < 32){
+            hub75_display.setPixel(px, py, color);
+          }
+        }
+      }
+    }
   }
   
   // Draw center pivot point for right display
-  hub75_display.drawCircle(center_x2, center_y2, 1.5f, RGB(255, 255, 255), true, true);
+  for(int dy = -1; dy <= 1; dy++){
+    for(int dx = -1; dx <= 1; dx++){
+      hub75_display.setPixel(center_x2 + dx, center_y2 + dy, {255, 255, 255});
+    }
+  }
   
   hub75_display.show();
 }
 
 /**
  * @brief Show system info visualization
- * Left Panel (64x32): FPS counters
- * Right Panel (64x32): Status indicators
  */
 void hub75VisualizeSystemInfo(){
-  hub75_display.clear();
-  hub75_display.setAntialiasing(false);
+  hub75_display.fill({0, 0, 0});
   
-  // LEFT PANEL: FPS Information
-  // Draw frame around left panel
-  hub75_display.drawRect(0, 0, 63, 31, RGB(100, 100, 255), false, false);
+  // Draw frame around display
+  for(int x = 0; x < 128; x++){
+    hub75_display.setPixel(x, 0, {255, 255, 255});
+    hub75_display.setPixel(x, 31, {255, 255, 255});
+  }
   
-  char buf[16];
+  for(int y = 0; y < 32; y++){
+    hub75_display.setPixel(0, y, {255, 255, 255});
+    hub75_display.setPixel(127, y, {255, 255, 255});
+  }
   
-  // Sensor RX FPS
-  hub75_display.drawText(4, 4, "RX", 1, RGB(0, 255, 0));
-  snprintf(buf, sizeof(buf), "%lu", stats.sensor_fps);
-  hub75_display.drawText(20, 4, buf, 1, RGB(0, 255, 255));
-  
-  // LED TX FPS
-  hub75_display.drawText(4, 14, "TX", 1, RGB(255, 128, 0));
-  snprintf(buf, sizeof(buf), "%lu", stats.led_fps);
-  hub75_display.drawText(20, 14, buf, 1, RGB(255, 255, 0));
-  
-  // Display updates
-  hub75_display.drawText(4, 24, "DISP", 1, RGB(255, 0, 255));
-  
-  // RIGHT PANEL: Status indicators
-  // Draw frame around right panel
-  hub75_display.drawRect(64, 0, 63, 31, RGB(255, 100, 100), false, false);
-  
-  // Status dots for sensor validity
-  hub75_display.drawText(68, 4, "IMU", 1, RGB(200, 200, 200));
-  hub75_display.drawCircle(100, 7, 2, 
-    current_sensor_data.getImuValid() ? RGB(0, 255, 0) : RGB(255, 0, 0), 
-    true, false);
-  
-  hub75_display.drawText(68, 14, "ENV", 1, RGB(200, 200, 200));
-  hub75_display.drawCircle(100, 17, 2,
-    current_sensor_data.getEnvValid() ? RGB(0, 255, 0) : RGB(255, 0, 0),
-    true, false);
-  
-  hub75_display.drawText(68, 24, "GPS", 1, RGB(200, 200, 200));
-  hub75_display.drawCircle(100, 27, 2,
-    current_sensor_data.getGpsValid() ? RGB(0, 255, 0) : RGB(255, 0, 0),
-    true, false);
-  
-  // Animation indicator on right
-  hub75_display.drawText(108, 4, "A", 1, RGB(255, 255, 0));
-  snprintf(buf, sizeof(buf), "%d", current_animation);
-  hub75_display.drawText(114, 4, buf, 1, RGB(255, 200, 0));
+  // Draw checkered pattern in center
+  for(int y = 8; y < 24; y++){
+    for(int x = 8; x < 120; x++){
+      if((x / 4 + y / 4) % 2 == 0){
+        hub75_display.setPixel(x, y, {0, 128, 128});
+      }
+    }
+  }
   
   hub75_display.show();
 }
@@ -1062,6 +1000,11 @@ extern "C" void app_main(void){
   drawText(10, 68, "Sensor RX");
   drawText(10, 80, "LED TX @ 60fps");
   updateDisplay();
+  
+  // Show startup animation on HUB75
+  hub75_display.fill({0, 128, 255});  // Cyan startup color
+  hub75_display.show();
+  vTaskDelay(pdMS_TO_TICKS(1000));
   
   // Initialize UART communication
   ESP_LOGI(TAG, "Initializing UART communication...");
