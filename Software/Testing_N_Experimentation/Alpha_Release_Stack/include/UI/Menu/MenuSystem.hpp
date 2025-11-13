@@ -43,6 +43,7 @@ enum class DebugPage : uint8_t {
   GPS_DATA,
   MICROPHONE,
   SYSTEM_INFO,
+  WIFI_INFO,         // WiFi credentials from CPU
   COUNT
 };
 

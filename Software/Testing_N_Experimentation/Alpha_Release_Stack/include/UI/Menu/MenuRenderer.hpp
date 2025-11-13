@@ -119,6 +119,10 @@ inline void renderDebugMode(arcos::manager::OLEDDisplayManager& oled,
       oled::renderSystemInfoPage(oled, sensor_data, g_sensor_fps, g_led_fps, g_fan_speed);
       break;
       
+    case DebugPage::WIFI_INFO:
+      oled::renderWifiInfoPage(oled, sensor_data);
+      break;
+      
     default:
       break;
   }
@@ -328,32 +332,30 @@ inline void renderSubmenu(arcos::manager::OLEDDisplayManager& oled,
   oled.drawText(15, 0, title, true);
   oled.drawLine(0, 10, 127, 10, true);
   
-  // Draw items with scrolling for long lists
+  // Vertical carousel - centered selection
+  int item_height = 12;
+  int visible_items = 8;  // Show up to 8 items (96 pixels from y=14 to y=110)
+  int middle_slot = visible_items / 2;  // Middle position (slot 4 of 0-7)
   int start_y = 14;
-  int item_height = 12;  // Reduced from 14 to fit more items
-  int visible_items = 8;  // Show up to 8 items
-  int scroll_offset = 0;
   
-  // Calculate scroll offset to keep selected item visible
-  if (item_count > visible_items) {
-    if (selected_index >= visible_items - 2) {
-      scroll_offset = selected_index - (visible_items - 3);
-      if (scroll_offset + visible_items > item_count) {
-        scroll_offset = item_count - visible_items;
-      }
-    }
-  }
+  // Calculate which items to display (carousel wrapping)
+  // Selected item should be in the middle slot
+  int first_visible_index = selected_index - middle_slot;
   
-  // Draw visible items
-  for (uint8_t i = 0; i < item_count && i < visible_items; i++) {
-    uint8_t item_index = i + scroll_offset;
-    if (item_index >= item_count) break;
+  // Draw visible items in carousel
+  for (int slot = 0; slot < visible_items; slot++) {
+    // Calculate actual item index with wrapping
+    int item_index = first_visible_index + slot;
     
-    int item_y = start_y + i * item_height;
-    bool selected = (item_index == selected_index);
+    // Wrap around for carousel effect
+    while (item_index < 0) item_index += item_count;
+    while (item_index >= item_count) item_index -= item_count;
+    
+    int item_y = start_y + slot * item_height;
+    bool selected = (slot == middle_slot);
     
     if (selected) {
-      // Flashing box
+      // Flashing box for selected item (always in middle)
       bool flash_on = (time_ms / 250) % 2 == 0;
       if (flash_on) {
         oled.drawRect(2, item_y, 124, item_height - 2, false, true);
@@ -365,14 +367,10 @@ inline void renderSubmenu(arcos::manager::OLEDDisplayManager& oled,
     oled.drawText(16, item_y + 2, item_names[item_index], true);
   }
   
-  // Scroll indicators
+  // Scroll indicators (show if list is longer than visible area)
   if (item_count > visible_items) {
-    if (scroll_offset > 0) {
-      oled.drawText(120, 14, "^", true);  // Up arrow
-    }
-    if (scroll_offset + visible_items < item_count) {
-      oled.drawText(120, 108, "v", true);  // Down arrow
-    }
+    oled.drawText(120, 14, "^", true);   // Up arrow (always show for carousel)
+    oled.drawText(120, 108, "v", true);  // Down arrow (always show for carousel)
   }
   
   // Instructions

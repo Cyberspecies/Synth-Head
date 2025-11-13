@@ -118,7 +118,36 @@ inline void renderGpsPage(arcos::manager::OLEDDisplayManager& oled,
       data.gps_hour, data.gps_minute, data.gps_second);
     oled.drawText(0, 108, buf, true);
   }else{
-    oled.drawText(10, 60, "NO GPS FIX", true);
+    // GPS searching for fix
+    oled.drawText(10, 30, "ACQUIRING FIX...", true);
+    
+    // Show satellite count if available
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Satellites: %u", data.gps_satellites);
+    oled.drawText(10, 50, buf, true);
+    
+    // Animated loading bar
+    static uint32_t last_update = 0;
+    static int progress = 0;
+    uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    if(current_time - last_update > 500){
+      progress = (progress + 1) % 61;  // 60 seconds cycle
+      last_update = current_time;
+    }
+    
+    // Draw loading bar background
+    oled.drawRect(10, 70, 108, 12, false, true);
+    
+    // Draw progress (fills over ~60 seconds then repeats)
+    int bar_width = (progress * 104) / 60;
+    if(bar_width > 0){
+      oled.fillRect(12, 72, bar_width, 8, true);
+    }
+    
+    // Status text
+    oled.drawText(5, 90, "Cold start: ~60s", true);
+    oled.drawText(5, 102, "Needs clear sky", true);
   }
   
   oled.show();
@@ -192,6 +221,70 @@ inline void renderSystemInfoPage(arcos::manager::OLEDDisplayManager& oled,
   snprintf(buf, sizeof(buf), " GPS:%u MIC:%u",
     data.getGpsValidFlag(), data.getMicValid());
   oled.drawText(0, 98, buf, true);
+  
+  oled.show();
+}
+
+/**
+ * @brief Render WiFi info page (SSID and password from CPU captive portal)
+ */
+inline void renderWifiInfoPage(arcos::manager::OLEDDisplayManager& oled,
+                                const arcos::communication::SensorDataPayload& data) {
+  oled.clear();
+  oled.drawText(0, 0, "==== WIFI INFO ====", true);
+  oled.drawLine(0, 10, 127, 10, true);
+  
+  // Display IP Address
+  oled.drawText(0, 15, "IP: 10.0.0.1", true);
+  
+  // Display SSID
+  oled.drawText(0, 28, "SSID:", true);
+  
+  char ssid_copy[33];
+  strncpy(ssid_copy, data.wifi_ssid, 32);
+  ssid_copy[32] = '\0';
+  
+  if(strlen(ssid_copy) > 16) {
+    // Split into two lines
+    char line1[17];
+    char line2[17];
+    strncpy(line1, ssid_copy, 16);
+    line1[16] = '\0';
+    strncpy(line2, ssid_copy + 16, 16);
+    line2[16] = '\0';
+    
+    oled.drawText(5, 38, line1, true);
+    oled.drawText(5, 48, line2, true);
+  } else {
+    oled.drawText(5, 38, ssid_copy, true);
+  }
+  
+  // Display Password (may need to wrap if too long)
+  oled.drawText(0, 62, "Password:", true);
+  
+  char pass_copy[32];
+  strncpy(pass_copy, data.wifi_password, 31);
+  pass_copy[31] = '\0';
+  
+  if(strlen(pass_copy) > 16) {
+    // Split into two lines
+    char line1[17];
+    char line2[17];
+    strncpy(line1, pass_copy, 16);
+    line1[16] = '\0';
+    strncpy(line2, pass_copy + 16, 16);
+    line2[16] = '\0';
+    
+    oled.drawText(5, 72, line1, true);
+    oled.drawText(5, 82, line2, true);
+  } else {
+    oled.drawText(5, 72, pass_copy, true);
+  }
+  
+  // Connection instructions
+  oled.drawText(0, 100, "Visit 10.0.0.1", true);
+  oled.drawText(0, 110, "in browser for", true);
+  oled.drawText(0, 120, "web dashboard", true);
   
   oled.show();
 }

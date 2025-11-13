@@ -22,15 +22,26 @@
  *    - Baud Rate: 2 Mbps
  *    - TX: Sensor data at 60Hz
  *    - RX: LED data from GPU
+ * 
+ * Debug Messages (Inter-Core Data Flow):
+ *    [CORE0-SENSOR] - Sensor read task writes to double buffer
+ *    [CORE1-UART-TX] - UART send task reads from double buffer (60Hz)
+ *    [CORE1-WEB] - Web server task reads from double buffer
+ *    [PORTAL-UPDATE] - Captive portal receives data via mutex
+ *    [PORTAL-JSON] - Captive portal reads internal storage to generate JSON
+ *    [WEB-API] - Web interface polls /api/sensors endpoint
  *****************************************************************/
 
 #include <Arduino.h>
+#include <atomic>
 #include <Adafruit_NeoPixel.h>
 #include "Drivers/UART Comms/CpuUartBidirectional.hpp"
 #include "Drivers/Sensors/SensorManager.h"
+#include "Manager/CaptivePortalManager.hpp"
 
 using namespace arcos::communication;
 using namespace sensors;
+using namespace arcos::manager;
 
 // ============== Pin Definitions ==============
 constexpr uint8_t BUTTON_A_PIN = 5;
@@ -58,6 +69,7 @@ constexpr int LED_BRIGHTNESS = 255;
 // ============== Global Instances ==============
 SensorManager sensor_manager;
 CpuUartBidirectional uart_comm;
+CaptivePortalManager captive_portal;
 
 // Adafruit NeoPixel strips (RGBW order for SK6812)
 Adafruit_NeoPixel strip1(LED_COUNT_LEFT_FIN, LED_PIN_STRIP1, NEO_RGBW + NEO_KHZ800);
@@ -70,10 +82,13 @@ TaskHandle_t sensor_task_handle = NULL;
 TaskHandle_t uart_send_task_handle = NULL;
 TaskHandle_t uart_receive_task_handle = NULL;
 TaskHandle_t led_display_task_handle = NULL;
+TaskHandle_t web_server_task_handle = NULL;
 
-// ============== Shared Data (Protected by Mutexes) ==============
-SemaphoreHandle_t sensor_data_mutex;
-SensorDataPayload shared_sensor_data;
+// ============== Double-Buffered Shared Data (Lock-Free) ==============
+// Two buffers: one for writing (Core 0), one for reading (Core 1)
+// Atomic index swap ensures cores never access same buffer simultaneously
+SensorDataPayload sensor_data_buffers[2];
+std::atomic<uint8_t> active_buffer_index{0};  // Which buffer is ready for reading
 
 SemaphoreHandle_t led_data_mutex;
 LedDataPayload shared_led_data;
@@ -194,88 +209,145 @@ void readButtons(uint8_t& btn_a, uint8_t& btn_b, uint8_t& btn_c, uint8_t& btn_d)
 }
 
 /**
- * @brief Core 0 Task: Read sensors and update shared data structure
- * Runs at maximum speed, continuously updating sensor readings
+ * @brief Core 0 Task: Read sensors and update inactive buffer
+ * Lock-free double buffering: write to inactive buffer, then atomically swap
  */
 void sensorReadTask(void* parameter){
   Serial.println("CPU: Sensor read task started on Core 0");
+  Serial.println("DEBUG [CORE0-SENSOR]: Will write sensor data to double buffers");
+  
+  static uint32_t debug_counter = 0;
   
   while(true){
     // Update sensor manager (reads all sensors)
     sensor_manager.update();
     
-    // Acquire mutex to update shared data
-    if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
-      // Read IMU data
-      if(sensor_manager.isImuValid()){
-        const Icm20948Data& imu = sensor_manager.getImuData();
-        shared_sensor_data.accel_x = imu.accel_x;
-        shared_sensor_data.accel_y = imu.accel_y;
-        shared_sensor_data.accel_z = imu.accel_z;
-        shared_sensor_data.gyro_x = imu.gyro_x;
-        shared_sensor_data.gyro_y = imu.gyro_y;
-        shared_sensor_data.gyro_z = imu.gyro_z;
-        shared_sensor_data.mag_x = imu.mag_x;
-        shared_sensor_data.mag_y = imu.mag_y;
-        shared_sensor_data.mag_z = imu.mag_z;
-        shared_sensor_data.setImuValid(true);
-      }else{
-        shared_sensor_data.setImuValid(false);
+    // Debug: Print sensor validity every 1000 reads
+    if(++debug_counter % 1000 == 0){
+      Serial.printf("SENSOR: IMU Valid: %d | Env Valid: %d | GPS Valid: %d | Mic Valid: %d\n",
+        sensor_manager.isImuValid(), sensor_manager.isEnvironmentalValid(),
+        sensor_manager.isGpsValid(), sensor_manager.isMicrophoneValid());
+    }
+    
+    // Get the INACTIVE buffer (the one NOT being read by other core)
+    uint8_t current_active = active_buffer_index.load(std::memory_order_acquire);
+    uint8_t write_index = 1 - current_active;  // Write to the OTHER buffer
+    SensorDataPayload& write_buffer = sensor_data_buffers[write_index];
+    
+    // Debug: Track buffer switching
+    if(debug_counter % 1000 == 0){
+      Serial.printf("DEBUG [CORE0-SENSOR]: Writing to buffer[%u], active is buffer[%u]\n",
+        write_index, current_active);
+    }
+    
+    // Write to inactive buffer WITHOUT any locks - other core reads from active buffer
+    
+    // Read IMU data
+    if(sensor_manager.isImuValid()){
+      const Icm20948Data& imu = sensor_manager.getImuData();
+      
+      // Debug: Print actual IMU values every 1000 reads
+      if(debug_counter % 1000 == 0){
+        Serial.printf("SENSOR: Raw IMU - Accel: %.2f, %.2f, %.2f | Gyro: %.1f, %.1f, %.1f\n",
+          imu.accel_x, imu.accel_y, imu.accel_z,
+          imu.gyro_x, imu.gyro_y, imu.gyro_z);
       }
       
-      // Read environmental data
-      if(sensor_manager.isEnvironmentalValid()){
-        const Bme280Data& env = sensor_manager.getEnvironmentalData();
-        shared_sensor_data.temperature = env.temperature;
-        shared_sensor_data.humidity = env.humidity;
-        shared_sensor_data.pressure = env.pressure;
-        shared_sensor_data.setEnvValid(true);
-      }else{
-        shared_sensor_data.setEnvValid(false);
+      write_buffer.accel_x = imu.accel_x;
+      write_buffer.accel_y = imu.accel_y;
+      write_buffer.accel_z = imu.accel_z;
+      write_buffer.gyro_x = imu.gyro_x;
+      write_buffer.gyro_y = imu.gyro_y;
+      write_buffer.gyro_z = imu.gyro_z;
+      write_buffer.mag_x = imu.mag_x;
+      write_buffer.mag_y = imu.mag_y;
+      write_buffer.mag_z = imu.mag_z;
+      write_buffer.setImuValid(true);
+    }else{
+      write_buffer.setImuValid(false);
+    }
+    
+    // Read environmental data
+    if(sensor_manager.isEnvironmentalValid()){
+      const Bme280Data& env = sensor_manager.getEnvironmentalData();
+      
+      // Debug: Print environmental values every 1000 reads
+      if(debug_counter % 1000 == 0){
+        Serial.printf("SENSOR: Raw ENV - Temp: %.1f | Humidity: %.1f | Pressure: %.0f\n",
+          env.temperature, env.humidity, env.pressure);
       }
       
-      // Read GPS data
-      if(sensor_manager.isGpsValid()){
-        const Neo8mGpsData& gps = sensor_manager.getGpsData();
-        shared_sensor_data.latitude = gps.latitude;
-        shared_sensor_data.longitude = gps.longitude;
-        shared_sensor_data.altitude = gps.altitude;
-        shared_sensor_data.speed_knots = gps.speed_knots;
-        shared_sensor_data.course = gps.course;
-        shared_sensor_data.setGpsFixQuality(static_cast<uint8_t>(gps.fix_quality));
-        shared_sensor_data.gps_satellites = gps.satellites;
-        shared_sensor_data.gps_hour = gps.hour;
-        shared_sensor_data.gps_minute = gps.minute;
-        shared_sensor_data.gps_second = gps.second;
-        shared_sensor_data.setGpsValid(gps.valid);
-        shared_sensor_data.setGpsValidFlag(true);
-      }else{
-        shared_sensor_data.setGpsValidFlag(false);
-      }
-      
-      // Read microphone data
-      if(sensor_manager.isMicrophoneValid()){
-        const Inmp441AudioData& mic = sensor_manager.getMicrophoneData();
-        shared_sensor_data.mic_current_sample = mic.current_sample;
-        shared_sensor_data.mic_peak_amplitude = mic.peak_amplitude;
-        shared_sensor_data.mic_db_level = mic.db_level;
-        shared_sensor_data.setMicClipping(mic.clipping);
-        shared_sensor_data.setMicValid(true);
-      }else{
-        shared_sensor_data.setMicValid(false);
-      }
-      
-      // Read button states
-      uint8_t btn_a, btn_b, btn_c, btn_d;
-      readButtons(btn_a, btn_b, btn_c, btn_d);
-      shared_sensor_data.setButtonA(btn_a);
-      shared_sensor_data.setButtonB(btn_b);
-      shared_sensor_data.setButtonC(btn_c);
-      shared_sensor_data.setButtonD(btn_d);
-      
-      stats.sensor_reads++;
-      
-      xSemaphoreGive(sensor_data_mutex);
+      write_buffer.temperature = env.temperature;
+      write_buffer.humidity = env.humidity;
+      write_buffer.pressure = env.pressure;
+      write_buffer.setEnvValid(true);
+    }else{
+      write_buffer.setEnvValid(false);
+    }
+    
+    // Read GPS data
+    if(sensor_manager.isGpsValid()){
+      const Neo8mGpsData& gps = sensor_manager.getGpsData();
+      write_buffer.latitude = gps.latitude;
+      write_buffer.longitude = gps.longitude;
+      write_buffer.altitude = gps.altitude;
+      write_buffer.speed_knots = gps.speed_knots;
+      write_buffer.course = gps.course;
+      write_buffer.setGpsFixQuality(static_cast<uint8_t>(gps.fix_quality));
+      write_buffer.gps_satellites = gps.satellites;
+      write_buffer.gps_hour = gps.hour;
+      write_buffer.gps_minute = gps.minute;
+      write_buffer.gps_second = gps.second;
+      write_buffer.setGpsValid(gps.valid);
+      write_buffer.setGpsValidFlag(true);
+    }else{
+      write_buffer.setGpsValidFlag(false);
+    }
+    
+    // Read microphone data
+    if(sensor_manager.isMicrophoneValid()){
+      const Inmp441AudioData& mic = sensor_manager.getMicrophoneData();
+      write_buffer.mic_current_sample = mic.current_sample;
+      write_buffer.mic_peak_amplitude = mic.peak_amplitude;
+      write_buffer.mic_db_level = mic.db_level;
+      write_buffer.setMicClipping(mic.clipping);
+      write_buffer.setMicValid(true);
+    }else{
+      write_buffer.setMicValid(false);
+    }
+    
+    // Read button states (physical buttons)
+    uint8_t btn_a, btn_b, btn_c, btn_d;
+    readButtons(btn_a, btn_b, btn_c, btn_d);
+    
+    // Get web button states from captive portal
+    SensorDataPayload web_buttons;
+    captive_portal.getSensorData(web_buttons);
+    
+    // Merge physical and web button states (OR logic - either source can activate)
+    write_buffer.setButtonA(btn_a || web_buttons.getButtonA());
+    write_buffer.setButtonB(btn_b || web_buttons.getButtonB());
+    write_buffer.setButtonC(btn_c || web_buttons.getButtonC());
+    write_buffer.setButtonD(btn_d || web_buttons.getButtonD());
+    
+    // Update WiFi credentials from captive portal
+    String ssid = captive_portal.getSSID();
+    String password = captive_portal.getPassword();
+    strncpy(write_buffer.wifi_ssid, ssid.c_str(), 32);
+    write_buffer.wifi_ssid[32] = '\0';
+    strncpy(write_buffer.wifi_password, password.c_str(), 31);
+    write_buffer.wifi_password[31] = '\0';
+    
+    stats.sensor_reads++;
+    
+    // ATOMIC SWAP: Make this buffer active (other core will now read from it)
+    active_buffer_index.store(write_index, std::memory_order_release);
+    
+    // Debug: Confirm buffer swap and show sample data
+    if(debug_counter % 1000 == 0){
+      Serial.printf("DEBUG [CORE0-SENSOR]: Swapped to buffer[%u] - Sample data: Temp=%.1f°C, Accel=(%.2f,%.2f,%.2f)\n",
+        write_index, write_buffer.temperature, 
+        write_buffer.accel_x, write_buffer.accel_y, write_buffer.accel_z);
     }
     
     // Small delay to prevent task starvation
@@ -289,9 +361,11 @@ void sensorReadTask(void* parameter){
  */
 void uartSendTask(void* parameter){
   Serial.println("CPU: UART send task started on Core 1");
+  Serial.println("DEBUG [CORE1-UART-TX]: Will read sensor data from double buffers at 60Hz");
   
   uint32_t last_frame_time = micros();
   SensorDataPayload local_copy;
+  static uint32_t send_count = 0;
   
   while(true){
     uint32_t current_time = micros();
@@ -301,10 +375,15 @@ void uartSendTask(void* parameter){
     if(elapsed >= FRAME_TIME_US){
       last_frame_time = current_time;
       
-      // Copy shared data to local buffer
-      if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(2)) == pdTRUE){
-        memcpy(&local_copy, &shared_sensor_data, sizeof(SensorDataPayload));
-        xSemaphoreGive(sensor_data_mutex);
+      // LOCK-FREE READ: Copy from active buffer (no mutex needed)
+      uint8_t read_index = active_buffer_index.load(std::memory_order_acquire);
+      memcpy(&local_copy, &sensor_data_buffers[read_index], sizeof(SensorDataPayload));
+      
+      // Debug: Verify data being sent
+      if(++send_count % 60 == 0){  // Every 1 second at 60Hz
+        Serial.printf("DEBUG [CORE1-UART-TX]: Read from buffer[%u] - Sending Temp=%.1f°C, Accel=(%.2f,%.2f,%.2f)\n",
+          read_index, local_copy.temperature,
+          local_copy.accel_x, local_copy.accel_y, local_copy.accel_z);
       }
       
       // Send sensor data packet via UART
@@ -464,6 +543,86 @@ void ledDisplayTask(void* parameter){
 }
 
 /**
+ * @brief Core 1 Task: Web server and captive portal processing
+ * Handles DNS requests and updates web interface with sensor data
+ */
+void webServerTask(void* parameter){
+  // CRITICAL: First thing - print to serial to confirm task is running
+  delay(10);  // Brief delay to let serial stabilize
+  Serial.println("========================================");
+  Serial.println("DEBUG [CORE1-WEB]: TASK STARTING!");
+  Serial.println("========================================");
+  Serial.flush();
+  delay(100);
+  
+  // Give other tasks time to initialize
+  Serial.println("DEBUG [CORE1-WEB]: Delaying 1 second...");
+  Serial.flush();
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  
+  Serial.println("DEBUG [CORE1-WEB]: After 1 second delay, entering main loop NOW");
+  Serial.flush();
+  delay(100);
+  
+  uint32_t web_debug_count = 0;
+  uint32_t last_alive_print = millis();
+  uint32_t last_update_print = millis();
+  
+  Serial.println("DEBUG [CORE1-WEB]: Variables initialized, entering while loop");
+  Serial.flush();
+  
+  while(true){
+    web_debug_count++;
+    
+    // HEARTBEAT: Print immediately every loop for first 10 iterations
+    if(web_debug_count <= 10){
+      Serial.printf("DEBUG [CORE1-WEB]: HEARTBEAT #%u\n", web_debug_count);
+      Serial.flush();
+    }
+    
+    // Print alive message every 2 seconds for debugging
+    uint32_t current_time = millis();
+    if(current_time - last_alive_print >= 2000){
+      Serial.printf("DEBUG [CORE1-WEB]: *** ALIVE *** Loop count=%u, Active buffer=%u\n", 
+        web_debug_count, active_buffer_index.load(std::memory_order_acquire));
+      Serial.flush();
+      last_alive_print = current_time;
+    }
+    
+    // LOCK-FREE READ: Get active buffer index and copy data
+    // No mutex needed - sensor task writes to OTHER buffer
+    uint8_t read_index = active_buffer_index.load(std::memory_order_acquire);
+    SensorDataPayload sensor_copy;
+    memcpy(&sensor_copy, &sensor_data_buffers[read_index], sizeof(sensor_copy));
+    
+    // Debug: Print update every 2 seconds
+    if(current_time - last_update_print >= 2000){
+      Serial.printf("DEBUG [CORE1-WEB]: Read from buffer[%u] - Temp=%.1f°C, Accel=(%.2f,%.2f,%.2f)\n", 
+        read_index, sensor_copy.temperature,
+        sensor_copy.accel_x, sensor_copy.accel_y, sensor_copy.accel_z);
+      Serial.printf("DEBUG [CORE1-WEB]: About to call captive_portal.updateSensorData()...\n");
+      Serial.flush();
+      last_update_print = current_time;
+    }
+    
+    // Update portal with fresh data (portal has its own internal mutex)
+    captive_portal.updateSensorData(sensor_copy);
+    
+    // Debug confirmation after update
+    if((current_time - last_alive_print) >= 2000 && (current_time - last_alive_print) < 2100){
+      Serial.println("DEBUG [CORE1-WEB]: captive_portal.updateSensorData() completed");
+      Serial.flush();
+    }
+    
+    // Process DNS requests for captive portal (can block briefly)
+    captive_portal.update();
+    
+    // Small delay to keep loop responsive for 250ms web polling
+    vTaskDelay(pdMS_TO_TICKS(5));  // 5ms delay = up to 200 updates/sec
+  }
+}
+
+/**
  * @brief Arduino setup function
  */
 void setup(){
@@ -532,19 +691,34 @@ void setup(){
   }
   Serial.println("CPU: UART initialized (2 Mbps, RX=GPIO11, TX=GPIO12)");
   
-  // Create mutexes for shared data protection
-  sensor_data_mutex = xSemaphoreCreateMutex();
+  // Create mutex for LED data (still needed for LED display)
   led_data_mutex = xSemaphoreCreateMutex();
-  if(sensor_data_mutex == NULL || led_data_mutex == NULL){
-    Serial.println("CPU: [ERROR] Failed to create mutexes!");
+  if(led_data_mutex == NULL){
+    Serial.println("CPU: [ERROR] Failed to create LED mutex!");
     while(1){
       delay(1000);
     }
   }
   
-  // Initialize shared data
-  memset(&shared_sensor_data, 0, sizeof(SensorDataPayload));
+  // Initialize double buffers (lock-free for sensor data)
+  memset(&sensor_data_buffers[0], 0, sizeof(SensorDataPayload));
+  memset(&sensor_data_buffers[1], 0, sizeof(SensorDataPayload));
+  active_buffer_index.store(0, std::memory_order_release);
+  
+  // Initialize LED data
   memset(&shared_led_data, 0, sizeof(LedDataPayload));
+  
+  // Initialize captive portal (WiFi AP + web server)
+  Serial.println();
+  Serial.println("CPU: Initializing captive portal...");
+  if(!captive_portal.initialize()){
+    Serial.println("CPU: [WARNING] Captive portal initialization failed!");
+    Serial.println("CPU: Continuing without web interface...");
+  }else{
+    Serial.println("CPU: Captive portal ready!");
+    Serial.printf("CPU: Connect to: %s\n", captive_portal.getSSID().c_str());
+    Serial.printf("CPU: Password: %s\n", captive_portal.getPassword().c_str());
+  }
   
   Serial.println();
   Serial.println("CPU: Creating tasks on both cores...");
@@ -605,18 +779,33 @@ void setup(){
     1  // Core 1
   );
   
-  Serial.printf("CPU: xTaskCreatePinnedToCore returned: %d (pdPASS=%d)\n", result, pdPASS);
+  // Web server task on Core 1 (lower priority)
+  Serial.println("CPU: About to create web server task...");
+  Serial.flush();
+  delay(100);
+  
+  BaseType_t web_result = xTaskCreatePinnedToCore(
+    webServerTask,
+    "web_server",
+    16384,  // DOUBLED stack size - was 8192, now 16KB for safety
+    NULL,
+    1,     // Lower priority than UART
+    &web_server_task_handle,
+    1  // Core 1
+  );
+  
+  Serial.printf("CPU: xTaskCreatePinnedToCore (web) returned: %d (pdPASS=%d)\n", web_result, pdPASS);
   Serial.flush();
   
-  if(result != pdPASS){
-    Serial.println("CPU: ERROR - Failed to create LED display task!");
+  if(web_result != pdPASS){
+    Serial.println("CPU: ERROR - Failed to create web server task!");
   }else{
-    Serial.println("CPU: LED display task created successfully");
+    Serial.println("CPU: Web server task created successfully");
   }
   
   Serial.println("CPU: All tasks created!");
   Serial.println("CPU: Core 0 - Sensor reading + UART RX (LED data) + LED display");
-  Serial.println("CPU: Core 1 - UART TX (Sensor @ 60Hz)");
+  Serial.println("CPU: Core 1 - UART TX (Sensor @ 60Hz) + Web Server");
   Serial.println();
   Serial.println("========================================================");
   Serial.println();

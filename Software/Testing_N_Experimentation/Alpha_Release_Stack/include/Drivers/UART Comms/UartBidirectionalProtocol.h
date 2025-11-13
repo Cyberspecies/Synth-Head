@@ -75,9 +75,11 @@ struct __attribute__((packed)) SensorDataPayload{
   // Validity Flags (1 byte)
   uint8_t sensor_valid_flags;                // Bit-packed: [7:4]=reserved, [3]=mic, [2]=gps, [1]=env, [0]=imu
   
-  uint8_t _reserved_padding;                 // Final alignment padding
+  // WiFi Credentials (65 bytes)
+  char wifi_ssid[33];                        // SSID (max 32 chars + null terminator)
+  char wifi_password[32];                    // Password (max 31 chars + null terminator)
   
-  // Total: 36 + 12 + 26 + 13 + 1 + 1 + 1 = 90 bytes (was 120 bytes, saved 30 bytes!)
+  // Total: 36 + 12 + 26 + 13 + 1 + 1 + 65 = 154 bytes (was 90 bytes)
   
   // Helper methods for bit manipulation
   
