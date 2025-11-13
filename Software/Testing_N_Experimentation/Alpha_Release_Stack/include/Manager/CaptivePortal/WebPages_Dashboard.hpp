@@ -320,7 +320,7 @@ inline String CaptivePortalManager::generateDashboardPage() {
     <h1>🎭 SynthHead Dashboard</h1>
     <div class="status">Real-time Sensor Monitoring @ 10.0.0.1</div>
     <div class="status" style="margin-top: 10px; font-size: 18px; font-weight: bold; color: #48bb78;">
-      Uptime: <span id="device_uptime">--</span> ms
+      Uptime: <span id="device_uptime">--</span>
     </div>
   </div>
   
@@ -404,10 +404,10 @@ inline String CaptivePortalManager::generateDashboardPage() {
     <div class="card">
       <h2>🎮 Buttons</h2>
       <div class="button-grid">
-        <div class="button-indicator button-off" id="btn_a">Button A</div>
-        <div class="button-indicator button-off" id="btn_b">Button B</div>
-        <div class="button-indicator button-off" id="btn_c">Button C</div>
-        <div class="button-indicator button-off" id="btn_d">Button D</div>
+        <div class="button-indicator button-off" id="btn_d" style="grid-column: 1 / -1;">MODE</div>
+        <div class="button-indicator button-off" id="btn_b">UP</div>
+        <div class="button-indicator button-off" id="btn_c">DOWN</div>
+        <div class="button-indicator button-off" id="btn_a" style="grid-column: 1 / -1;">SET</div>
       </div>
     </div>
   </div>
@@ -442,11 +442,11 @@ inline String CaptivePortalManager::generateDashboardPage() {
   
   <!-- Restart Section -->
   <div class="restart-section">
-    <h2 style="color: #667eea; margin-bottom: 15px;">ðŸ”„ Device Control</h2>
+    <h2 style="color: #667eea; margin-bottom: 15px;">Device Control</h2>
     <button class="restart-btn" onclick="showRestartConfirm()">Restart Device</button>
     <div class="confirm-buttons" id="restart_confirm">
-      <button class="confirm-btn confirm-yes" onclick="confirmRestart()">âœ“ Confirm Restart</button>
-      <button class="confirm-btn confirm-no" onclick="cancelRestart()">âœ— Cancel</button>
+      <button class="confirm-btn confirm-yes" onclick="confirmRestart()">Confirm Restart</button>
+      <button class="confirm-btn confirm-no" onclick="cancelRestart()">Cancel</button>
     </div>
   </div>
   
@@ -505,7 +505,27 @@ inline String CaptivePortalManager::generateDashboardPage() {
           
           // Update device uptime (this should ALWAYS change if polling works)
           if (data.uptime !== undefined) {
-            document.getElementById('device_uptime').textContent = data.uptime;
+            const uptimeMs = data.uptime;
+            const seconds = Math.floor(uptimeMs / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+            const years = Math.floor(days / 365);
+            
+            let uptimeStr = '';
+            if (years > 0) {
+              uptimeStr = years + 'y ' + (days % 365) + 'd ' + (hours % 24) + 'h ' + (minutes % 60) + 'm ' + (seconds % 60) + 's';
+            } else if (days > 0) {
+              uptimeStr = days + 'd ' + (hours % 24) + 'h ' + (minutes % 60) + 'm ' + (seconds % 60) + 's';
+            } else if (hours > 0) {
+              uptimeStr = hours + 'h ' + (minutes % 60) + 'm ' + (seconds % 60) + 's';
+            } else if (minutes > 0) {
+              uptimeStr = minutes + 'm ' + (seconds % 60) + 's';
+            } else {
+              uptimeStr = seconds + 's';
+            }
+            
+            document.getElementById('device_uptime').textContent = uptimeStr;
           }
           
           // IMU
@@ -665,9 +685,9 @@ inline String CaptivePortalManager::generateDashboardPage() {
     setupButton('btn_c', 'c', 'C');
     setupButton('btn_d', 'd', 'D');
     
-    // Start updates immediately and repeat every 250ms (4 times per second)
+    // Start updates immediately and repeat every 100ms (10 times per second)
     updateSensorData();
-    setInterval(updateSensorData, 250);
+    setInterval(updateSensorData, 100);
     
     // Debug: Log connection status
     setInterval(() => {

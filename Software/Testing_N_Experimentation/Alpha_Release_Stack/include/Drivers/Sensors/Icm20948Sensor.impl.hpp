@@ -37,7 +37,7 @@ bool Icm20948Sensor::init(){
   Wire.begin(sda_pin_, scl_pin_);
   Wire.setClock(400000); // 400kHz I2C clock
   
-  delay(100); // Allow I2C to stabilize
+  delay(10); // Minimal delay for I2C to stabilize (reduced from 100ms)
 
   // Create ICM20948 driver instance
   if(icm_driver == nullptr){
@@ -61,7 +61,7 @@ bool Icm20948Sensor::init(){
   // Enable magnetometer
   icm_driver->setMagOpMode(AK09916_CONT_MODE_100HZ);
   
-  delay(100);
+  delay(20); // Minimal delay for magnetometer to stabilize (reduced from 100ms)
 
   initialized_ = true;
   Serial.println("[ICM20948] Initialization complete");
