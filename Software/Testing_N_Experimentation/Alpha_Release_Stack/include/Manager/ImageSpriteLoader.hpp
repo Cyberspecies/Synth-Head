@@ -165,13 +165,14 @@ public:
         }
         
         // Get RGB values from pixel data
+        // NOTE: CPU sends RGB, but display expects BGR - swap R and B
         int pixel_index = (y * image_width_ + x) * 3;
         uint8_t r = pixel_data[pixel_index + 0];
         uint8_t g = pixel_data[pixel_index + 1];
         uint8_t b = pixel_data[pixel_index + 2];
         
-        // Set pixel on display
-        display.setPixel(screen_x, screen_y, RGB(r, g, b));
+        // Set pixel on display (swap R and B channels)
+        display.setPixel(screen_x, screen_y, RGB(b, g, r));
       }
     }
   }

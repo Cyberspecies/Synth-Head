@@ -1282,6 +1282,9 @@ extern "C" void app_main(void){
     ESP_LOGI(TAG, "  File ID: 0x%08lX", file_id);
     ESP_LOGI(TAG, "  Size: %lu bytes", size);
     
+    // Clear previous sprite before loading new one
+    sprite_loader.clearImage();
+    
     // Try to load as custom sprite image
     if(sprite_loader.loadImage(data, size)){
       ESP_LOGI(TAG, "  Custom sprite loaded successfully!");

@@ -302,13 +302,24 @@ inline void CaptivePortalManager::setupWebServer() {
       // Body handler - receives JSON with base64 sprite data
       static uint8_t* sprite_buffer = nullptr;
       static size_t sprite_size = 0;
+      static String json_accumulator;  // Accumulate JSON across chunks
       
-      // First chunk - parse JSON and allocate buffer
+      // First chunk - initialize accumulator
       if(index == 0) {
         Serial.printf("WIFI: Receiving sprite upload (%u bytes total)...\n", total);
+        json_accumulator = "";
+      }
+      
+      // Accumulate all chunks
+      json_accumulator += String((char*)data, len);
+      
+      // Process only when all chunks received
+      if(index + len >= total) {
+        Serial.printf("WIFI: All chunks received, processing JSON...\n");
         
         // Parse JSON to extract base64 data
-        String body_str((char*)data, len);
+        String body_str = json_accumulator;
+        json_accumulator = "";  // Clear for next request
         
         // Find "data":"..." field
         int data_start = body_str.indexOf("\"data\":\"");

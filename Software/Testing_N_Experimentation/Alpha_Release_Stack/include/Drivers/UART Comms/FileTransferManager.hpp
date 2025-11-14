@@ -107,7 +107,10 @@ public:
    * @return true if transfer started successfully
    */
   bool startTransfer(const uint8_t* data, uint32_t size, const char* filename = "data"){
-    if(state_ != TransferState::IDLE){
+    // Allow starting new transfer if previous one completed or errored
+    if(state_ != TransferState::IDLE && 
+       state_ != TransferState::COMPLETED && 
+       state_ != TransferState::ERROR){
       return false;  // Transfer already in progress
     }
     
