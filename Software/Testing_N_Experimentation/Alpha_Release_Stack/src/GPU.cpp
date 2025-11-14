@@ -59,6 +59,7 @@
 
 // UART communication
 #include "Drivers/UART Comms/GpuUartBidirectional.hpp"
+#include "Drivers/UART Comms/FileTransferManager.hpp"
 
 using namespace arcos::communication;
 using namespace arcos::manager;
@@ -87,6 +88,7 @@ HUB75DisplayManager hub75_manager;
 OLEDDisplayManager oled_manager;
 LEDAnimationManager led_manager;
 GpuUartBidirectional uart_comm;
+FileTransferReceiver file_receiver;
 
 // ============== Shared Data ==============
 SemaphoreHandle_t sensor_data_mutex;
@@ -304,7 +306,7 @@ void runBootSequence(){
 }
 
 /**
- * @brief Core 0 Task: Receive UART data
+ * @brief Core 0 Task: Receive UART data (including file transfers)
  */
 void uartReceiveTask(void* parameter){
   ESP_LOGI(TAG, "UART receive task started on Core 0");
@@ -313,28 +315,73 @@ void uartReceiveTask(void* parameter){
   
   while(true){
     if(uart_comm.receivePacket(packet)){
-      if(packet.message_type == MessageType::SENSOR_DATA){
-        if(packet.payload_length == sizeof(SensorDataPayload)){
-          if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
-            memcpy(&current_sensor_data, packet.payload, sizeof(SensorDataPayload));
-            data_received = true;
-            last_data_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            stats.sensor_frames_received++;
-            
-            // Transition to normal operation on first data
-            if(boot_phase == BootPhase::WAIT_FOR_DATA){
-              ESP_LOGI(TAG, "First sensor data received!");
-              ESP_LOGI(TAG, "===== SETTING boot_phase TO NORMAL_OPERATION =====");
-              boot_phase = BootPhase::NORMAL_OPERATION;
-              ESP_LOGI(TAG, "boot_phase = %d (NORMAL_OPERATION)", (int)boot_phase);
-              ESP_LOGI(TAG, "");
-              ESP_LOGI(TAG, "========== BOOT COMPLETE ==========");
-              ESP_LOGI(TAG, "");
+      // Handle different message types
+      switch(packet.message_type){
+        case MessageType::SENSOR_DATA:
+          if(packet.payload_length == sizeof(SensorDataPayload)){
+            if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
+              memcpy(&current_sensor_data, packet.payload, sizeof(SensorDataPayload));
+              data_received = true;
+              last_data_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+              stats.sensor_frames_received++;
+              
+              // Transition to normal operation on first data
+              if(boot_phase == BootPhase::WAIT_FOR_DATA){
+                ESP_LOGI(TAG, "First sensor data received!");
+                ESP_LOGI(TAG, "===== SETTING boot_phase TO NORMAL_OPERATION =====");
+                boot_phase = BootPhase::NORMAL_OPERATION;
+                ESP_LOGI(TAG, "boot_phase = %d (NORMAL_OPERATION)", (int)boot_phase);
+                ESP_LOGI(TAG, "");
+                ESP_LOGI(TAG, "========== BOOT COMPLETE ==========");
+                ESP_LOGI(TAG, "");
+              }
+              
+              xSemaphoreGive(sensor_data_mutex);
             }
-            
-            xSemaphoreGive(sensor_data_mutex);
           }
-        }
+          break;
+          
+        case MessageType::FILE_TRANSFER_START:
+          if(packet.payload_length == sizeof(FileTransferMetadata)){
+            FileTransferMetadata metadata;
+            memcpy(&metadata, packet.payload, sizeof(FileTransferMetadata));
+            
+            ESP_LOGI(TAG, "File transfer started:");
+            ESP_LOGI(TAG, "  Filename: %s", metadata.filename);
+            ESP_LOGI(TAG, "  Size: %lu bytes", metadata.total_size);
+            ESP_LOGI(TAG, "  Fragments: %u", metadata.total_fragments);
+            
+            if(file_receiver.handleMetadata(metadata)){
+              ESP_LOGI(TAG, "  Ready to receive file data");
+            }else{
+              ESP_LOGE(TAG, "  ERROR: Failed to initialize file receiver!");
+            }
+          }
+          break;
+          
+        case MessageType::FILE_TRANSFER_DATA:
+          if(packet.payload_length == sizeof(FileTransferFragment)){
+            FileTransferFragment fragment;
+            memcpy(&fragment, packet.payload, sizeof(FileTransferFragment));
+            
+            if(file_receiver.handleFragment(fragment)){
+              // Fragment received successfully
+              if((fragment.fragment_index + 1) % 10 == 0){  // Log every 10 fragments
+                ESP_LOGI(TAG, "File RX: Fragment %u received (%.1f%%)", 
+                        fragment.fragment_index + 1,
+                        file_receiver.getProgress() * 100.0f);
+              }
+            }
+          }
+          break;
+        
+        case MessageType::FILE_TRANSFER_ACK:
+          // ACKs are sent by GPU, received by CPU - not handled here
+          break;
+          
+        default:
+          // Ignore unknown message types
+          break;
       }
     }
     
@@ -824,6 +871,50 @@ extern "C" void app_main(void){
     ESP_LOGE(TAG, "FATAL: Boot sequence failed!");
     return;
   }
+  
+  // Initialize file receiver
+  ESP_LOGI(TAG, "Initializing file transfer receiver...");
+  file_receiver.init(&uart_comm);
+  
+  // Setup file receive callback
+  file_receiver.setReceiveCallback([](uint32_t file_id, const uint8_t* data, uint32_t size){
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "========================================================");
+    ESP_LOGI(TAG, "  File Transfer Completed!");
+    ESP_LOGI(TAG, "========================================================");
+    ESP_LOGI(TAG, "  File ID: 0x%08lX", file_id);
+    ESP_LOGI(TAG, "  Size: %lu bytes", size);
+    
+    // Verify data integrity (check XOR pattern)
+    uint32_t errors = 0;
+    for(uint32_t i = 0; i < size && i < 1024; i++){  // Check first 1KB
+      uint8_t expected = (i & 0xFF) ^ ((i >> 8) & 0xFF);
+      if(data[i] != expected){
+        if(errors < 10){  // Only log first 10 errors
+          ESP_LOGE(TAG, "  Data mismatch at byte %lu: expected 0x%02X, got 0x%02X",
+                  i, expected, data[i]);
+        }
+        errors++;
+      }
+    }
+    
+    if(errors == 0){
+      ESP_LOGI(TAG, "  Data integrity: PASS (verified first 1KB)");
+    }else{
+      ESP_LOGE(TAG, "  Data integrity: FAIL (%lu errors found)", errors);
+    }
+    
+    // Show sample of received data
+    ESP_LOGI(TAG, "  First 16 bytes:");
+    for(int i = 0; i < 16 && i < size; i++){
+      ets_printf("    [%d]: 0x%02X\n", i, data[i]);
+    }
+    
+    ESP_LOGI(TAG, "========================================================");
+    ESP_LOGI(TAG, "");
+  });
+  
+  ESP_LOGI(TAG, "File transfer receiver initialized");
   
   ESP_LOGI(TAG, "Creating tasks...");
   

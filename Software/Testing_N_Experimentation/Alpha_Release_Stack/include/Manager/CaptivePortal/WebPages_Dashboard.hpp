@@ -440,6 +440,20 @@ inline String CaptivePortalManager::generateDashboardPage() {
     </div>
   </div>
   
+  <!-- File Transfer Test Section -->
+  <div class="restart-section" style="background: #1e293b; border: 2px solid #667eea;">
+    <h2 style="color: #667eea; margin-bottom: 15px;">📡 File Transfer Test</h2>
+    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Test UART file transfer by sending 10KB data to GPU</p>
+    <button class="restart-btn" style="background: #667eea;" onclick="startFileTransfer()">
+      Send 10KB Test File
+    </button>
+    <div class="config-message" id="transfer_message"></div>
+    <div style="margin-top: 15px; color: #94a3b8; font-size: 13px;">
+      <div>Transfer Status: <span id="transfer_status" style="color: #48bb78; font-weight: 600;">Idle</span></div>
+      <div style="margin-top: 5px;">Last Transfer: <span id="last_transfer" style="color: white; font-weight: 600;">Never</span></div>
+    </div>
+  </div>
+  
   <!-- Restart Section -->
   <div class="restart-section">
     <h2 style="color: #667eea; margin-bottom: 15px;">Device Control</h2>
@@ -768,6 +782,65 @@ inline String CaptivePortalManager::generateDashboardPage() {
           messageEl.className = 'config-message error';
           messageEl.style.display = 'block';
           console.error('Config error:', error);
+        });
+    }
+    
+    // File Transfer Function
+    function startFileTransfer() {
+      const statusEl = document.getElementById('transfer_status');
+      const messageEl = document.getElementById('transfer_message');
+      const lastTransferEl = document.getElementById('last_transfer');
+      
+      // Update UI
+      statusEl.textContent = 'Sending...';
+      statusEl.style.color = '#fbbf24';
+      messageEl.textContent = 'Initiating file transfer (10KB)...';
+      messageEl.className = 'config-message';
+      messageEl.style.display = 'block';
+      messageEl.style.background = 'rgba(251,191,36,0.2)';
+      messageEl.style.color = '#fbbf24';
+      messageEl.style.border = '1px solid #fbbf24';
+      
+      fetch('/api/file-transfer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            statusEl.textContent = 'Success';
+            statusEl.style.color = '#48bb78';
+            messageEl.textContent = data.message || 'File transfer started successfully!';
+            messageEl.className = 'config-message success';
+            messageEl.style.display = 'block';
+            const now = new Date();
+            lastTransferEl.textContent = now.toLocaleTimeString();
+          } else {
+            statusEl.textContent = 'Failed';
+            statusEl.style.color = '#f56565';
+            messageEl.textContent = data.message || 'File transfer failed';
+            messageEl.className = 'config-message error';
+            messageEl.style.display = 'block';
+          }
+          
+          // Hide message after 5 seconds
+          setTimeout(() => {
+            messageEl.style.display = 'none';
+            if (data.success) {
+              statusEl.textContent = 'Idle';
+              statusEl.style.color = '#48bb78';
+            }
+          }, 5000);
+        })
+        .catch(error => {
+          statusEl.textContent = 'Error';
+          statusEl.style.color = '#f56565';
+          messageEl.textContent = 'Network error during file transfer';
+          messageEl.className = 'config-message error';
+          messageEl.style.display = 'block';
+          console.error('File transfer error:', error);
         });
     }
     

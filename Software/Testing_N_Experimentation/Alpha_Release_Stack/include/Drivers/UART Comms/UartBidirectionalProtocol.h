@@ -29,6 +29,10 @@ enum class MessageType : uint8_t{
   DATA_RESPONSE = 0x11,  // Response with data
   SENSOR_DATA = 0x12,    // Sensor data frame from CPU
   LED_DATA = 0x13,       // LED RGBW data frame from GPU
+  FILE_TRANSFER_START = 0x14,  // Start file transfer (contains metadata)
+  FILE_TRANSFER_DATA = 0x15,   // File data fragment
+  FILE_TRANSFER_END = 0x16,    // End file transfer
+  FILE_TRANSFER_ACK = 0x17,    // Acknowledge file fragment
   COMMAND = 0x20,        // Send command to peer
   ACK = 0x30,            // Acknowledge received message
   NACK = 0x31,           // Negative acknowledgment
@@ -183,6 +187,37 @@ struct __attribute__((packed)) LedDataPayload{
   void setAllColor(const RgbwColor& color){
     for(uint16_t i = 0; i < LED_COUNT_TOTAL; i++) leds[i] = color;
   }
+};
+
+/** File transfer metadata structure */
+struct __attribute__((packed)) FileTransferMetadata{
+  uint32_t file_id;           // Unique file identifier
+  uint32_t total_size;        // Total file size in bytes
+  uint16_t fragment_size;     // Size of each fragment (typically 200 bytes)
+  uint16_t total_fragments;   // Total number of fragments
+  char filename[32];          // Filename (null-terminated)
+  
+  // Total: 4 + 4 + 2 + 2 + 32 = 44 bytes
+};
+
+/** File transfer fragment structure */
+struct __attribute__((packed)) FileTransferFragment{
+  uint32_t file_id;           // File identifier (matches metadata)
+  uint16_t fragment_index;    // Current fragment index (0-based)
+  uint16_t data_length;       // Actual data length in this fragment
+  uint8_t data[200];          // Fragment data (max 200 bytes to fit in packet)
+  
+  // Total: 4 + 2 + 2 + 200 = 208 bytes (within MAX_PAYLOAD_SIZE)
+};
+
+/** File transfer acknowledgment structure */
+struct __attribute__((packed)) FileTransferAck{
+  uint32_t file_id;           // File identifier
+  uint16_t fragment_index;    // Acknowledged fragment index
+  uint8_t status;             // 0=success, 1=retry, 2=error
+  uint8_t _reserved;
+  
+  // Total: 4 + 2 + 1 + 1 = 8 bytes
 };
 
 /** Message packet structure */

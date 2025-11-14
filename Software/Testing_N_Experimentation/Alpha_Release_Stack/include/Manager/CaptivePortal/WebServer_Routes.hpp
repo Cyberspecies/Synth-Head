@@ -17,10 +17,12 @@
 
 #include <atomic>
 #include "Drivers/UART Comms/CpuUartBidirectional.hpp"
+#include "Drivers/UART Comms/FileTransferManager.hpp"
 
 // Forward declare global variables from CPU.cpp
 extern std::atomic<uint8_t> active_buffer_index;
 extern arcos::communication::SensorDataPayload sensor_data_buffers[2];
+extern arcos::communication::FileTransferManager file_transfer;
 
 namespace arcos::manager {
 
@@ -217,6 +219,53 @@ inline void CaptivePortalManager::setupWebServer() {
       }
     }
   );
+  
+  // API endpoint for file transfer test (POST)
+  server_->on("/api/file-transfer", HTTP_POST, [](AsyncWebServerRequest* request) {
+    Serial.println("WIFI: File transfer test requested via web interface");
+    
+    // Check if transfer already in progress
+    if(::file_transfer.isActive()) {
+      request->send(409, "application/json", "{\"success\":false,\"message\":\"File transfer already in progress\"}");
+      return;
+    }
+    
+    // Create 10KB test data
+    constexpr uint32_t TEST_DATA_SIZE = 10240;  // 10KB
+    uint8_t* test_data = new uint8_t[TEST_DATA_SIZE];
+    
+    if(!test_data) {
+      request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to allocate memory\"}");
+      return;
+    }
+    
+    // Fill with test pattern (incrementing values with XOR pattern)
+    for(uint32_t i = 0; i < TEST_DATA_SIZE; i++){
+      test_data[i] = (i & 0xFF) ^ ((i >> 8) & 0xFF);  // XOR pattern for verification
+    }
+    
+    Serial.printf("WIFI: Created 10KB test data\n");
+    Serial.printf("WIFI: First 16 bytes: ");
+    for(int i = 0; i < 16; i++){
+      Serial.printf("%02X ", test_data[i]);
+    }
+    Serial.println();
+    
+    // Start file transfer
+    bool started = ::file_transfer.startTransfer(test_data, TEST_DATA_SIZE, "web_test_10kb.bin");
+    
+    if(started) {
+      Serial.println("WIFI: File transfer started successfully!");
+      request->send(200, "application/json", "{\"success\":true,\"message\":\"File transfer started (10KB)\"}");
+    } else {
+      Serial.println("WIFI: ERROR - Failed to start file transfer!");
+      delete[] test_data;
+      request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to start file transfer\"}");
+    }
+    
+    // Note: test_data will be deleted when transfer completes
+    // For production, handle cleanup in file transfer completion callback
+  });
   
   // API endpoint for device restart (POST)
   server_->on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* request) {

@@ -36,6 +36,7 @@
 #include <atomic>
 #include <Adafruit_NeoPixel.h>
 #include "Drivers/UART Comms/CpuUartBidirectional.hpp"
+#include "Drivers/UART Comms/FileTransferManager.hpp"
 #include "Drivers/Sensors/SensorManager.h"
 #include "Manager/CaptivePortalManager.hpp"
 
@@ -70,6 +71,7 @@ constexpr int LED_BRIGHTNESS = 255;
 SensorManager sensor_manager;
 CpuUartBidirectional uart_comm;
 CaptivePortalManager captive_portal;
+FileTransferManager file_transfer;
 
 // Adafruit NeoPixel strips (RGBW order for SK6812)
 Adafruit_NeoPixel strip1(LED_COUNT_LEFT_FIN, LED_PIN_STRIP1, NEO_RGBW + NEO_KHZ800);
@@ -358,6 +360,7 @@ void sensorReadTask(void* parameter){
 /**
  * @brief Core 1 Task: Package and send sensor data via UART at 60Hz
  * Maintains precise 60Hz timing using high-resolution timer
+ * Also sends file transfer packets when sensor data is not being sent
  */
 void uartSendTask(void* parameter){
   Serial.println("CPU: UART send task started on Core 1");
@@ -386,7 +389,7 @@ void uartSendTask(void* parameter){
           local_copy.accel_x, local_copy.accel_y, local_copy.accel_z);
       }
       
-      // Send sensor data packet via UART
+      // PRIORITY: Send sensor data packet via UART (higher priority)
       if(uart_comm.sendPacket(
         MessageType::SENSOR_DATA,
         reinterpret_cast<const uint8_t*>(&local_copy),
@@ -394,6 +397,10 @@ void uartSendTask(void* parameter){
       )){
         stats.sensor_frames_sent++;
       }
+      
+      // LOWER PRIORITY: Update file transfer (only after sensor data sent)
+      // This allows file transfer to use remaining bandwidth
+      file_transfer.update(false);  // false = don't send yet, just update state
       
       // Print statistics every second
       if(current_time - stats.last_report_time >= 1000000){
@@ -419,14 +426,16 @@ void uartSendTask(void* parameter){
         stats.last_report_time = current_time;
       }
     }else{
-      // Not time to send yet - small delay to prevent busy-waiting
+      // Not time to send yet - use idle time for file transfers
+      // This allows file transfer to utilize gaps between sensor frames
+      file_transfer.update(true);  // true = allow sending during idle time
       delayMicroseconds(100);
     }
   }
 }
 
 /**
- * @brief UART Receive Task - receives LED data from GPU
+ * @brief UART Receive Task - receives LED data and file transfer ACKs from GPU
  */
 void uartReceiveTask(void* parameter){
   Serial.println("CPU: UART receive task started on Core 0");
@@ -436,32 +445,46 @@ void uartReceiveTask(void* parameter){
   
   while(true){
     if(uart_comm.receivePacket(packet)){
-      if(packet.message_type == MessageType::LED_DATA){
-        if(packet.payload_length == sizeof(LedDataPayload)){
-          // Copy LED data to shared buffer
-          if(xSemaphoreTake(led_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
-            memcpy(&shared_led_data, packet.payload, sizeof(LedDataPayload));
-            led_data_received = true;
-            last_led_data_time = millis();
-            stats.led_frames_received++;
-            
-            // Store first LED color and fan speed for stats display
-            const RgbwColor& first_led = shared_led_data.leds[0];
-            stats.last_led_r = first_led.r;
-            stats.last_led_g = first_led.g;
-            stats.last_led_b = first_led.b;
-            stats.last_led_w = first_led.w;
-            stats.fan_speed = shared_led_data.fan_speed;
-            
-            // Update fan speed immediately
-            ledcWrite(FAN_PWM_CHANNEL, shared_led_data.fan_speed);
-            
-            xSemaphoreGive(led_data_mutex);
+      // Handle different message types
+      switch(packet.message_type){
+        case MessageType::LED_DATA:
+          if(packet.payload_length == sizeof(LedDataPayload)){
+            // Copy LED data to shared buffer
+            if(xSemaphoreTake(led_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE){
+              memcpy(&shared_led_data, packet.payload, sizeof(LedDataPayload));
+              led_data_received = true;
+              last_led_data_time = millis();
+              stats.led_frames_received++;
+              
+              // Store first LED color and fan speed for stats display
+              const RgbwColor& first_led = shared_led_data.leds[0];
+              stats.last_led_r = first_led.r;
+              stats.last_led_g = first_led.g;
+              stats.last_led_b = first_led.b;
+              stats.last_led_w = first_led.w;
+              stats.fan_speed = shared_led_data.fan_speed;
+              
+              // Update fan speed immediately
+              ledcWrite(FAN_PWM_CHANNEL, shared_led_data.fan_speed);
+              
+              xSemaphoreGive(led_data_mutex);
+            }
+          }else{
+            Serial.printf("CPU: ERROR - Invalid LED payload size: %d (expected %d)\n",
+                         packet.payload_length, sizeof(LedDataPayload));
           }
-        }else{
-          Serial.printf("CPU: ERROR - Invalid LED payload size: %d (expected %d)\n",
-                       packet.payload_length, sizeof(LedDataPayload));
-        }
+          break;
+          
+        case MessageType::FILE_TRANSFER_ACK:
+          if(packet.payload_length == sizeof(FileTransferAck)){
+            FileTransferAck ack;
+            memcpy(&ack, packet.payload, sizeof(FileTransferAck));
+            file_transfer.handleAck(ack);
+          }
+          break;
+          
+        default:
+          break;
       }
     }
     
@@ -691,6 +714,27 @@ void setup(){
   }
   Serial.println("CPU: UART initialized (2 Mbps, RX=GPIO11, TX=GPIO12)");
   
+  // Initialize file transfer manager
+  Serial.println("CPU: Initializing file transfer manager...");
+  file_transfer.init(&uart_comm);
+  
+  // Setup file transfer callbacks
+  file_transfer.setProgressCallback([](uint32_t bytes_sent, uint32_t total_bytes){
+    float progress = (float)bytes_sent / (float)total_bytes * 100.0f;
+    Serial.printf("CPU: File transfer progress: %lu / %lu bytes (%.1f%%)\n", 
+                  bytes_sent, total_bytes, progress);
+  });
+  
+  file_transfer.setCompleteCallback([](bool success, const char* error_msg){
+    if(success){
+      Serial.println("CPU: File transfer completed successfully!");
+    }else{
+      Serial.printf("CPU: File transfer failed: %s\n", error_msg);
+    }
+  });
+  
+  Serial.println("CPU: File transfer manager initialized");
+  
   // Create mutex for LED data (still needed for LED display)
   led_data_mutex = xSemaphoreCreateMutex();
   if(led_data_mutex == NULL){
@@ -805,9 +849,11 @@ void setup(){
   
   Serial.println("CPU: All tasks created!");
   Serial.println("CPU: Core 0 - Sensor reading + UART RX (LED data) + LED display");
-  Serial.println("CPU: Core 1 - UART TX (Sensor @ 60Hz) + Web Server");
+  Serial.println("CPU: Core 1 - UART TX (Sensor @ 60Hz) + Web Server + File Transfer");
   Serial.println();
   Serial.println("========================================================");
+  Serial.println();
+  Serial.println("CPU: File transfer ready - use web interface to start test");
   Serial.println();
 }
 
