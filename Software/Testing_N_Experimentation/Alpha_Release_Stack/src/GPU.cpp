@@ -367,6 +367,15 @@ void uartReceiveTask(void* parameter){
           break;
           
         case MessageType::FILE_TRANSFER_DATA:
+          ESP_LOGI(TAG, "File fragment received: payload_length=%u, expected=%u", 
+                  packet.payload_length, sizeof(FileTransferFragment));
+          
+          // Log size mismatch for debugging
+          if(packet.payload_length != sizeof(FileTransferFragment)){
+            ESP_LOGW(TAG, "File fragment size mismatch: got %u, expected %u", 
+                    packet.payload_length, sizeof(FileTransferFragment));
+          }
+          
           if(packet.payload_length == sizeof(FileTransferFragment)){
             FileTransferFragment fragment;
             memcpy(&fragment, packet.payload, sizeof(FileTransferFragment));
@@ -378,6 +387,9 @@ void uartReceiveTask(void* parameter){
                         fragment.fragment_index + 1,
                         file_receiver.getProgress() * 100.0f);
               }
+            }else{
+              ESP_LOGW(TAG, "File RX: Fragment %u handleFragment() failed", 
+                      fragment.fragment_index);
             }
           }
           break;

@@ -57,8 +57,8 @@ public:
     uint16_t width = data[0] | (data[1] << 8);
     uint16_t height = data[2] | (data[3] << 8);
     
-    // Validate dimensions
-    if(width == 0 || height == 0 || width > 64 || height > 32){
+    // Validate dimensions (allow up to 128x64 for flexibility)
+    if(width == 0 || height == 0 || width > 128 || height > 64){
       return false;
     }
     

@@ -24,6 +24,11 @@
 #include <cstring>
 #include <functional>
 
+// ESP logging
+#ifndef ARDUINO
+  #include "esp_log.h"
+#endif
+
 // Platform-independent millisecond timing
 #ifdef ARDUINO
   #include <Arduino.h>
@@ -443,13 +448,22 @@ public:
    * @brief Handle received data fragment
    */
   bool handleFragment(const FileTransferFragment& fragment){
-    if(!receiving_ || fragment.file_id != current_file_id_){
+    if(!receiving_){
+      ESP_LOGW("FileRX", "Fragment rejected: not receiving (receiving_=false)");
+      return false;
+    }
+    
+    if(fragment.file_id != current_file_id_){
+      ESP_LOGW("FileRX", "Fragment rejected: file_id mismatch (got 0x%08lX, expected 0x%08lX)", 
+              fragment.file_id, current_file_id_);
       return false;
     }
     
     // Check for correct sequence
     if(fragment.fragment_index != next_fragment_){
       // Out of order - send NACK
+      ESP_LOGW("FileRX", "Fragment out of order: got %u, expected %u (sending NACK)", 
+              fragment.fragment_index, next_fragment_);
       sendAck(fragment.fragment_index, 1);  // status=1 means retry
       return false;
     }
@@ -458,6 +472,8 @@ public:
     uint32_t offset = fragment.fragment_index * metadata_.fragment_size;
     if(offset + fragment.data_length > total_size_){
       // Invalid fragment
+      ESP_LOGE("FileRX", "Fragment data exceeds buffer: offset=%lu, data_length=%u, total_size=%lu", 
+              offset, fragment.data_length, total_size_);
       sendAck(fragment.fragment_index, 2);  // status=2 means error
       return false;
     }
@@ -472,6 +488,7 @@ public:
     // Check if complete
     if(next_fragment_ >= metadata_.total_fragments){
       // Transfer complete
+      ESP_LOGI("FileRX", "Transfer complete! %u fragments received", next_fragment_);
       if(receive_callback_){
         receive_callback_(current_file_id_, receive_buffer_, total_size_);
       }

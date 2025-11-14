@@ -43,7 +43,8 @@ inline bool GpuUartBidirectional::init(int baud_rate){
   uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   uart_config.source_clk = UART_SCLK_APB;
   
-  esp_err_t err = uart_driver_install(GPU_UART_NUM, 2048, 2048, 0, NULL, 0);
+  // Increased RX buffer to 8KB to handle large file transfers (31 fragments × ~214 bytes = ~6.6KB)
+  esp_err_t err = uart_driver_install(GPU_UART_NUM, 8192, 2048, 0, NULL, 0);
   if(err != ESP_OK){
     ESP_LOGE("GPU_UART", "Failed to install UART driver: %d", err);
     return false;

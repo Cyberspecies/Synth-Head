@@ -394,8 +394,74 @@ inline void CaptivePortalManager::setupWebServer() {
           return;
         }
         
+        // Scale down if larger than 64x32
         if(width > 64 || height > 32) {
-          Serial.printf("WIFI: WARNING - Sprite exceeds recommended size (64x32)\n");
+          Serial.printf("WIFI: Sprite %dx%d exceeds 64x32, scaling down...\n", width, height);
+          
+          // Calculate uniform scale factor (maintain aspect ratio)
+          float scale_w = 64.0f / width;
+          float scale_h = 32.0f / height;
+          float scale = (scale_w < scale_h) ? scale_w : scale_h;
+          
+          uint16_t new_width = (uint16_t)(width * scale);
+          uint16_t new_height = (uint16_t)(height * scale);
+          
+          // Ensure at least 1 pixel
+          if(new_width < 1) new_width = 1;
+          if(new_height < 1) new_height = 1;
+          
+          Serial.printf("WIFI: Scaling to %dx%d (scale factor: %.3f)\n", new_width, new_height, scale);
+          
+          // Allocate new scaled buffer
+          uint32_t new_size = 4 + (new_width * new_height * 3);
+          uint8_t* scaled_buffer = new uint8_t[new_size];
+          
+          if(!scaled_buffer) {
+            Serial.println("WIFI: ERROR - Failed to allocate scaled buffer!");
+            delete[] sprite_buffer;
+            sprite_buffer = nullptr;
+            request->send(500, "application/json", "{\"success\":false,\"message\":\"Memory allocation failed\"}");
+            return;
+          }
+          
+          // Write new header
+          scaled_buffer[0] = new_width & 0xFF;
+          scaled_buffer[1] = (new_width >> 8) & 0xFF;
+          scaled_buffer[2] = new_height & 0xFF;
+          scaled_buffer[3] = (new_height >> 8) & 0xFF;
+          
+          // Nearest-neighbor scaling
+          const uint8_t* src_pixels = sprite_buffer + 4;
+          uint8_t* dst_pixels = scaled_buffer + 4;
+          
+          for(uint16_t y = 0; y < new_height; y++) {
+            for(uint16_t x = 0; x < new_width; x++) {
+              // Map to source coordinates
+              uint16_t src_x = (uint16_t)((x * width) / new_width);
+              uint16_t src_y = (uint16_t)((y * height) / new_height);
+              
+              // Ensure within bounds
+              if(src_x >= width) src_x = width - 1;
+              if(src_y >= height) src_y = height - 1;
+              
+              // Copy RGB pixel
+              uint32_t src_idx = (src_y * width + src_x) * 3;
+              uint32_t dst_idx = (y * new_width + x) * 3;
+              
+              dst_pixels[dst_idx + 0] = src_pixels[src_idx + 0]; // R
+              dst_pixels[dst_idx + 1] = src_pixels[src_idx + 1]; // G
+              dst_pixels[dst_idx + 2] = src_pixels[src_idx + 2]; // B
+            }
+          }
+          
+          // Replace original buffer with scaled buffer
+          delete[] sprite_buffer;
+          sprite_buffer = scaled_buffer;
+          sprite_size = new_size;
+          width = new_width;
+          height = new_height;
+          
+          Serial.printf("WIFI: Scaling complete: %dx%d (%u bytes)\n", width, height, sprite_size);
         }
         
         // Start file transfer
