@@ -127,6 +127,14 @@ public:
   }
   
   /**
+   * @brief Get pointer to pixel data (RGB array)
+   * @return Pointer to RGB pixel data (after 4-byte header)
+   */
+  const uint8_t* getData() const{
+    return loaded_ && image_data_ ? (image_data_ + 4) : nullptr;
+  }
+  
+  /**
    * @brief Render sprite centered at specified position
    * @param display HUB75 display manager
    * @param center_x X coordinate of center position

@@ -67,11 +67,16 @@ enum class DisplayEffect : uint8_t {
 
 // Display Shaders options (HUB75 LED matrix post-processing)
 enum class DisplayShader : uint8_t {
-  RGB_SPLIT = 0,
-  SCANLINES,
-  PIXELATE,
-  INVERT,
-  DITHER,
+  NONE = 0,              // No shader
+  HUE_CYCLE_SPRITE,      // Cycles hue on sprite (black=transparent), offset per row
+  HUE_CYCLE_OVERRIDE,    // Override all colors with cycling hue
+  COLOR_OVERRIDE_STATIC, // Static color override
+  COLOR_OVERRIDE_BREATHE,// Breathing between two colors
+  RGB_SPLIT,             // Retro RGB chromatic aberration
+  SCANLINES,             // CRT scanline effect
+  PIXELATE,              // Pixelation effect
+  INVERT,                // Color inversion
+  DITHER,                // Dithering effect
   COUNT
 };
 
@@ -101,7 +106,7 @@ public:
     , m_debug_page(DebugPage::IMU_DATA)
     , m_display_face(DisplayFace::CUSTOM_IMAGE)
     , m_display_effect(DisplayEffect::NONE)
-    , m_display_shader(DisplayShader::RGB_SPLIT)
+    , m_display_shader(DisplayShader::NONE)
     , m_led_strip_mode(LedStripMode::RAINBOW)
     , m_mode_selector_index(0)
     , m_submenu_index(0)
@@ -187,6 +192,26 @@ public:
    * @brief Get menu state
    */
   MenuState getMenuState() const { return m_state; }
+  
+  /**
+   * @brief Set display face (for web interface control)
+   */
+  void setDisplayFace(DisplayFace face) { m_display_face = face; }
+  
+  /**
+   * @brief Set display effect (for web interface control)
+   */
+  void setDisplayEffect(DisplayEffect effect) { m_display_effect = effect; }
+  
+  /**
+   * @brief Set display shader (for web interface control)
+   */
+  void setDisplayShader(DisplayShader shader) { m_display_shader = shader; }
+  
+  /**
+   * @brief Set LED strip mode (for web interface control)
+   */
+  void setLedStripMode(LedStripMode mode) { m_led_strip_mode = mode; }
   
   /**
    * @brief Get submenu index

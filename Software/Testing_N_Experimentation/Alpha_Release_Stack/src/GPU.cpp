@@ -98,6 +98,11 @@ SensorDataPayload current_sensor_data;
 bool data_received = false;
 uint32_t last_data_time = 0;
 
+// ============== Shader Parameters ==============
+uint8_t shader_color1_r = 255, shader_color1_g = 0, shader_color1_b = 0;
+uint8_t shader_color2_r = 0, shader_color2_g = 0, shader_color2_b = 255;
+uint8_t shader_speed = 128;
+
 // ============== UI System ==============
 ButtonManager button_manager;
 menu::MenuSystem menu_system;
@@ -381,6 +386,60 @@ void uartReceiveTask(void* parameter){
           // ACKs are sent by GPU, received by CPU - not handled here
           break;
           
+        case MessageType::DISPLAY_SETTINGS:
+          if(packet.payload_length == sizeof(DisplaySettings)){
+            DisplaySettings settings;
+            memcpy(&settings, packet.payload, sizeof(DisplaySettings));
+            
+            ESP_LOGI(TAG, "Display settings received from CPU:");
+            ESP_LOGI(TAG, "  Face: %u, Effect: %u, Shader: %u", 
+                    settings.display_face, settings.display_effect, 
+                    settings.display_shader);
+            ESP_LOGI(TAG, "  Color1 RGB: (%u,%u,%u), Color2 RGB: (%u,%u,%u), Speed: %u",
+                    settings.color1_r, settings.color1_g, settings.color1_b,
+                    settings.color2_r, settings.color2_g, settings.color2_b,
+                    settings.shader_speed);
+            
+            // Apply settings to menu system
+            menu_system.setDisplayFace((menu::DisplayFace)settings.display_face);
+            menu_system.setDisplayEffect((menu::DisplayEffect)settings.display_effect);
+            menu_system.setDisplayShader((menu::DisplayShader)settings.display_shader);
+            
+            // Store shader parameters globally for use in rendering
+            shader_color1_r = settings.color1_r;
+            shader_color1_g = settings.color1_g;
+            shader_color1_b = settings.color1_b;
+            shader_color2_r = settings.color2_r;
+            shader_color2_g = settings.color2_g;
+            shader_color2_b = settings.color2_b;
+            shader_speed = settings.shader_speed;
+            
+            ESP_LOGI(TAG, "Display settings applied successfully!");
+          }
+          break;
+          
+        case MessageType::LED_SETTINGS:
+          if(packet.payload_length == sizeof(LedSettings)){
+            LedSettings settings;
+            memcpy(&settings, packet.payload, sizeof(LedSettings));
+            
+            ESP_LOGI(TAG, "LED settings received from CPU:");
+            ESP_LOGI(TAG, "  Mode: %u, Speed: %u, Brightness: %u", 
+                    settings.led_strip_mode, settings.speed, settings.brightness);
+            ESP_LOGI(TAG, "  Color1 RGB: (%u,%u,%u), Color2 RGB: (%u,%u,%u)",
+                    settings.color1_r, settings.color1_g, settings.color1_b,
+                    settings.color2_r, settings.color2_g, settings.color2_b);
+            
+            // Apply LED mode to menu system
+            menu_system.setLedStripMode((menu::LedStripMode)settings.led_strip_mode);
+            
+            // TODO: Store LED parameters globally for LED rendering
+            // (brightness, colors, speed should be used by LED manager)
+            
+            ESP_LOGI(TAG, "LED settings applied successfully!");
+          }
+          break;
+          
         default:
           // Ignore unknown message types
           break;
@@ -653,50 +712,437 @@ void hub75UpdateTask(void* parameter){
         break;
     }
     
-    // Apply shader effects (post-processing on entire display)
+    // Apply shader effects (fragment shaders - applied ONLY to sprite pixels)
+    // Note: All shaders process the sprite image, not the entire display
+    // Non-sprite display faces (PANEL_NUMBER, ORIENTATION) are not affected by shaders
     switch(shader){
-      case menu::DisplayShader::SCANLINES:
-        // Darken every other line for CRT effect
-        for(int y = 0; y < 32; y += 2){
-          for(int x = 0; x < 128; x++){
-            // This would need framebuffer access for proper implementation
-            // Drawing dark line as overlay for now
-            hub75_manager.setPixel(x, y, RGB(0, 0, 0));
-          }
-        }
+      case menu::DisplayShader::NONE:
+        // No shader applied
         break;
-      case menu::DisplayShader::INVERT:
-        // Would need framebuffer access to invert colors properly
-        // Drawing indicator border for now
-        hub75_manager.drawRect(0, 0, 128, 32, RGB(255, 0, 255));
-        break;
-      case menu::DisplayShader::PIXELATE:
-        // Draw pixelation effect indicator (checkerboard overlay)
-        for(int y = 0; y < 32; y += 4){
-          for(int x = 0; x < 128; x += 4){
-            if((x / 4 + y / 4) % 2 == 0){
-              hub75_manager.drawRect(x, y, 4, 4, RGB(30, 30, 30));
+        
+      case menu::DisplayShader::HUE_CYCLE_SPRITE:
+        // Hue cycling on sprite with row offset (black = transparent)
+        // Only works with custom sprite loaded
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          // Clear and redraw sprite with hue transformation
+          hub75_manager.clear();
+          
+          // Get sprite info for reprocessing
+          const uint8_t* sprite_data = sprite_loader.getData();
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          // Calculate hue offset based on time and speed
+          float hue_base = (anim_time * shader_speed / 5000.0f);
+          
+          // Render on both panels with hue cycling
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            for(int y = 0; y < sprite_height; y++){
+              // Hue offset per row
+              float row_hue = hue_base + (y * 15.0f); // 15 degree offset per row
+              row_hue = fmodf(row_hue, 360.0f);
+              
+              for(int x = 0; x < sprite_width; x++){
+                int pixel_idx = (y * sprite_width + x) * 3;
+                uint8_t r = sprite_data[pixel_idx];
+                uint8_t g = sprite_data[pixel_idx + 1];
+                uint8_t b = sprite_data[pixel_idx + 2];
+                
+                // Skip black pixels (transparent)
+                if(r < 10 && g < 10 && b < 10) continue;
+                
+                // Convert to HSV, modify hue, convert back
+                float hue, sat, val;
+                // Simple RGB to HSV
+                float rf = r / 255.0f, gf = g / 255.0f, bf = b / 255.0f;
+                float max_val = fmaxf(fmaxf(rf, gf), bf);
+                float min_val = fminf(fminf(rf, gf), bf);
+                float delta = max_val - min_val;
+                
+                val = max_val;
+                sat = (max_val > 0.0f) ? (delta / max_val) : 0.0f;
+                
+                if(delta > 0.0f){
+                  if(max_val == rf) hue = 60.0f * fmodf((gf - bf) / delta, 6.0f);
+                  else if(max_val == gf) hue = 60.0f * ((bf - rf) / delta + 2.0f);
+                  else hue = 60.0f * ((rf - gf) / delta + 4.0f);
+                  if(hue < 0.0f) hue += 360.0f;
+                }else{
+                  hue = 0.0f;
+                }
+                
+                // Apply row hue offset
+                hue = fmodf(hue + row_hue, 360.0f);
+                
+                // HSV back to RGB
+                float c = val * sat;
+                float x_val = c * (1.0f - fabsf(fmodf(hue / 60.0f, 2.0f) - 1.0f));
+                float m = val - c;
+                float r1, g1, b1;
+                
+                if(hue < 60.0f){ r1 = c; g1 = x_val; b1 = 0; }
+                else if(hue < 120.0f){ r1 = x_val; g1 = c; b1 = 0; }
+                else if(hue < 180.0f){ r1 = 0; g1 = c; b1 = x_val; }
+                else if(hue < 240.0f){ r1 = 0; g1 = x_val; b1 = c; }
+                else if(hue < 300.0f){ r1 = x_val; g1 = 0; b1 = c; }
+                else{ r1 = c; g1 = 0; b1 = x_val; }
+                
+                uint8_t new_r = (uint8_t)((r1 + m) * 255.0f);
+                uint8_t new_g = (uint8_t)((g1 + m) * 255.0f);
+                uint8_t new_b = (uint8_t)((b1 + m) * 255.0f);
+                
+                int px = start_x + x;
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(new_r, new_g, new_b));
+                }
+              }
             }
           }
         }
         break;
+        
+      case menu::DisplayShader::HUE_CYCLE_OVERRIDE:
+        // Override sprite colors with cycling hue (rainbow wave)
+        // Only affects sprite pixels
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          hub75_manager.clear();
+          
+          const uint8_t* sprite_data = sprite_loader.getData();
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          float hue_base = (anim_time * shader_speed / 5000.0f);
+          
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            for(int y = 0; y < sprite_height; y++){
+              for(int x = 0; x < sprite_width; x++){
+                int pixel_idx = (y * sprite_width + x) * 3;
+                uint8_t r = sprite_data[pixel_idx];
+                uint8_t g = sprite_data[pixel_idx + 1];
+                uint8_t b = sprite_data[pixel_idx + 2];
+                
+                // Skip black pixels (transparent)
+                if(r < 10 && g < 10 && b < 10) continue;
+                
+                // Hue varies across X axis
+                float hue = fmodf(hue_base + (x * 2.8f), 360.0f);
+                
+                // HSV to RGB with full saturation and value
+                float c = 1.0f;
+                float x_val = c * (1.0f - fabsf(fmodf(hue / 60.0f, 2.0f) - 1.0f));
+                float rf, gf, bf;
+                
+                if(hue < 60.0f){ rf = c; gf = x_val; bf = 0; }
+                else if(hue < 120.0f){ rf = x_val; gf = c; bf = 0; }
+                else if(hue < 180.0f){ rf = 0; gf = c; bf = x_val; }
+                else if(hue < 240.0f){ rf = 0; gf = x_val; bf = c; }
+                else if(hue < 300.0f){ rf = x_val; gf = 0; bf = c; }
+                else{ rf = c; gf = 0; bf = x_val; }
+                
+                int px = start_x + x;
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(
+                    (uint8_t)(rf * 255.0f),
+                    (uint8_t)(gf * 255.0f),
+                    (uint8_t)(bf * 255.0f)
+                  ));
+                }
+              }
+            }
+          }
+        }
+        break;
+        
+      case menu::DisplayShader::COLOR_OVERRIDE_STATIC:
+        // Fill sprite with static color
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          hub75_manager.clear();
+          
+          const uint8_t* sprite_data = sprite_loader.getData();
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            for(int y = 0; y < sprite_height; y++){
+              for(int x = 0; x < sprite_width; x++){
+                int pixel_idx = (y * sprite_width + x) * 3;
+                uint8_t r = sprite_data[pixel_idx];
+                uint8_t g = sprite_data[pixel_idx + 1];
+                uint8_t b = sprite_data[pixel_idx + 2];
+                
+                // Skip black pixels (transparent)
+                if(r < 10 && g < 10 && b < 10) continue;
+                
+                int px = start_x + x;
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(shader_color1_r, shader_color1_g, shader_color1_b));
+                }
+              }
+            }
+          }
+        }
+        break;
+        
+      case menu::DisplayShader::COLOR_OVERRIDE_BREATHE:
+        // Breathing animation between two colors on sprite
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          hub75_manager.clear();
+          
+          const uint8_t* sprite_data = sprite_loader.getData();
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          float breath = (sinf(anim_time * shader_speed / 10000.0f) + 1.0f) / 2.0f; // 0.0 to 1.0
+          
+          uint8_t r = shader_color1_r + (shader_color2_r - shader_color1_r) * breath;
+          uint8_t g = shader_color1_g + (shader_color2_g - shader_color1_g) * breath;
+          uint8_t b = shader_color1_b + (shader_color2_b - shader_color1_b) * breath;
+          
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            for(int y = 0; y < sprite_height; y++){
+              for(int x = 0; x < sprite_width; x++){
+                int pixel_idx = (y * sprite_width + x) * 3;
+                uint8_t sr = sprite_data[pixel_idx];
+                uint8_t sg = sprite_data[pixel_idx + 1];
+                uint8_t sb = sprite_data[pixel_idx + 2];
+                
+                // Skip black pixels (transparent)
+                if(sr < 10 && sg < 10 && sb < 10) continue;
+                
+                int px = start_x + x;
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(r, g, b));
+                }
+              }
+            }
+          }
+        }
+        break;
+        
       case menu::DisplayShader::RGB_SPLIT:
-        // Color separation effect - draw colored borders
-        hub75_manager.drawLine(0, 0, 127, 0, RGB(255, 0, 0));
-        hub75_manager.drawLine(0, 31, 127, 31, RGB(0, 0, 255));
-        hub75_manager.drawLine(0, 0, 0, 31, RGB(0, 255, 0));
-        hub75_manager.drawLine(127, 0, 127, 31, RGB(255, 255, 0));
-        break;
-      case menu::DisplayShader::DITHER:
-        // Dither pattern overlay
-        for(int y = 0; y < 32; y++){
-          for(int x = 0; x < 128; x++){
-            if((x + y) % 3 == 0){
-              hub75_manager.setPixel(x, y, RGB(20, 20, 20));
+        // Chromatic aberration effect - offset RGB channels on sprite
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          hub75_manager.clear();
+          
+          const uint8_t* sprite_data = sprite_loader.getData();
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            // Draw red channel shifted left
+            for(int y = 0; y < sprite_height; y++){
+              for(int x = 0; x < sprite_width; x++){
+                int pixel_idx = (y * sprite_width + x) * 3;
+                uint8_t r = sprite_data[pixel_idx];
+                if(r < 10) continue;
+                
+                int px = start_x + x - 1; // Shift left
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(r, 0, 0));
+                }
+              }
+            }
+            
+            // Draw green channel (no shift)
+            for(int y = 0; y < sprite_height; y++){
+              for(int x = 0; x < sprite_width; x++){
+                int pixel_idx = (y * sprite_width + x) * 3;
+                uint8_t g = sprite_data[pixel_idx + 1];
+                if(g < 10) continue;
+                
+                int px = start_x + x;
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(0, g, 0));
+                }
+              }
+            }
+            
+            // Draw blue channel shifted right
+            for(int y = 0; y < sprite_height; y++){
+              for(int x = 0; x < sprite_width; x++){
+                int pixel_idx = (y * sprite_width + x) * 3;
+                uint8_t b = sprite_data[pixel_idx + 2];
+                if(b < 10) continue;
+                
+                int px = start_x + x + 1; // Shift right
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(0, 0, b));
+                }
+              }
             }
           }
         }
         break;
+        
+      case menu::DisplayShader::SCANLINES:
+        // Darken every other line for CRT effect on sprite
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            // Darken every other row
+            for(int y = 0; y < sprite_height; y += 2){
+              for(int x = 0; x < sprite_width; x++){
+                int px = start_x + x;
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(0, 0, 0));
+                }
+              }
+            }
+          }
+        }
+        break;
+        
+      case menu::DisplayShader::PIXELATE:
+        // Pixelation effect - blocky sprite rendering
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          hub75_manager.clear();
+          
+          const uint8_t* sprite_data = sprite_loader.getData();
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          constexpr int block_size = 3;
+          
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            for(int by = 0; by < sprite_height; by += block_size){
+              for(int bx = 0; bx < sprite_width; bx += block_size){
+                // Sample center pixel of block
+                int sample_x = bx + block_size / 2;
+                int sample_y = by + block_size / 2;
+                if(sample_x >= sprite_width) sample_x = sprite_width - 1;
+                if(sample_y >= sprite_height) sample_y = sprite_height - 1;
+                
+                int pixel_idx = (sample_y * sprite_width + sample_x) * 3;
+                uint8_t r = sprite_data[pixel_idx];
+                uint8_t g = sprite_data[pixel_idx + 1];
+                uint8_t b = sprite_data[pixel_idx + 2];
+                
+                if(r < 10 && g < 10 && b < 10) continue;
+                
+                // Fill block with sampled color
+                for(int dy = 0; dy < block_size; dy++){
+                  for(int dx = 0; dx < block_size; dx++){
+                    int px = start_x + bx + dx;
+                    int py = start_y + by + dy;
+                    if(px >= 0 && px < 128 && py >= 0 && py < 32 && 
+                       (bx + dx) < sprite_width && (by + dy) < sprite_height){
+                      hub75_manager.setPixel(px, py, RGB(r, g, b));
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        break;
+        
+      case menu::DisplayShader::INVERT:
+        // Color inversion on sprite
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          hub75_manager.clear();
+          
+          const uint8_t* sprite_data = sprite_loader.getData();
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            for(int y = 0; y < sprite_height; y++){
+              for(int x = 0; x < sprite_width; x++){
+                int pixel_idx = (y * sprite_width + x) * 3;
+                uint8_t r = sprite_data[pixel_idx];
+                uint8_t g = sprite_data[pixel_idx + 1];
+                uint8_t b = sprite_data[pixel_idx + 2];
+                
+                if(r < 10 && g < 10 && b < 10) continue;
+                
+                int px = start_x + x;
+                int py = start_y + y;
+                if(px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(255 - r, 255 - g, 255 - b));
+                }
+              }
+            }
+          }
+        }
+        break;
+        
+      case menu::DisplayShader::DITHER:
+        // Dither pattern on sprite
+        if(face == menu::DisplayFace::CUSTOM_IMAGE && sprite_loader.isLoaded()){
+          uint16_t sprite_width = sprite_loader.getWidth();
+          uint16_t sprite_height = sprite_loader.getHeight();
+          
+          for(int panel = 0; panel < 2; panel++){
+            int panel_cx = panel == 0 ? 32 : 96;
+            int panel_cy = 16;
+            int start_x = panel_cx - sprite_width / 2;
+            int start_y = panel_cy - sprite_height / 2;
+            
+            for(int y = 0; y < sprite_height; y++){
+              for(int x = 0; x < sprite_width; x++){
+                int px = start_x + x;
+                int py = start_y + y;
+                
+                // Dither every other pixel
+                if((x + y) % 2 == 0 && px >= 0 && px < 128 && py >= 0 && py < 32){
+                  hub75_manager.setPixel(px, py, RGB(0, 0, 0));
+                }
+              }
+            }
+          }
+        }
+        break;
+        
       default:
         break;
     }

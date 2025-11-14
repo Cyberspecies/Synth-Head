@@ -23,6 +23,7 @@
 extern std::atomic<uint8_t> active_buffer_index;
 extern arcos::communication::SensorDataPayload sensor_data_buffers[2];
 extern arcos::communication::FileTransferManager file_transfer;
+extern arcos::communication::CpuUartBidirectional uart_comm;
 
 namespace arcos::manager {
 
@@ -290,6 +291,357 @@ inline void CaptivePortalManager::setupWebServer() {
     // Note: sprite_data will be deleted when transfer completes
     // For production, handle cleanup in file transfer completion callback
   });
+  
+  // API endpoint for custom sprite upload (POST) - Receives user PNG as RGB bitmap
+  server_->on(
+    "/api/upload-sprite", 
+    HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, // Request handler (empty)
+    nullptr, // Upload handler (not used)
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      // Body handler - receives JSON with base64 sprite data
+      static uint8_t* sprite_buffer = nullptr;
+      static size_t sprite_size = 0;
+      
+      // First chunk - parse JSON and allocate buffer
+      if(index == 0) {
+        Serial.printf("WIFI: Receiving sprite upload (%u bytes total)...\n", total);
+        
+        // Parse JSON to extract base64 data
+        String body_str((char*)data, len);
+        
+        // Find "data":"..." field
+        int data_start = body_str.indexOf("\"data\":\"");
+        if(data_start == -1) {
+          request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid JSON format\"}");
+          return;
+        }
+        data_start += 8; // Skip past "data":"
+        
+        int data_end = body_str.indexOf("\"", data_start);
+        if(data_end == -1) {
+          request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid JSON format\"}");
+          return;
+        }
+        
+        String base64_data = body_str.substring(data_start, data_end);
+        Serial.printf("WIFI: Base64 data length: %d\n", base64_data.length());
+        
+        // Decode base64
+        sprite_size = base64_data.length() * 3 / 4;
+        sprite_buffer = new uint8_t[sprite_size];
+        
+        if(!sprite_buffer) {
+          request->send(500, "application/json", "{\"success\":false,\"message\":\"Memory allocation failed\"}");
+          return;
+        }
+        
+        // Base64 decode
+        const char* base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        size_t out_idx = 0;
+        uint32_t val = 0;
+        int val_b = -8;
+        
+        for(size_t i = 0; i < base64_data.length(); i++) {
+          char c = base64_data[i];
+          if(c == '=') break;
+          
+          const char* p = strchr(base64_chars, c);
+          if(!p) continue;
+          
+          val = (val << 6) | (p - base64_chars);
+          val_b += 6;
+          
+          if(val_b >= 0) {
+            sprite_buffer[out_idx++] = (val >> val_b) & 0xFF;
+            val_b -= 8;
+          }
+        }
+        sprite_size = out_idx;
+        
+        // Validate sprite format
+        if(sprite_size < 4) {
+          delete[] sprite_buffer;
+          sprite_buffer = nullptr;
+          request->send(400, "application/json", "{\"success\":false,\"message\":\"Sprite data too small\"}");
+          return;
+        }
+        
+        // Extract dimensions
+        uint16_t width = sprite_buffer[0] | (sprite_buffer[1] << 8);
+        uint16_t height = sprite_buffer[2] | (sprite_buffer[3] << 8);
+        
+        Serial.printf("WIFI: Decoded sprite: %dx%d (%u bytes)\n", width, height, sprite_size);
+        
+        // Validate dimensions and size
+        uint32_t expected_size = 4 + (width * height * 3);
+        if(sprite_size != expected_size) {
+          Serial.printf("WIFI: ERROR - Size mismatch! Expected %u, got %u\n", expected_size, sprite_size);
+          delete[] sprite_buffer;
+          sprite_buffer = nullptr;
+          request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid sprite size\"}");
+          return;
+        }
+        
+        if(width > 64 || height > 32) {
+          Serial.printf("WIFI: WARNING - Sprite exceeds recommended size (64x32)\n");
+        }
+        
+        // Start file transfer
+        if(::file_transfer.isActive()) {
+          delete[] sprite_buffer;
+          sprite_buffer = nullptr;
+          request->send(409, "application/json", "{\"success\":false,\"message\":\"Transfer already in progress\"}");
+          return;
+        }
+        
+        bool started = ::file_transfer.startTransfer(sprite_buffer, sprite_size, "user_sprite.img");
+        
+        if(started) {
+          Serial.println("WIFI: User sprite transfer started successfully!");
+          char response[128];
+          snprintf(response, sizeof(response), 
+                   "{\"success\":true,\"message\":\"Sprite uploaded (%dx%d, %u bytes)\"}", 
+                   width, height, sprite_size);
+          request->send(200, "application/json", response);
+          
+          // Don't delete sprite_buffer - it's owned by file transfer now
+          sprite_buffer = nullptr;
+        } else {
+          Serial.println("WIFI: ERROR - Failed to start user sprite transfer!");
+          delete[] sprite_buffer;
+          sprite_buffer = nullptr;
+          request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to start transfer\"}");
+        }
+      }
+    }
+  );
+  
+  // API endpoint for display settings (POST) - Sends display configuration to GPU
+  server_->on(
+    "/api/display-settings",
+    HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, // Request handler (empty)
+    nullptr, // Upload handler (not used)
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      // Body handler - receives JSON with display settings
+      if(index == 0) {
+        Serial.printf("WIFI: Display settings received (%u bytes)\n", len);
+        
+        // Parse JSON
+        String body_str((char*)data, len);
+        Serial.printf("WIFI: Body: %s\n", body_str.c_str());
+        
+        // Extract values (simple parsing)
+        int face = -1, effect = -1, shader = -1;
+        int r1 = 0, g1 = 0, b1 = 0, r2 = 0, g2 = 0, b2 = 0;
+        int speed = 128;
+        
+        // Parse face
+        int face_pos = body_str.indexOf("\"face\":");
+        if(face_pos != -1) {
+          face = body_str.substring(face_pos + 7).toInt();
+        }
+        
+        // Parse effect
+        int effect_pos = body_str.indexOf("\"effect\":");
+        if(effect_pos != -1) {
+          effect = body_str.substring(effect_pos + 9).toInt();
+        }
+        
+        // Parse shader
+        int shader_pos = body_str.indexOf("\"shader\":");
+        if(shader_pos != -1) {
+          shader = body_str.substring(shader_pos + 9).toInt();
+        }
+        
+        // Parse color1.r
+        int r1_pos = body_str.indexOf("\"color1\":{\"r\":");
+        if(r1_pos != -1) {
+          r1 = body_str.substring(r1_pos + 14).toInt();
+        }
+        
+        // Parse color1.g
+        int g1_pos = body_str.indexOf(",\"g\":", r1_pos);
+        if(g1_pos != -1) {
+          g1 = body_str.substring(g1_pos + 5).toInt();
+        }
+        
+        // Parse color1.b
+        int b1_pos = body_str.indexOf(",\"b\":", g1_pos);
+        if(b1_pos != -1) {
+          b1 = body_str.substring(b1_pos + 5).toInt();
+        }
+        
+        // Parse color2.r
+        int r2_pos = body_str.indexOf("\"color2\":{\"r\":");
+        if(r2_pos != -1) {
+          r2 = body_str.substring(r2_pos + 14).toInt();
+        }
+        
+        // Parse color2.g
+        int g2_pos = body_str.indexOf(",\"g\":", r2_pos);
+        if(g2_pos != -1) {
+          g2 = body_str.substring(g2_pos + 5).toInt();
+        }
+        
+        // Parse color2.b
+        int b2_pos = body_str.indexOf(",\"b\":", g2_pos);
+        if(b2_pos != -1) {
+          b2 = body_str.substring(b2_pos + 5).toInt();
+        }
+        
+        // Parse speed
+        int speed_pos = body_str.indexOf("\"speed\":");
+        if(speed_pos != -1) {
+          speed = body_str.substring(speed_pos + 8).toInt();
+        }
+        
+        Serial.printf("WIFI: Parsed - Face:%d Effect:%d Shader:%d\n", face, effect, shader);
+        Serial.printf("WIFI: Color1 RGB:(%d,%d,%d) Color2 RGB:(%d,%d,%d) Speed:%d\n", 
+                      r1, g1, b1, r2, g2, b2, speed);
+        
+        // Create display settings packet
+        arcos::communication::DisplaySettings settings;
+        settings.display_face = (uint8_t)face;
+        settings.display_effect = (uint8_t)effect;
+        settings.display_shader = (uint8_t)shader;
+        settings._reserved_byte = 0;
+        settings.color1_r = (uint8_t)r1;
+        settings.color1_g = (uint8_t)g1;
+        settings.color1_b = (uint8_t)b1;
+        settings.color2_r = (uint8_t)r2;
+        settings.color2_g = (uint8_t)g2;
+        settings.color2_b = (uint8_t)b2;
+        settings.shader_speed = (uint8_t)speed;
+        settings._reserved[0] = 0;
+        settings._reserved[1] = 0;
+        
+        // Send packet to GPU via UART (using global uart_comm declared in CPU.cpp)
+        bool sent = ::uart_comm.sendPacket(
+          arcos::communication::MessageType::DISPLAY_SETTINGS,
+          (const uint8_t*)&settings,
+          sizeof(settings)
+        );
+        
+        if(sent) {
+          Serial.println("WIFI: Display settings sent to GPU successfully!");
+          request->send(200, "application/json", "{\"success\":true,\"message\":\"Settings applied\"}");
+        } else {
+          Serial.println("WIFI: ERROR - Failed to send display settings to GPU!");
+          request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to send to GPU\"}");
+        }
+      }
+    }
+  );
+  
+  // API endpoint for LED settings (POST) - Sends LED strip configuration to GPU
+  server_->on(
+    "/api/led-settings",
+    HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, // Request handler (empty)
+    nullptr, // Upload handler (not used)
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      // Body handler - receives JSON with LED settings
+      if(index == 0) {
+        Serial.printf("WIFI: LED settings received (%u bytes)\n", len);
+        
+        // Parse JSON
+        String body_str((char*)data, len);
+        Serial.printf("WIFI: Body: %s\n", body_str.c_str());
+        
+        // Extract values (simple parsing)
+        int ledMode = 0, speed = 128, brightness = 255;
+        int r1 = 0, g1 = 0, b1 = 0, r2 = 0, g2 = 0, b2 = 0;
+        
+        // Parse ledMode
+        int led_pos = body_str.indexOf("\"ledMode\":");
+        if(led_pos != -1) {
+          ledMode = body_str.substring(led_pos + 10).toInt();
+        }
+        
+        // Parse speed
+        int speed_pos = body_str.indexOf("\"speed\":");
+        if(speed_pos != -1) {
+          speed = body_str.substring(speed_pos + 8).toInt();
+        }
+        
+        // Parse brightness
+        int bright_pos = body_str.indexOf("\"brightness\":");
+        if(bright_pos != -1) {
+          brightness = body_str.substring(bright_pos + 13).toInt();
+        }
+        
+        // Parse color1.r
+        int r1_pos = body_str.indexOf("\"color1\":{\"r\":");
+        if(r1_pos != -1) {
+          r1 = body_str.substring(r1_pos + 14).toInt();
+        }
+        
+        // Parse color1.g
+        int g1_pos = body_str.indexOf(",\"g\":", r1_pos);
+        if(g1_pos != -1) {
+          g1 = body_str.substring(g1_pos + 5).toInt();
+        }
+        
+        // Parse color1.b
+        int b1_pos = body_str.indexOf(",\"b\":", g1_pos);
+        if(b1_pos != -1) {
+          b1 = body_str.substring(b1_pos + 5).toInt();
+        }
+        
+        // Parse color2.r
+        int r2_pos = body_str.indexOf("\"color2\":{\"r\":");
+        if(r2_pos != -1) {
+          r2 = body_str.substring(r2_pos + 14).toInt();
+        }
+        
+        // Parse color2.g
+        int g2_pos = body_str.indexOf(",\"g\":", r2_pos);
+        if(g2_pos != -1) {
+          g2 = body_str.substring(g2_pos + 5).toInt();
+        }
+        
+        // Parse color2.b
+        int b2_pos = body_str.indexOf(",\"b\":", g2_pos);
+        if(b2_pos != -1) {
+          b2 = body_str.substring(b2_pos + 5).toInt();
+        }
+        
+        Serial.printf("WIFI: Parsed - LED Mode:%d Speed:%d Brightness:%d\n", ledMode, speed, brightness);
+        Serial.printf("WIFI: Color1 RGB:(%d,%d,%d) Color2 RGB:(%d,%d,%d)\n", r1, g1, b1, r2, g2, b2);
+        
+        // Create LED settings packet
+        arcos::communication::LedSettings settings;
+        settings.led_strip_mode = (uint8_t)ledMode;
+        settings.color1_r = (uint8_t)r1;
+        settings.color1_g = (uint8_t)g1;
+        settings.color1_b = (uint8_t)b1;
+        settings.color2_r = (uint8_t)r2;
+        settings.color2_g = (uint8_t)g2;
+        settings.color2_b = (uint8_t)b2;
+        settings.speed = (uint8_t)speed;
+        settings.brightness = (uint8_t)brightness;
+        settings._reserved[0] = 0;
+        settings._reserved[1] = 0;
+        
+        // Send packet to GPU via UART
+        bool sent = ::uart_comm.sendPacket(
+          arcos::communication::MessageType::LED_SETTINGS,
+          (const uint8_t*)&settings,
+          sizeof(settings)
+        );
+        
+        if(sent) {
+          Serial.println("WIFI: LED settings sent to GPU successfully!");
+          request->send(200, "application/json", "{\"success\":true,\"message\":\"LED settings applied\"}");
+        } else {
+          Serial.println("WIFI: ERROR - Failed to send LED settings to GPU!");
+          request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to send to GPU\"}");
+        }
+      }
+    }
+  );
   
   // API endpoint for device restart (POST)
   server_->on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* request) {

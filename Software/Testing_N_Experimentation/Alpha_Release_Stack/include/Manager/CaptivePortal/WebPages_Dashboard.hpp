@@ -440,18 +440,155 @@ inline String CaptivePortalManager::generateDashboardPage() {
     </div>
   </div>
   
-  <!-- File Transfer Test Section -->
+  <!-- Image Upload Section -->
   <div class="restart-section" style="background: #1e293b; border: 2px solid #667eea;">
-    <h2 style="color: #667eea; margin-bottom: 15px;">🎨 Custom Sprite Transfer</h2>
-    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Send 16x24 RGB sprite to GPU for HUB75 display (1.1KB)</p>
-    <button class="restart-btn" style="background: #667eea;" onclick="startFileTransfer()">
-      Send Custom Sprite
+    <h2 style="color: #667eea; margin-bottom: 15px;">🎨 Custom Sprite Upload</h2>
+    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Upload PNG image for HUB75 display (recommended: 16x24 to 64x32 pixels)</p>
+    
+    <input type="file" id="image_upload" accept="image/png,image/jpeg,image/jpg" 
+           style="display: none;" onchange="handleImageUpload(event)">
+    
+    <button class="restart-btn" style="background: #667eea; margin-bottom: 10px;" onclick="document.getElementById('image_upload').click()">
+      📁 Choose Image
     </button>
+    
+    <div id="preview_container" style="display: none; margin: 15px 0; text-align: center;">
+      <canvas id="image_preview" style="border: 2px solid #667eea; max-width: 100%; image-rendering: pixelated;"></canvas>
+      <div style="margin-top: 10px; color: #94a3b8; font-size: 13px;">
+        <span id="image_dimensions"></span>
+      </div>
+    </div>
+    
+    <button class="restart-btn" id="upload_sprite_btn" style="background: #48bb78; display: none;" onclick="uploadSprite()">
+      ⬆️ Upload to GPU
+    </button>
+    
+    <div class="config-message" id="upload_status" style="display: none;"></div>
     <div class="config-message" id="transfer_message"></div>
     <div style="margin-top: 15px; color: #94a3b8; font-size: 13px;">
       <div>Transfer Status: <span id="transfer_status" style="color: #48bb78; font-weight: 600;">Idle</span></div>
       <div style="margin-top: 5px;">Last Transfer: <span id="last_transfer" style="color: white; font-weight: 600;">Never</span></div>
     </div>
+  </div>
+  
+  <!-- Display Settings Section -->
+  <div class="restart-section" style="background: #1e293b; border: 2px solid #f59e0b;">
+    <h2 style="color: #f59e0b; margin-bottom: 15px;">🎨 Display Settings</h2>
+    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Configure HUB75 display and LED strip behavior</p>
+    
+    <div style="display: grid; gap: 15px;">
+      <!-- Display Face -->
+      <div>
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Display Face:</label>
+        <select id="display_face" style="width: 100%; padding: 10px; background: #2d3748; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 14px;">
+          <option value="0">Custom Image</option>
+          <option value="1">Panel Number</option>
+          <option value="2">Orientation</option>
+        </select>
+      </div>
+      
+      <!-- Display Effect -->
+      <div>
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Display Effect:</label>
+        <select id="display_effect" style="width: 100%; padding: 10px; background: #2d3748; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 14px;">
+          <option value="0">None</option>
+          <option value="1">Particles</option>
+          <option value="2">Trails</option>
+          <option value="3">Grid</option>
+          <option value="4">Wave</option>
+        </select>
+      </div>
+      
+      <!-- Display Shader -->
+      <div>
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Display Shader:</label>
+        <select id="display_shader" style="width: 100%; padding: 10px; background: #2d3748; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 14px;" onchange="updateShaderOptions()">
+          <option value="0">None</option>
+          <option value="1">Hue Cycle (Sprite Rows)</option>
+          <option value="2">Hue Cycle (Override All)</option>
+          <option value="3">Color Override (Static)</option>
+          <option value="4">Color Override (Breathe)</option>
+          <option value="5">RGB Split</option>
+          <option value="6">Scanlines</option>
+          <option value="7">Pixelate</option>
+          <option value="8">Invert</option>
+          <option value="9">Dither</option>
+        </select>
+      </div>
+      
+      <!-- Shader Color Options (shown for color override shaders) -->
+      <div id="shader_color_options" style="display: none; background: #2d3748; padding: 15px; border-radius: 5px; border: 1px solid #4a5568;">
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Color 1:</label>
+        <input type="color" id="shader_color1" value="#ff0000" style="width: 100%; height: 40px; border: none; border-radius: 5px; cursor: pointer;">
+        
+        <div id="color2_container" style="margin-top: 15px;">
+          <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Color 2 (for breathing):</label>
+          <input type="color" id="shader_color2" value="#0000ff" style="width: 100%; height: 40px; border: none; border-radius: 5px; cursor: pointer;">
+        </div>
+        
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-top: 15px; margin-bottom: 8px;">Animation Speed:</label>
+        <input type="range" id="shader_speed" min="1" max="255" value="128" style="width: 100%;">
+        <div style="color: #94a3b8; font-size: 12px; text-align: center;"><span id="shader_speed_value">128</span></div>
+      </div>
+    </div>
+    
+    <button class="restart-btn" style="background: #f59e0b; margin-top: 20px;" onclick="applyDisplaySettings()">
+      ✨ Apply Display Settings
+    </button>
+    
+    <div class="config-message" id="display_settings_message"></div>
+  </div>
+  
+  <!-- LED Strip Settings Section -->
+  <div class="restart-section" style="background: #1e293b; border: 2px solid #10b981;">
+    <h2 style="color: #10b981; margin-bottom: 15px;">💡 LED Strip Settings</h2>
+    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Configure RGB LED strip animations and colors</p>
+    
+    <div style="display: grid; gap: 15px;">
+      <!-- LED Strip Mode -->
+      <div>
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">LED Mode:</label>
+        <select id="led_strip_mode" style="width: 100%; padding: 10px; background: #2d3748; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 14px;" onchange="updateLedOptions()">
+          <option value="0">Dynamic (HUB75 Based)</option>
+          <option value="1">Rainbow</option>
+          <option value="2">Breathing</option>
+          <option value="3">Wave</option>
+          <option value="4">Fire</option>
+          <option value="5">Theater Chase</option>
+        </select>
+      </div>
+      
+      <!-- LED Color Options (shown for breathing mode) -->
+      <div id="led_color_options" style="display: none; background: #2d3748; padding: 15px; border-radius: 5px; border: 1px solid #4a5568;">
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Color 1:</label>
+        <input type="color" id="led_color1" value="#ff0000" style="width: 100%; height: 40px; border: none; border-radius: 5px; cursor: pointer;">
+        
+        <div id="led_color2_container" style="margin-top: 15px;">
+          <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Color 2:</label>
+          <input type="color" id="led_color2" value="#0000ff" style="width: 100%; height: 40px; border: none; border-radius: 5px; cursor: pointer;">
+        </div>
+      </div>
+      
+      <!-- LED Animation Speed -->
+      <div>
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Animation Speed:</label>
+        <input type="range" id="led_speed" min="1" max="255" value="128" style="width: 100%;">
+        <div style="color: #94a3b8; font-size: 12px; text-align: center;"><span id="led_speed_value">128</span></div>
+      </div>
+      
+      <!-- LED Brightness -->
+      <div>
+        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Brightness:</label>
+        <input type="range" id="led_brightness" min="0" max="255" value="255" style="width: 100%;">
+        <div style="color: #94a3b8; font-size: 12px; text-align: center;"><span id="led_brightness_value">255</span></div>
+      </div>
+    </div>
+    
+    <button class="restart-btn" style="background: #10b981; margin-top: 20px;" onclick="applyLedSettings()">
+      💡 Apply LED Settings
+    </button>
+    
+    <div class="config-message" id="led_settings_message"></div>
   </div>
   
   <!-- Restart Section -->
@@ -841,6 +978,384 @@ inline String CaptivePortalManager::generateDashboardPage() {
           messageEl.className = 'config-message error';
           messageEl.style.display = 'block';
           console.error('File transfer error:', error);
+        });
+    }
+    
+    // Image Upload Functions
+    function handleImageUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      const statusEl = document.getElementById('upload_status');
+      const uploadBtn = document.getElementById('upload_sprite_btn');
+      const previewContainer = document.getElementById('preview_container');
+      const canvas = document.getElementById('image_preview');
+      const ctx = canvas.getContext('2d');
+      const dimensionsEl = document.getElementById('image_dimensions');
+      
+      // Show loading
+      statusEl.textContent = 'Loading...';
+      statusEl.style.display = 'block';
+      
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          // Set canvas size
+          canvas.width = img.width;
+          canvas.height = img.height;
+          
+          // Draw image
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(img, 0, 0);
+          
+          // Show preview
+          previewContainer.style.display = 'block';
+          dimensionsEl.textContent = img.width + 'x' + img.height;
+          uploadBtn.style.display = 'inline-block';
+          statusEl.textContent = 'Image loaded - ready to upload';
+          statusEl.style.color = '#48bb78';
+          
+          // Validate dimensions
+          if (img.width > 64 || img.height > 32) {
+            statusEl.textContent = 'Warning: Image exceeds 64x32! May be scaled down.';
+            statusEl.style.color = '#fbbf24';
+          }
+        };
+        img.onerror = function() {
+          statusEl.textContent = 'Error loading image';
+          statusEl.style.color = '#f56565';
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    function uploadSprite() {
+      const canvas = document.getElementById('image_preview');
+      const statusEl = document.getElementById('upload_status');
+      const uploadBtn = document.getElementById('upload_sprite_btn');
+      const transferStatusEl = document.getElementById('transfer_status');
+      const transferMsgEl = document.getElementById('transfer_message');
+      const lastTransferEl = document.getElementById('last_transfer');
+      
+      if (!canvas.width || !canvas.height) {
+        statusEl.textContent = 'No image loaded';
+        statusEl.style.color = '#f56565';
+        return;
+      }
+      
+      // Disable button during upload
+      uploadBtn.disabled = true;
+      statusEl.textContent = 'Converting to sprite format...';
+      statusEl.style.color = '#fbbf24';
+      
+      try {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const pixels = imageData.data;
+        
+        // Create sprite data: [width:2][height:2][RGB pixels]
+        const spriteSize = 4 + (width * height * 3);
+        const spriteData = new Uint8Array(spriteSize);
+        
+        // Write width and height (little-endian)
+        spriteData[0] = width & 0xFF;
+        spriteData[1] = (width >> 8) & 0xFF;
+        spriteData[2] = height & 0xFF;
+        spriteData[3] = (height >> 8) & 0xFF;
+        
+        // Write RGB pixel data
+        let offset = 4;
+        for (let i = 0; i < pixels.length; i += 4) {
+          spriteData[offset++] = pixels[i];     // R
+          spriteData[offset++] = pixels[i + 1]; // G
+          spriteData[offset++] = pixels[i + 2]; // B
+        }
+        
+        // Convert to base64
+        const base64 = btoa(String.fromCharCode.apply(null, spriteData));
+        
+        statusEl.textContent = 'Uploading to device...';
+        
+        // Update transfer status UI
+        transferStatusEl.textContent = 'Sending...';
+        transferStatusEl.style.color = '#fbbf24';
+        transferMsgEl.textContent = 'Sending ' + width + 'x' + height + ' sprite (' + (spriteSize/1024).toFixed(1) + 'KB)...';
+        transferMsgEl.className = 'config-message';
+        transferMsgEl.style.display = 'block';
+        transferMsgEl.style.background = 'rgba(251,191,36,0.2)';
+        transferMsgEl.style.color = '#fbbf24';
+        transferMsgEl.style.border = '1px solid #fbbf24';
+        
+        // Send to device
+        fetch('/api/upload-sprite', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            data: base64,
+            width: width,
+            height: height
+          })
+        })
+          .then(response => response.json())
+          .then(data => {
+            uploadBtn.disabled = false;
+            if (data.success) {
+              statusEl.textContent = 'Upload successful!';
+              statusEl.style.color = '#48bb78';
+              
+              transferStatusEl.textContent = 'Success';
+              transferStatusEl.style.color = '#48bb78';
+              transferMsgEl.textContent = data.message || 'Sprite uploaded successfully!';
+              transferMsgEl.className = 'config-message success';
+              transferMsgEl.style.display = 'block';
+              const now = new Date();
+              lastTransferEl.textContent = now.toLocaleTimeString();
+              
+              // Hide messages after 5 seconds
+              setTimeout(() => {
+                statusEl.style.display = 'none';
+                transferMsgEl.style.display = 'none';
+                transferStatusEl.textContent = 'Idle';
+              }, 5000);
+            } else {
+              statusEl.textContent = 'Upload failed: ' + (data.message || 'Unknown error');
+              statusEl.style.color = '#f56565';
+              
+              transferStatusEl.textContent = 'Failed';
+              transferStatusEl.style.color = '#f56565';
+              transferMsgEl.textContent = data.message || 'Sprite upload failed';
+              transferMsgEl.className = 'config-message error';
+              transferMsgEl.style.display = 'block';
+            }
+          })
+          .catch(error => {
+            uploadBtn.disabled = false;
+            statusEl.textContent = 'Network error: ' + error.message;
+            statusEl.style.color = '#f56565';
+            
+            transferStatusEl.textContent = 'Error';
+            transferStatusEl.style.color = '#f56565';
+            transferMsgEl.textContent = 'Network error during upload';
+            transferMsgEl.className = 'config-message error';
+            transferMsgEl.style.display = 'block';
+            console.error('Upload error:', error);
+          });
+      } catch (error) {
+        uploadBtn.disabled = false;
+        statusEl.textContent = 'Error processing image: ' + error.message;
+        statusEl.style.color = '#f56565';
+        console.error('Image processing error:', error);
+      }
+    }
+    
+    // Display Settings Functions
+    function updateShaderOptions() {
+      const shader = parseInt(document.getElementById('display_shader').value);
+      const colorOptions = document.getElementById('shader_color_options');
+      const color2Container = document.getElementById('color2_container');
+      
+      // Show color options for color override shaders (3=static, 4=breathe)
+      if (shader === 3 || shader === 4) {
+        colorOptions.style.display = 'block';
+        // Show color 2 only for breathing
+        color2Container.style.display = (shader === 4) ? 'block' : 'none';
+      } else {
+        colorOptions.style.display = 'none';
+      }
+    }
+    
+    // Update speed value display
+    document.addEventListener('DOMContentLoaded', function() {
+      const speedSlider = document.getElementById('shader_speed');
+      const speedValue = document.getElementById('shader_speed_value');
+      if (speedSlider && speedValue) {
+        speedSlider.addEventListener('input', function() {
+          speedValue.textContent = this.value;
+        });
+      }
+    });
+    
+    // LED Settings Functions
+    function updateLedOptions() {
+      const mode = parseInt(document.getElementById('led_strip_mode').value);
+      const colorOptions = document.getElementById('led_color_options');
+      
+      // Show color options for breathing mode (2)
+      if (mode === 2) {
+        colorOptions.style.display = 'block';
+      } else {
+        colorOptions.style.display = 'none';
+      }
+    }
+    
+    // Update LED speed and brightness value displays
+    document.addEventListener('DOMContentLoaded', function() {
+      const ledSpeedSlider = document.getElementById('led_speed');
+      const ledSpeedValue = document.getElementById('led_speed_value');
+      const ledBrightnessSlider = document.getElementById('led_brightness');
+      const ledBrightnessValue = document.getElementById('led_brightness_value');
+      
+      if (ledSpeedSlider && ledSpeedValue) {
+        ledSpeedSlider.addEventListener('input', function() {
+          ledSpeedValue.textContent = this.value;
+        });
+      }
+      
+      if (ledBrightnessSlider && ledBrightnessValue) {
+        ledBrightnessSlider.addEventListener('input', function() {
+          ledBrightnessValue.textContent = this.value;
+        });
+      }
+    });
+    
+    function applyLedSettings() {
+      const messageEl = document.getElementById('led_settings_message');
+      
+      // Get values
+      const ledMode = parseInt(document.getElementById('led_strip_mode').value);
+      const speed = parseInt(document.getElementById('led_speed').value);
+      const brightness = parseInt(document.getElementById('led_brightness').value);
+      
+      // Get color values (hex to RGB)
+      const color1 = document.getElementById('led_color1').value;
+      const color2 = document.getElementById('led_color2').value;
+      
+      // Convert hex colors to RGB
+      const hexToRgb = (hex) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : {r: 0, g: 0, b: 0};
+      };
+      
+      const rgb1 = hexToRgb(color1);
+      const rgb2 = hexToRgb(color2);
+      
+      // Show loading
+      messageEl.textContent = 'Applying LED settings...';
+      messageEl.className = 'config-message';
+      messageEl.style.display = 'block';
+      messageEl.style.background = 'rgba(251,191,36,0.2)';
+      messageEl.style.color = '#fbbf24';
+      messageEl.style.border = '1px solid #fbbf24';
+      
+      // Send to device
+      fetch('/api/led-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ledMode: ledMode,
+          color1: rgb1,
+          color2: rgb2,
+          speed: speed,
+          brightness: brightness
+        })
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            messageEl.textContent = data.message || 'LED settings applied!';
+            messageEl.className = 'config-message success';
+            messageEl.style.display = 'block';
+            
+            setTimeout(() => {
+              messageEl.style.display = 'none';
+            }, 3000);
+          } else {
+            messageEl.textContent = data.message || 'Failed to apply LED settings';
+            messageEl.className = 'config-message error';
+            messageEl.style.display = 'block';
+          }
+        })
+        .catch(error => {
+          messageEl.textContent = 'Network error: ' + error.message;
+          messageEl.className = 'config-message error';
+          messageEl.style.display = 'block';
+          console.error('LED settings error:', error);
+        });
+    }
+    
+    function applyDisplaySettings() {
+      const messageEl = document.getElementById('display_settings_message');
+      
+      // Get values
+      const face = parseInt(document.getElementById('display_face').value);
+      const effect = parseInt(document.getElementById('display_effect').value);
+      const shader = parseInt(document.getElementById('display_shader').value);
+      
+      // Get color values (hex to RGB)
+      const color1 = document.getElementById('shader_color1').value;
+      const color2 = document.getElementById('shader_color2').value;
+      const speed = parseInt(document.getElementById('shader_speed').value);
+      
+      // Convert hex colors to RGB
+      const hexToRgb = (hex) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : {r: 0, g: 0, b: 0};
+      };
+      
+      const rgb1 = hexToRgb(color1);
+      const rgb2 = hexToRgb(color2);
+      
+      // Show loading
+      messageEl.textContent = 'Applying settings...';
+      messageEl.className = 'config-message';
+      messageEl.style.display = 'block';
+      messageEl.style.background = 'rgba(251,191,36,0.2)';
+      messageEl.style.color = '#fbbf24';
+      messageEl.style.border = '1px solid #fbbf24';
+      
+      // Send to device
+      fetch('/api/display-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          face: face,
+          effect: effect,
+          shader: shader,
+          color1: rgb1,
+          color2: rgb2,
+          speed: speed
+        })
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            messageEl.textContent = data.message || 'Settings applied successfully!';
+            messageEl.className = 'config-message success';
+            messageEl.style.display = 'block';
+            
+            // Hide message after 3 seconds
+            setTimeout(() => {
+              messageEl.style.display = 'none';
+            }, 3000);
+          } else {
+            messageEl.textContent = data.message || 'Failed to apply settings';
+            messageEl.className = 'config-message error';
+            messageEl.style.display = 'block';
+          }
+        })
+        .catch(error => {
+          messageEl.textContent = 'Network error: ' + error.message;
+          messageEl.className = 'config-message error';
+          messageEl.style.display = 'block';
+          console.error('Display settings error:', error);
         });
     }
     

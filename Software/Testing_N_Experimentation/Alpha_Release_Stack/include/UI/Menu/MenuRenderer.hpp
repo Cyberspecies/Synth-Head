@@ -244,7 +244,10 @@ inline void renderDisplayShaders(arcos::manager::OLEDDisplayManager& oled, Displ
   oled.drawLine(0, 10, 127, 10, true);
   oled.drawText(10, 15, "Press SET to change", true);
   
-  const char* shader_names[] = {"RGB Split", "Scanlines", "Pixelate", "Invert", "Dither"};
+  const char* shader_names[] = {
+    "None", "Hue Row", "Hue All", "Color", "Breathe", 
+    "RGB Split", "Scanlines", "Pixelate", "Invert", "Dither"
+  };
   
   char text[32];
   snprintf(text, sizeof(text), "Current: %s", shader_names[static_cast<uint8_t>(shader)]);
@@ -290,16 +293,19 @@ inline void renderSubmenu(arcos::manager::OLEDDisplayManager& oled,
   uint8_t item_count = 0;
   
   // Get appropriate items based on mode
-  static const char* face_names[] = {"Circle", "Square", "Triangle", "Hexagon", "Star", "Panel Number", "Orientation"};
+  static const char* face_names[] = {"Custom", "Panel #", "Orient"};
   static const char* effect_names[] = {"None", "Particles", "Trails", "Grid", "Wave"};
-  static const char* shader_names[] = {"RGB Split", "Scanlines", "Pixelate", "Invert", "Dither"};
+  static const char* shader_names[] = {
+    "None", "Hue Row", "Hue All", "Color", "Breathe", 
+    "RGB Split", "Scanlines", "Pixelate", "Invert", "Dither"
+  };
   static const char* led_names[] = {"Dynamic", "Rainbow", "Breathing", "Wave", "Fire", "Theater"};
   
   switch (mode) {
     case TopLevelMode::DISPLAY_FACES:
       title = "SELECT FACE";
       item_names = face_names;
-      item_count = 7;
+      item_count = 3;
       break;
     case TopLevelMode::DISPLAY_EFFECTS:
       title = "SELECT EFFECT";
@@ -309,7 +315,7 @@ inline void renderSubmenu(arcos::manager::OLEDDisplayManager& oled,
     case TopLevelMode::DISPLAY_SHADERS:
       title = "SELECT SHADER";
       item_names = shader_names;
-      item_count = 5;
+      item_count = 10;
       break;
     case TopLevelMode::LED_STRIP_CONFIG:
       title = "SELECT LED MODE";

@@ -33,6 +33,8 @@ enum class MessageType : uint8_t{
   FILE_TRANSFER_DATA = 0x15,   // File data fragment
   FILE_TRANSFER_END = 0x16,    // End file transfer
   FILE_TRANSFER_ACK = 0x17,    // Acknowledge file fragment
+  DISPLAY_SETTINGS = 0x18,     // Display settings (face, effect, shader)
+  LED_SETTINGS = 0x19,         // LED strip settings (mode, colors, speed, brightness)
   COMMAND = 0x20,        // Send command to peer
   ACK = 0x30,            // Acknowledge received message
   NACK = 0x31,           // Negative acknowledgment
@@ -218,6 +220,34 @@ struct __attribute__((packed)) FileTransferAck{
   uint8_t _reserved;
   
   // Total: 4 + 2 + 1 + 1 = 8 bytes
+};
+
+/** Display settings structure (CPU -> GPU) */
+struct __attribute__((packed)) DisplaySettings{
+  uint8_t display_face;       // DisplayFace enum value
+  uint8_t display_effect;     // DisplayEffect enum value
+  uint8_t display_shader;     // DisplayShader enum value
+  uint8_t _reserved_byte;     // Reserved
+  
+  // Shader parameters (for color override shaders)
+  uint8_t color1_r, color1_g, color1_b;  // Primary color for static/breathing
+  uint8_t color2_r, color2_g, color2_b;  // Secondary color for breathing
+  uint8_t shader_speed;                   // Animation speed (0-255)
+  uint8_t _reserved[2];                   // Alignment
+  
+  // Total: 4 + 6 + 1 + 2 = 13 bytes
+};
+
+/** LED strip settings structure (CPU -> GPU) */
+struct __attribute__((packed)) LedSettings{
+  uint8_t led_strip_mode;     // LedStripMode enum value
+  uint8_t color1_r, color1_g, color1_b;  // Primary color
+  uint8_t color2_r, color2_g, color2_b;  // Secondary color (for breathing)
+  uint8_t speed;              // Animation speed (0-255)
+  uint8_t brightness;         // Overall brightness (0-255)
+  uint8_t _reserved[2];       // Alignment
+  
+  // Total: 1 + 6 + 1 + 1 + 2 = 11 bytes
 };
 
 /** Message packet structure */
