@@ -176,7 +176,7 @@ inline void renderDisplayFaces(arcos::manager::OLEDDisplayManager& oled, Display
   oled.drawLine(0, 10, 127, 10, true);
   oled.drawText(10, 15, "Press SET to change", true);
   
-  const char* face_names[] = {"Circle", "Square", "Triangle", "Hexagon", "Star", "Panel #", "Orient"};
+  const char* face_names[] = {"Custom", "Panel #", "Orient"};
   
   
   char text[32];
@@ -188,20 +188,11 @@ inline void renderDisplayFaces(arcos::manager::OLEDDisplayManager& oled, Display
   constexpr int cy = 80;
   
   switch (face) {
-    case DisplayFace::CIRCLE:
-      oled.drawCircle(cx, cy, 20, true);
-      break;
-    case DisplayFace::SQUARE:
-      oled.drawRect(cx - 20, cy - 20, 40, 40, false, true);
-      break;
-    case DisplayFace::TRIANGLE:
-      oled.drawLine(cx, cy - 20, cx - 20, cy + 20, true);
-      oled.drawLine(cx - 20, cy + 20, cx + 20, cy + 20, true);
-      oled.drawLine(cx + 20, cy + 20, cx, cy - 20, true);
-      break;
-    case DisplayFace::HEXAGON:
-    case DisplayFace::STAR:
-      oled.drawCircle(cx, cy, 15, true);
+    case DisplayFace::CUSTOM_IMAGE:
+      // Show custom image indicator
+      oled.drawRect(cx - 20, cy - 15, 40, 30, false, true);
+      oled.drawText(cx - 20, cy - 5, "IMG", true);
+      oled.drawText(cx - 18, cy + 5, "FILE", true);
       break;
     case DisplayFace::PANEL_NUMBER:
       // Show panel indicators

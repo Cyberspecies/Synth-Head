@@ -442,10 +442,10 @@ inline String CaptivePortalManager::generateDashboardPage() {
   
   <!-- File Transfer Test Section -->
   <div class="restart-section" style="background: #1e293b; border: 2px solid #667eea;">
-    <h2 style="color: #667eea; margin-bottom: 15px;">📡 File Transfer Test</h2>
-    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Test UART file transfer by sending 10KB data to GPU</p>
+    <h2 style="color: #667eea; margin-bottom: 15px;">🎨 Custom Sprite Transfer</h2>
+    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Send 16x24 RGB sprite to GPU for HUB75 display (1.1KB)</p>
     <button class="restart-btn" style="background: #667eea;" onclick="startFileTransfer()">
-      Send 10KB Test File
+      Send Custom Sprite
     </button>
     <div class="config-message" id="transfer_message"></div>
     <div style="margin-top: 15px; color: #94a3b8; font-size: 13px;">
@@ -794,7 +794,7 @@ inline String CaptivePortalManager::generateDashboardPage() {
       // Update UI
       statusEl.textContent = 'Sending...';
       statusEl.style.color = '#fbbf24';
-      messageEl.textContent = 'Initiating file transfer (10KB)...';
+      messageEl.textContent = 'Sending 16x24 RGB sprite (1.1KB)...';
       messageEl.className = 'config-message';
       messageEl.style.display = 'block';
       messageEl.style.background = 'rgba(251,191,36,0.2)';

@@ -42,6 +42,7 @@
 #include "Manager/HUB75DisplayManager.hpp"
 #include "Manager/OLEDDisplayManager.hpp"
 #include "Manager/LEDAnimationManager.hpp"
+#include "Manager/ImageSpriteLoader.hpp"
 
 // Boot animations
 #include "Animations/Boot/HUB75BootAnimations.hpp"
@@ -89,6 +90,7 @@ OLEDDisplayManager oled_manager;
 LEDAnimationManager led_manager;
 GpuUartBidirectional uart_comm;
 FileTransferReceiver file_receiver;
+ImageSpriteLoader sprite_loader;
 
 // ============== Shared Data ==============
 SemaphoreHandle_t sensor_data_mutex;
@@ -521,76 +523,25 @@ void hub75UpdateTask(void* parameter){
     // Draw selected face on BOTH panels independently
     // Panel 0 (left display): x = 0-63, center at (32, 16)
     // Panel 1 (right display): x = 64-127, center at (96, 16)
-    constexpr int cx0 = 32;   // Panel 0 center X
-    constexpr int cx1 = 96;   // Panel 1 center X
     constexpr int cy = 16;    // Both panels center Y
-    constexpr int size = 12;
     
     switch(face){
-      case menu::DisplayFace::CIRCLE:
-        // Draw on both panels
-        hub75_manager.drawCircle(cx0, cy, size, RGB(255, 0, 255));
-        hub75_manager.drawCircle(cx1, cy, size, RGB(255, 0, 255));
-        break;
-      case menu::DisplayFace::SQUARE:
-        // Draw on both panels
-        hub75_manager.drawRect(cx0 - size, cy - size, size * 2, size * 2, RGB(0, 255, 255));
-        hub75_manager.drawRect(cx1 - size, cy - size, size * 2, size * 2, RGB(0, 255, 255));
-        break;
-      case menu::DisplayFace::TRIANGLE:
-        // Draw on both panels
-        hub75_manager.drawLine(cx0, cy - size, cx0 - size, cy + size, RGB(255, 255, 0));
-        hub75_manager.drawLine(cx0 - size, cy + size, cx0 + size, cy + size, RGB(255, 255, 0));
-        hub75_manager.drawLine(cx0 + size, cy + size, cx0, cy - size, RGB(255, 255, 0));
-        
-        hub75_manager.drawLine(cx1, cy - size, cx1 - size, cy + size, RGB(255, 255, 0));
-        hub75_manager.drawLine(cx1 - size, cy + size, cx1 + size, cy + size, RGB(255, 255, 0));
-        hub75_manager.drawLine(cx1 + size, cy + size, cx1, cy - size, RGB(255, 255, 0));
-        break;
-      case menu::DisplayFace::HEXAGON:
-        // Proper hexagon with 6 sides - draw on both panels
-        {
-          // Panel 0
-          int hex_points0[6][2];
-          for(int i = 0; i < 6; i++){
-            float angle = (i * 60.0f - 90.0f) * 3.14159f / 180.0f;
-            hex_points0[i][0] = cx0 + static_cast<int>(size * cosf(angle));
-            hex_points0[i][1] = cy + static_cast<int>(size * sinf(angle));
-          }
-          for(int i = 0; i < 6; i++){
-            int next = (i + 1) % 6;
-            hub75_manager.drawLine(hex_points0[i][0], hex_points0[i][1], 
-                                  hex_points0[next][0], hex_points0[next][1], 
-                                  RGB(0, 255, 0));
-          }
+      case menu::DisplayFace::CUSTOM_IMAGE:
+        // Display custom image loaded from file transfer
+        if(sprite_loader.isLoaded()){
+          // Render sprite on both panels (centered at x=32, y=16 and x=96, y=16)
+          sprite_loader.renderOnBothPanels(hub75_manager);
+        }else{
+          // No image loaded - show "NO IMAGE" message
+          // Draw text indicator on left panel
+          hub75_manager.drawLine(15, 14, 48, 14, RGB(255, 0, 0));
+          hub75_manager.drawLine(15, 16, 48, 16, RGB(255, 0, 0));
+          hub75_manager.drawLine(15, 18, 48, 18, RGB(255, 0, 0));
           
-          // Panel 1
-          int hex_points1[6][2];
-          for(int i = 0; i < 6; i++){
-            float angle = (i * 60.0f - 90.0f) * 3.14159f / 180.0f;
-            hex_points1[i][0] = cx1 + static_cast<int>(size * cosf(angle));
-            hex_points1[i][1] = cy + static_cast<int>(size * sinf(angle));
-          }
-          for(int i = 0; i < 6; i++){
-            int next = (i + 1) % 6;
-            hub75_manager.drawLine(hex_points1[i][0], hex_points1[i][1], 
-                                  hex_points1[next][0], hex_points1[next][1], 
-                                  RGB(0, 255, 0));
-          }
-        }
-        break;
-      case menu::DisplayFace::STAR:
-        // Star using lines from center - draw on both panels
-        for(int angle = 0; angle < 360; angle += 72){
-          float rad = angle * 3.14159f / 180.0f;
-          // Panel 0
-          int x0 = cx0 + static_cast<int>(size * cosf(rad));
-          int y0 = cy + static_cast<int>(size * sinf(rad));
-          hub75_manager.drawLine(cx0, cy, x0, y0, RGB(255, 100, 0));
-          // Panel 1
-          int x1 = cx1 + static_cast<int>(size * cosf(rad));
-          int y1 = cy + static_cast<int>(size * sinf(rad));
-          hub75_manager.drawLine(cx1, cy, x1, y1, RGB(255, 100, 0));
+          // Draw text indicator on right panel
+          hub75_manager.drawLine(79, 14, 112, 14, RGB(255, 0, 0));
+          hub75_manager.drawLine(79, 16, 112, 16, RGB(255, 0, 0));
+          hub75_manager.drawLine(79, 18, 112, 18, RGB(255, 0, 0));
         }
         break;
       case menu::DisplayFace::PANEL_NUMBER:
@@ -885,29 +836,20 @@ extern "C" void app_main(void){
     ESP_LOGI(TAG, "  File ID: 0x%08lX", file_id);
     ESP_LOGI(TAG, "  Size: %lu bytes", size);
     
-    // Verify data integrity (check XOR pattern)
-    uint32_t errors = 0;
-    for(uint32_t i = 0; i < size && i < 1024; i++){  // Check first 1KB
-      uint8_t expected = (i & 0xFF) ^ ((i >> 8) & 0xFF);
-      if(data[i] != expected){
-        if(errors < 10){  // Only log first 10 errors
-          ESP_LOGE(TAG, "  Data mismatch at byte %lu: expected 0x%02X, got 0x%02X",
-                  i, expected, data[i]);
-        }
-        errors++;
-      }
-    }
-    
-    if(errors == 0){
-      ESP_LOGI(TAG, "  Data integrity: PASS (verified first 1KB)");
+    // Try to load as custom sprite image
+    if(sprite_loader.loadImage(data, size)){
+      ESP_LOGI(TAG, "  Custom sprite loaded successfully!");
+      ESP_LOGI(TAG, "  Sprite dimensions: %dx%d", sprite_loader.getWidth(), sprite_loader.getHeight());
+      ESP_LOGI(TAG, "  Select 'CUSTOM_IMAGE' in Display Faces menu to view");
     }else{
-      ESP_LOGE(TAG, "  Data integrity: FAIL (%lu errors found)", errors);
-    }
-    
-    // Show sample of received data
-    ESP_LOGI(TAG, "  First 16 bytes:");
-    for(int i = 0; i < 16 && i < size; i++){
-      ets_printf("    [%d]: 0x%02X\n", i, data[i]);
+      ESP_LOGW(TAG, "  Failed to load as sprite image");
+      ESP_LOGW(TAG, "  Expected format: 2-byte width, 2-byte height, RGB pixel data");
+      
+      // Show sample of received data for debugging
+      ESP_LOGI(TAG, "  First 16 bytes:");
+      for(int i = 0; i < 16 && i < size; i++){
+        ets_printf("    [%d]: 0x%02X\n", i, data[i]);
+      }
     }
     
     ESP_LOGI(TAG, "========================================================");

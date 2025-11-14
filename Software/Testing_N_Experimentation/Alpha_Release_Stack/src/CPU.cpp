@@ -853,7 +853,53 @@ void setup(){
   Serial.println();
   Serial.println("========================================================");
   Serial.println();
-  Serial.println("CPU: File transfer ready - use web interface to start test");
+  
+  // Create and send test sprite immediately (16x24 RGB rectangle)
+  Serial.println("CPU: Creating test sprite image (16x24 RGB rectangle)...");
+  
+  const uint16_t sprite_width = 16;
+  const uint16_t sprite_height = 24;
+  const uint32_t sprite_size = 4 + (sprite_width * sprite_height * 3);  // Header + RGB data
+  
+  // Static buffer that persists during transfer
+  static uint8_t test_sprite_buffer[1156];  // 4 + 16*24*3 = 1156 bytes
+  
+  // Write header: width (little-endian)
+  test_sprite_buffer[0] = sprite_width & 0xFF;
+  test_sprite_buffer[1] = (sprite_width >> 8) & 0xFF;
+  // Write header: height (little-endian)
+  test_sprite_buffer[2] = sprite_height & 0xFF;
+  test_sprite_buffer[3] = (sprite_height >> 8) & 0xFF;
+  
+  // Fill with RGB gradient pattern
+  uint8_t* pixel_data = test_sprite_buffer + 4;
+  for(int y = 0; y < sprite_height; y++){
+    for(int x = 0; x < sprite_width; x++){
+      int pixel_index = (y * sprite_width + x) * 3;
+      
+      // Create colorful gradient:
+      // Red increases left to right
+      pixel_data[pixel_index + 0] = (x * 255) / sprite_width;
+      // Green increases top to bottom
+      pixel_data[pixel_index + 1] = (y * 255) / sprite_height;
+      // Blue is inverse of red
+      pixel_data[pixel_index + 2] = 255 - ((x * 255) / sprite_width);
+    }
+  }
+  
+  Serial.printf("CPU: Test sprite created: %dx%d pixels, %lu bytes total\n", 
+                sprite_width, sprite_height, sprite_size);
+  Serial.println("CPU: Sending test sprite to GPU...");
+  
+  // Send sprite via file transfer
+  if(file_transfer.startTransfer(test_sprite_buffer, sprite_size, "test_sprite.img")){
+    Serial.println("CPU: Test sprite transfer initiated successfully!");
+  }else{
+    Serial.println("CPU: ERROR - Failed to initiate sprite transfer!");
+  }
+  
+  Serial.println();
+  Serial.println("CPU: File transfer ready - use web interface for additional transfers");
   Serial.println();
 }
 

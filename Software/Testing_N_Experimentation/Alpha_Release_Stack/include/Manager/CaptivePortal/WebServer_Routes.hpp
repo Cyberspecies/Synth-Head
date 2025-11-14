@@ -220,9 +220,9 @@ inline void CaptivePortalManager::setupWebServer() {
     }
   );
   
-  // API endpoint for file transfer test (POST)
+  // API endpoint for file transfer test (POST) - Sends custom sprite
   server_->on("/api/file-transfer", HTTP_POST, [](AsyncWebServerRequest* request) {
-    Serial.println("WIFI: File transfer test requested via web interface");
+    Serial.println("WIFI: Sprite transfer requested via web interface");
     
     // Check if transfer already in progress
     if(::file_transfer.isActive()) {
@@ -230,40 +230,64 @@ inline void CaptivePortalManager::setupWebServer() {
       return;
     }
     
-    // Create 10KB test data
-    constexpr uint32_t TEST_DATA_SIZE = 10240;  // 10KB
-    uint8_t* test_data = new uint8_t[TEST_DATA_SIZE];
+    // Create 16x24 RGB sprite (same as auto-sent sprite)
+    constexpr uint16_t sprite_width = 16;
+    constexpr uint16_t sprite_height = 24;
+    constexpr uint32_t sprite_size = 4 + (sprite_width * sprite_height * 3);  // 1156 bytes
     
-    if(!test_data) {
+    uint8_t* sprite_data = new uint8_t[sprite_size];
+    
+    if(!sprite_data) {
       request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to allocate memory\"}");
       return;
     }
     
-    // Fill with test pattern (incrementing values with XOR pattern)
-    for(uint32_t i = 0; i < TEST_DATA_SIZE; i++){
-      test_data[i] = (i & 0xFF) ^ ((i >> 8) & 0xFF);  // XOR pattern for verification
+    // Write sprite header: width and height (little-endian)
+    sprite_data[0] = sprite_width & 0xFF;
+    sprite_data[1] = (sprite_width >> 8) & 0xFF;
+    sprite_data[2] = sprite_height & 0xFF;
+    sprite_data[3] = (sprite_height >> 8) & 0xFF;
+    
+    // Fill with RGB gradient pattern
+    uint8_t* pixel_data = sprite_data + 4;
+    for(int y = 0; y < sprite_height; y++){
+      for(int x = 0; x < sprite_width; x++){
+        int pixel_index = (y * sprite_width + x) * 3;
+        
+        // Create colorful gradient:
+        // Red increases left to right
+        pixel_data[pixel_index + 0] = (x * 255) / sprite_width;
+        // Green increases top to bottom
+        pixel_data[pixel_index + 1] = (y * 255) / sprite_height;
+        // Blue is inverse of red
+        pixel_data[pixel_index + 2] = 255 - ((x * 255) / sprite_width);
+      }
     }
     
-    Serial.printf("WIFI: Created 10KB test data\n");
-    Serial.printf("WIFI: First 16 bytes: ");
+    Serial.printf("WIFI: Created %dx%d sprite (%lu bytes)\n", sprite_width, sprite_height, sprite_size);
+    Serial.printf("WIFI: First 16 bytes (header + pixels): ");
     for(int i = 0; i < 16; i++){
-      Serial.printf("%02X ", test_data[i]);
+      Serial.printf("%02X ", sprite_data[i]);
     }
     Serial.println();
     
     // Start file transfer
-    bool started = ::file_transfer.startTransfer(test_data, TEST_DATA_SIZE, "web_test_10kb.bin");
+    bool started = ::file_transfer.startTransfer(sprite_data, sprite_size, "web_sprite.img");
     
     if(started) {
-      Serial.println("WIFI: File transfer started successfully!");
-      request->send(200, "application/json", "{\"success\":true,\"message\":\"File transfer started (10KB)\"}");
+      Serial.println("WIFI: Sprite transfer started successfully!");
+      char response[128];
+      snprintf(response, sizeof(response), 
+               "{\"success\":true,\"message\":\"Sprite transfer started (%dx%d, %lu bytes)\"}", 
+               sprite_width, sprite_height, sprite_size);
+      request->send(200, "application/json", response);
     } else {
-      Serial.println("WIFI: ERROR - Failed to start file transfer!");
-      delete[] test_data;
-      request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to start file transfer\"}");
+      Serial.println("WIFI: ERROR - Failed to start sprite transfer!");
+      delete[] sprite_data;
+      request->send(500, "application/json", "{\"success\":false,\"message\":\"Failed to start sprite transfer\"}");
     }
     
-    // Note: test_data will be deleted when transfer completes
+    // Note: sprite_data will be deleted when transfer completes
     // For production, handle cleanup in file transfer completion callback
   });
   

@@ -49,11 +49,7 @@ enum class DebugPage : uint8_t {
 
 // Display Faces options (HUB75 LED matrix shape selection)
 enum class DisplayFace : uint8_t {
-  CIRCLE = 0,
-  SQUARE,
-  TRIANGLE,
-  HEXAGON,
-  STAR,
+  CUSTOM_IMAGE = 0,  // Custom image loaded from file transfer
   PANEL_NUMBER,      // Shows panel numbers (0/1) for dual panel setup
   ORIENTATION,       // Shows orientation arrows for panel alignment
   COUNT
@@ -103,7 +99,7 @@ public:
     : m_state(MenuState::ACTIVE_MODE)
     , m_current_mode(TopLevelMode::IDLE_GPS)
     , m_debug_page(DebugPage::IMU_DATA)
-    , m_display_face(DisplayFace::CIRCLE)
+    , m_display_face(DisplayFace::CUSTOM_IMAGE)
     , m_display_effect(DisplayEffect::NONE)
     , m_display_shader(DisplayShader::RGB_SPLIT)
     , m_led_strip_mode(LedStripMode::RAINBOW)
