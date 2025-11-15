@@ -43,8 +43,13 @@ class LEDAnimationManager{
 public:
   /**
    * @brief Constructor
+   * @param led_data Reference to LED data payload
    */
-  LEDAnimationManager() : current_animation_index_(0), animation_start_time_(0){}
+  LEDAnimationManager(LedDataPayload& led_data) 
+    : led_data_(led_data), 
+      current_animation_index_(0), 
+      animation_start_time_(0), 
+      use_section_control_(false){}
 
   /**
    * @brief Initialize LED data payload
@@ -187,6 +192,12 @@ public:
    * @param time_ms Current time in milliseconds
    */
   void updateCurrentAnimation(uint32_t time_ms){
+    // If section control is active, apply section settings instead of animations
+    if(use_section_control_){
+      applySectionSettings();
+      return;
+    }
+    
     if(animations_.empty()) return;
     
     uint32_t animation_time = time_ms - animation_start_time_;
@@ -248,17 +259,144 @@ public:
     }
     animation_start_time_ = xTaskGetTickCount() * portTICK_PERIOD_MS;
   }
+  
+  /**
+   * @brief Set LED section settings from web interface
+   * @param sections LED section configuration
+   */
+  void setSectionSettings(const LedSections& sections){
+    section_settings_ = sections;
+    use_section_control_ = true;
+    
+    // Apply settings immediately
+    applySectionSettings();
+  }
+  
+  /**
+   * @brief Disable section control and return to normal animations
+   */
+  void disableSectionControl(){
+    use_section_control_ = false;
+  }
+  
+  /**
+   * @brief Check if section control is active
+   */
+  bool isSectionControlActive() const{
+    return use_section_control_;
+  }
+  
+  /**
+   * @brief Apply section settings to LED data
+   * Called internally and can be called from LED TX task
+   */
+  void applySectionSettings(){
+    if(!use_section_control_) return;
+    
+    uint32_t time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    // Apply settings for each body part
+    applySectionToLeds(section_settings_.left_fin, led_data_.getLeftFinLeds(), LED_COUNT_LEFT_FIN, time_ms);
+    applySectionToLeds(section_settings_.tongue, led_data_.getTongueLeds(), LED_COUNT_TONGUE, time_ms);
+    applySectionToLeds(section_settings_.right_fin, led_data_.getRightFinLeds(), LED_COUNT_RIGHT_FIN, time_ms);
+    applySectionToLeds(section_settings_.scale, led_data_.getScaleLeds(), LED_COUNT_SCALE, time_ms);
+  }
 
 private:
+  /**
+   * @brief Apply section settings to a specific LED strip
+   * @param section Section configuration
+   * @param leds Pointer to LED array
+   * @param count Number of LEDs
+   * @param time_ms Current time for animations
+   */
+  void applySectionToLeds(const LedSectionData& section, RgbwColor* leds, uint16_t count, uint32_t time_ms){
+    switch(section.mode){
+      case 0: // Dynamic (HUB75 based) - skip, let normal system handle
+        break;
+        
+      case 1: // Rainbow
+        for(uint16_t i = 0; i < count; i++){
+          float hue = fmodf((time_ms / 20.0f + i * 360.0f / count), 360.0f);
+          RgbwColor color = hsvToRgb(hue, 1.0f, section.brightness / 255.0f);
+          leds[i] = color;
+        }
+        break;
+        
+      case 2: // Breathing
+        {
+          float breath = (sinf(time_ms / 1000.0f) + 1.0f) / 2.0f; // 0.0 - 1.0
+          uint8_t r = (uint8_t)(section.color_r * breath * section.brightness / 255);
+          uint8_t g = (uint8_t)(section.color_g * breath * section.brightness / 255);
+          uint8_t b = (uint8_t)(section.color_b * breath * section.brightness / 255);
+          for(uint16_t i = 0; i < count; i++){
+            leds[i] = RgbwColor(r, g, b, 0);
+          }
+        }
+        break;
+        
+      case 3: // Solid Color
+        {
+          uint8_t r = (uint8_t)(section.color_r * section.brightness / 255);
+          uint8_t g = (uint8_t)(section.color_g * section.brightness / 255);
+          uint8_t b = (uint8_t)(section.color_b * section.brightness / 255);
+          for(uint16_t i = 0; i < count; i++){
+            leds[i] = RgbwColor(r, g, b, 0);
+          }
+        }
+        break;
+        
+      case 4: // Off
+        for(uint16_t i = 0; i < count; i++){
+          leds[i] = RgbwColor(0, 0, 0, 0);
+        }
+        break;
+        
+      default:
+        break;
+    }
+  }
+  
+  /**
+   * @brief Convert HSV to RGB
+   * @param h Hue (0-360)
+   * @param s Saturation (0-1)
+   * @param v Value (0-1)
+   * @return RGB color
+   */
+  RgbwColor hsvToRgb(float h, float s, float v){
+    float c = v * s;
+    float x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f));
+    float m = v - c;
+    
+    float r, g, b;
+    if(h < 60)       { r = c; g = x; b = 0; }
+    else if(h < 120) { r = x; g = c; b = 0; }
+    else if(h < 180) { r = 0; g = c; b = x; }
+    else if(h < 240) { r = 0; g = x; b = c; }
+    else if(h < 300) { r = x; g = 0; b = c; }
+    else             { r = c; g = 0; b = x; }
+    
+    return RgbwColor(
+      (uint8_t)((r + m) * 255),
+      (uint8_t)((g + m) * 255),
+      (uint8_t)((b + m) * 255),
+      0
+    );
+  }
   struct AnimationEntry{
     const char* name;
     LEDAnimationFunc func;
   };
 
-  LedDataPayload led_data_;
+  LedDataPayload& led_data_;
   std::vector<AnimationEntry> animations_;
   size_t current_animation_index_;
   uint32_t animation_start_time_;
+  
+  // Section control
+  LedSections section_settings_;
+  bool use_section_control_;
 };
 
 } // namespace arcos::manager

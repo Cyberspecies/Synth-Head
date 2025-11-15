@@ -542,53 +542,150 @@ inline String CaptivePortalManager::generateDashboardPage() {
   <!-- LED Strip Settings Section -->
   <div class="restart-section" style="background: #1e293b; border: 2px solid #10b981;">
     <h2 style="color: #10b981; margin-bottom: 15px;">💡 LED Strip Settings</h2>
-    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Configure RGB LED strip animations and colors</p>
+    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Configure each LED body part individually (13 Left Fin, 9 Tongue, 13 Right Fin, 14 Scale)</p>
     
-    <div style="display: grid; gap: 15px;">
-      <!-- LED Strip Mode -->
-      <div>
-        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">LED Mode:</label>
-        <select id="led_strip_mode" style="width: 100%; padding: 10px; background: #2d3748; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 14px;" onchange="updateLedOptions()">
-          <option value="0">Dynamic (HUB75 Based)</option>
-          <option value="1">Rainbow</option>
-          <option value="2">Breathing</option>
-          <option value="3">Wave</option>
-          <option value="4">Fire</option>
-          <option value="5">Theater Chase</option>
-        </select>
-      </div>
-      
-      <!-- LED Color Options (shown for breathing mode) -->
-      <div id="led_color_options" style="display: none; background: #2d3748; padding: 15px; border-radius: 5px; border: 1px solid #4a5568;">
-        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Color 1:</label>
-        <input type="color" id="led_color1" value="#ff0000" style="width: 100%; height: 40px; border: none; border-radius: 5px; cursor: pointer;">
-        
-        <div id="led_color2_container" style="margin-top: 15px;">
-          <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Color 2:</label>
-          <input type="color" id="led_color2" value="#0000ff" style="width: 100%; height: 40px; border: none; border-radius: 5px; cursor: pointer;">
+    <!-- Left Fin LEDs (13 LEDs) -->
+    <details style="background: #2d3748; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #4a5568;">
+      <summary style="cursor: pointer; font-weight: 600; color: #10b981; font-size: 16px; user-select: none;">🦎 Left Fin (13 LEDs)</summary>
+      <div style="margin-top: 15px; display: grid; gap: 12px;">
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Mode:</label>
+          <select id="led_left_fin_mode" style="width: 100%; padding: 8px; background: #1a202c; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 13px;">
+            <option value="0">Dynamic (HUB75)</option>
+            <option value="1">Rainbow</option>
+            <option value="2">Breathing</option>
+            <option value="3">Solid Color</option>
+            <option value="4">Off</option>
+          </select>
+        </div>
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Color:</label>
+          <input type="color" id="led_left_fin_color" value="#ff0000" style="width: 100%; height: 35px; border: none; border-radius: 5px; cursor: pointer;">
+        </div>
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Brightness: <span id="led_left_fin_brightness_val">255</span></label>
+          <input type="range" id="led_left_fin_brightness" min="0" max="255" value="255" style="width: 100%;" oninput="document.getElementById('led_left_fin_brightness_val').textContent=this.value">
         </div>
       </div>
-      
-      <!-- LED Animation Speed -->
-      <div>
-        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Animation Speed:</label>
-        <input type="range" id="led_speed" min="1" max="255" value="128" style="width: 100%;">
-        <div style="color: #94a3b8; font-size: 12px; text-align: center;"><span id="led_speed_value">128</span></div>
-      </div>
-      
-      <!-- LED Brightness -->
-      <div>
-        <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 8px;">Brightness:</label>
-        <input type="range" id="led_brightness" min="0" max="255" value="255" style="width: 100%;">
-        <div style="color: #94a3b8; font-size: 12px; text-align: center;"><span id="led_brightness_value">255</span></div>
-      </div>
-    </div>
+    </details>
     
-    <button class="restart-btn" style="background: #10b981; margin-top: 20px;" onclick="applyLedSettings()">
-      💡 Apply LED Settings
+    <!-- Tongue LEDs (9 LEDs) -->
+    <details style="background: #2d3748; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #4a5568;">
+      <summary style="cursor: pointer; font-weight: 600; color: #10b981; font-size: 16px; user-select: none;">👅 Tongue (9 LEDs)</summary>
+      <div style="margin-top: 15px; display: grid; gap: 12px;">
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Mode:</label>
+          <select id="led_tongue_mode" style="width: 100%; padding: 8px; background: #1a202c; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 13px;">
+            <option value="0">Dynamic (HUB75)</option>
+            <option value="1">Rainbow</option>
+            <option value="2">Breathing</option>
+            <option value="3">Solid Color</option>
+            <option value="4">Off</option>
+          </select>
+        </div>
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Color:</label>
+          <input type="color" id="led_tongue_color" value="#00ff00" style="width: 100%; height: 35px; border: none; border-radius: 5px; cursor: pointer;">
+        </div>
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Brightness: <span id="led_tongue_brightness_val">255</span></label>
+          <input type="range" id="led_tongue_brightness" min="0" max="255" value="255" style="width: 100%;" oninput="document.getElementById('led_tongue_brightness_val').textContent=this.value">
+        </div>
+      </div>
+    </details>
+    
+    <!-- Right Fin LEDs (13 LEDs) -->
+    <details style="background: #2d3748; padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #4a5568;">
+      <summary style="cursor: pointer; font-weight: 600; color: #10b981; font-size: 16px; user-select: none;">🦎 Right Fin (13 LEDs)</summary>
+      <div style="margin-top: 15px; display: grid; gap: 12px;">
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Mode:</label>
+          <select id="led_right_fin_mode" style="width: 100%; padding: 8px; background: #1a202c; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 13px;">
+            <option value="0">Dynamic (HUB75)</option>
+            <option value="1">Rainbow</option>
+            <option value="2">Breathing</option>
+            <option value="3">Solid Color</option>
+            <option value="4">Off</option>
+          </select>
+        </div>
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Color:</label>
+          <input type="color" id="led_right_fin_color" value="#0000ff" style="width: 100%; height: 35px; border: none; border-radius: 5px; cursor: pointer;">
+        </div>
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Brightness: <span id="led_right_fin_brightness_val">255</span></label>
+          <input type="range" id="led_right_fin_brightness" min="0" max="255" value="255" style="width: 100%;" oninput="document.getElementById('led_right_fin_brightness_val').textContent=this.value">
+        </div>
+      </div>
+    </details>
+    
+    <!-- Scale LEDs (14 LEDs) -->
+    <details style="background: #2d3748; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #4a5568;">
+      <summary style="cursor: pointer; font-weight: 600; color: #10b981; font-size: 16px; user-select: none;">⚡ Scale (14 LEDs)</summary>
+      <div style="margin-top: 15px; display: grid; gap: 12px;">
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Mode:</label>
+          <select id="led_scale_mode" style="width: 100%; padding: 8px; background: #1a202c; color: white; border: 1px solid #4a5568; border-radius: 5px; font-size: 13px;">
+            <option value="0">Dynamic (HUB75)</option>
+            <option value="1">Rainbow</option>
+            <option value="2">Breathing</option>
+            <option value="3">Solid Color</option>
+            <option value="4">Off</option>
+          </select>
+        </div>
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Color:</label>
+          <input type="color" id="led_scale_color" value="#ff00ff" style="width: 100%; height: 35px; border: none; border-radius: 5px; cursor: pointer;">
+        </div>
+        <div>
+          <label style="color: #94a3b8; font-size: 13px; display: block; margin-bottom: 6px;">Brightness: <span id="led_scale_brightness_val">255</span></label>
+          <input type="range" id="led_scale_brightness" min="0" max="255" value="255" style="width: 100%;" oninput="document.getElementById('led_scale_brightness_val').textContent=this.value">
+        </div>
+      </div>
+    </details>
+    
+    <button class="restart-btn" style="background: #10b981;" onclick="applyLedSettings()">
+      💡 Apply LED Settings to All Parts
     </button>
     
     <div class="config-message" id="led_settings_message"></div>
+  </div>
+  
+  <!-- Fan Speed Control Section -->
+  <div class="config-section">
+    <h2 style="color: #667eea; margin-bottom: 15px;">🌀 Fan Speed Control</h2>
+    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 15px;">Adjust cooling fan speed (0% = Off, 100% = Maximum)</p>
+    
+    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+      <button class="restart-btn" style="flex: 1; background: #64748b; padding: 10px;" onclick="setFanSpeed(0)">
+        ❄️ Off (0%)
+      </button>
+      <button class="restart-btn" style="flex: 1; background: #10b981; padding: 10px;" onclick="setFanSpeed(100)">
+        🔥 Max (100%)
+      </button>
+    </div>
+    
+    <div style="background: #1a202c; padding: 15px; border-radius: 10px; border: 1px solid #4a5568;">
+      <label style="color: #94a3b8; font-size: 14px; display: block; margin-bottom: 10px;">
+        Fan Speed: <span id="fan_speed_val" style="color: #10b981; font-weight: 600;">50%</span>
+      </label>
+      <input type="range" id="fan_speed" min="0" max="100" value="50" 
+             style="width: 100%; height: 8px; border-radius: 5px; background: linear-gradient(to right, #64748b 0%, #10b981 100%); outline: none; -webkit-appearance: none;"
+             oninput="updateFanSpeedDisplay(this.value)">
+      <div style="display: flex; justify-content: space-between; color: #64748b; font-size: 12px; margin-top: 5px;">
+        <span>0%</span>
+        <span>25%</span>
+        <span>50%</span>
+        <span>75%</span>
+        <span>100%</span>
+      </div>
+    </div>
+    
+    <button class="restart-btn" style="background: #667eea; margin-top: 15px;" onclick="applyFanSpeed()">
+      🌀 Apply Fan Speed
+    </button>
+    
+    <div class="config-message" id="fan_speed_message"></div>
   </div>
   
   <!-- Restart Section -->
@@ -1182,51 +1279,10 @@ inline String CaptivePortalManager::generateDashboardPage() {
     });
     
     // LED Settings Functions
-    function updateLedOptions() {
-      const mode = parseInt(document.getElementById('led_strip_mode').value);
-      const colorOptions = document.getElementById('led_color_options');
-      
-      // Show color options for breathing mode (2)
-      if (mode === 2) {
-        colorOptions.style.display = 'block';
-      } else {
-        colorOptions.style.display = 'none';
-      }
-    }
-    
-    // Update LED speed and brightness value displays
-    document.addEventListener('DOMContentLoaded', function() {
-      const ledSpeedSlider = document.getElementById('led_speed');
-      const ledSpeedValue = document.getElementById('led_speed_value');
-      const ledBrightnessSlider = document.getElementById('led_brightness');
-      const ledBrightnessValue = document.getElementById('led_brightness_value');
-      
-      if (ledSpeedSlider && ledSpeedValue) {
-        ledSpeedSlider.addEventListener('input', function() {
-          ledSpeedValue.textContent = this.value;
-        });
-      }
-      
-      if (ledBrightnessSlider && ledBrightnessValue) {
-        ledBrightnessSlider.addEventListener('input', function() {
-          ledBrightnessValue.textContent = this.value;
-        });
-      }
-    });
-    
     function applyLedSettings() {
       const messageEl = document.getElementById('led_settings_message');
       
-      // Get values
-      const ledMode = parseInt(document.getElementById('led_strip_mode').value);
-      const speed = parseInt(document.getElementById('led_speed').value);
-      const brightness = parseInt(document.getElementById('led_brightness').value);
-      
-      // Get color values (hex to RGB)
-      const color1 = document.getElementById('led_color1').value;
-      const color2 = document.getElementById('led_color2').value;
-      
-      // Convert hex colors to RGB
+      // Helper to convert hex color to RGB
       const hexToRgb = (hex) => {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         return result ? {
@@ -1236,11 +1292,33 @@ inline String CaptivePortalManager::generateDashboardPage() {
         } : {r: 0, g: 0, b: 0};
       };
       
-      const rgb1 = hexToRgb(color1);
-      const rgb2 = hexToRgb(color2);
+      // Collect settings for each body part
+      const leftFin = {
+        mode: parseInt(document.getElementById('led_left_fin_mode').value),
+        color: hexToRgb(document.getElementById('led_left_fin_color').value),
+        brightness: parseInt(document.getElementById('led_left_fin_brightness').value)
+      };
+      
+      const tongue = {
+        mode: parseInt(document.getElementById('led_tongue_mode').value),
+        color: hexToRgb(document.getElementById('led_tongue_color').value),
+        brightness: parseInt(document.getElementById('led_tongue_brightness').value)
+      };
+      
+      const rightFin = {
+        mode: parseInt(document.getElementById('led_right_fin_mode').value),
+        color: hexToRgb(document.getElementById('led_right_fin_color').value),
+        brightness: parseInt(document.getElementById('led_right_fin_brightness').value)
+      };
+      
+      const scale = {
+        mode: parseInt(document.getElementById('led_scale_mode').value),
+        color: hexToRgb(document.getElementById('led_scale_color').value),
+        brightness: parseInt(document.getElementById('led_scale_brightness').value)
+      };
       
       // Show loading
-      messageEl.textContent = 'Applying LED settings...';
+      messageEl.textContent = 'Applying LED settings to all body parts...';
       messageEl.className = 'config-message';
       messageEl.style.display = 'block';
       messageEl.style.background = 'rgba(251,191,36,0.2)';
@@ -1248,23 +1326,22 @@ inline String CaptivePortalManager::generateDashboardPage() {
       messageEl.style.border = '1px solid #fbbf24';
       
       // Send to device
-      fetch('/api/led-settings', {
+      fetch('/api/led-sections', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ledMode: ledMode,
-          color1: rgb1,
-          color2: rgb2,
-          speed: speed,
-          brightness: brightness
+          leftFin: leftFin,
+          tongue: tongue,
+          rightFin: rightFin,
+          scale: scale
         })
       })
         .then(response => response.json())
         .then(data => {
           if (data.success) {
-            messageEl.textContent = data.message || 'LED settings applied!';
+            messageEl.textContent = data.message || 'LED settings applied to all parts!';
             messageEl.className = 'config-message success';
             messageEl.style.display = 'block';
             
@@ -1282,6 +1359,62 @@ inline String CaptivePortalManager::generateDashboardPage() {
           messageEl.className = 'config-message error';
           messageEl.style.display = 'block';
           console.error('LED settings error:', error);
+        });
+    }
+    
+    // Fan speed control functions
+    function updateFanSpeedDisplay(value) {
+      document.getElementById('fan_speed_val').textContent = value + '%';
+    }
+    
+    function setFanSpeed(percent) {
+      document.getElementById('fan_speed').value = percent;
+      updateFanSpeedDisplay(percent);
+    }
+    
+    function applyFanSpeed() {
+      const messageEl = document.getElementById('fan_speed_message');
+      const speed = parseInt(document.getElementById('fan_speed').value);
+      
+      // Show loading
+      messageEl.textContent = 'Applying fan speed...';
+      messageEl.className = 'config-message';
+      messageEl.style.display = 'block';
+      messageEl.style.background = 'rgba(251,191,36,0.2)';
+      messageEl.style.color = '#fbbf24';
+      messageEl.style.border = '1px solid #fbbf24';
+      
+      // Send to device
+      fetch('/api/fan-speed', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          speed: speed
+        })
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            messageEl.textContent = `Fan speed set to ${speed}%!`;
+            messageEl.className = 'config-message success';
+            messageEl.style.display = 'block';
+            
+            setTimeout(() => {
+              messageEl.style.display = 'none';
+            }, 3000);
+          } else {
+            messageEl.textContent = data.message || 'Failed to set fan speed';
+            messageEl.className = 'config-message error';
+            messageEl.style.display = 'block';
+          }
+        })
+        .catch(error => {
+          messageEl.textContent = 'Network error: ' + error.message;
+          messageEl.className = 'config-message error';
+          messageEl.style.display = 'block';
+          console.error('Fan speed error:', error);
         });
     }
     

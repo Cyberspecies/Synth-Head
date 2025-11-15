@@ -720,6 +720,198 @@ inline void CaptivePortalManager::setupWebServer() {
     }
   );
   
+  // API endpoint for LED body part sections (POST) - Sends individual LED section settings
+  server_->on(
+    "/api/led-sections",
+    HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, // Request handler (empty)
+    nullptr, // Upload handler (not used)
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      // Body handler - receives JSON with per-section LED settings
+      if(index == 0) {
+        Serial.printf("WIFI: LED section settings received (%u bytes)\n", len);
+        
+        // Parse JSON (simple manual parsing)
+        String body_str((char*)data, len);
+        Serial.printf("WIFI: Body: %s\n", body_str.c_str());
+        
+        // Parse each section: leftFin, tongue, rightFin, scale
+        // Format: {"leftFin":{"mode":0,"color":{"r":255,"g":0,"b":0},"brightness":255}, ...}
+        
+        struct SectionData {
+          int mode;
+          int r, g, b;
+          int brightness;
+        };
+        
+        auto parseSection = [&body_str](const char* sectionName) -> SectionData {
+          SectionData data = {0, 0, 0, 0, 255};
+          String search = String("\"") + sectionName + "\":{";
+          int section_start = body_str.indexOf(search);
+          if(section_start == -1) return data;
+          
+          // Find mode
+          int mode_pos = body_str.indexOf("\"mode\":", section_start);
+          if(mode_pos != -1 && mode_pos < section_start + 200) {
+            data.mode = body_str.substring(mode_pos + 7).toInt();
+          }
+          
+          // Find color.r
+          int r_pos = body_str.indexOf("\"r\":", mode_pos);
+          if(r_pos != -1 && r_pos < section_start + 200) {
+            data.r = body_str.substring(r_pos + 4).toInt();
+          }
+          
+          // Find color.g
+          int g_pos = body_str.indexOf("\"g\":", r_pos);
+          if(g_pos != -1 && g_pos < section_start + 200) {
+            data.g = body_str.substring(g_pos + 4).toInt();
+          }
+          
+          // Find color.b
+          int b_pos = body_str.indexOf("\"b\":", g_pos);
+          if(b_pos != -1 && b_pos < section_start + 200) {
+            data.b = body_str.substring(b_pos + 4).toInt();
+          }
+          
+          // Find brightness
+          int bright_pos = body_str.indexOf("\"brightness\":", b_pos);
+          if(bright_pos != -1 && bright_pos < section_start + 200) {
+            data.brightness = body_str.substring(bright_pos + 13).toInt();
+          }
+          
+          return data;
+        };
+        
+        SectionData leftFin = parseSection("leftFin");
+        SectionData tongue = parseSection("tongue");
+        SectionData rightFin = parseSection("rightFin");
+        SectionData scale = parseSection("scale");
+        
+        Serial.printf("WIFI: Left Fin - Mode:%d, RGB:(%d,%d,%d), Brightness:%d\n", 
+                     leftFin.mode, leftFin.r, leftFin.g, leftFin.b, leftFin.brightness);
+        Serial.printf("WIFI: Tongue - Mode:%d, RGB:(%d,%d,%d), Brightness:%d\n", 
+                     tongue.mode, tongue.r, tongue.g, tongue.b, tongue.brightness);
+        Serial.printf("WIFI: Right Fin - Mode:%d, RGB:(%d,%d,%d), Brightness:%d\n", 
+                     rightFin.mode, rightFin.r, rightFin.g, rightFin.b, rightFin.brightness);
+        Serial.printf("WIFI: Scale - Mode:%d, RGB:(%d,%d,%d), Brightness:%d\n", 
+                     scale.mode, scale.r, scale.g, scale.b, scale.brightness);
+        
+        // Create LED sections packet
+        arcos::communication::LedSections sections;
+        
+        // Left Fin
+        sections.left_fin.mode = (uint8_t)leftFin.mode;
+        sections.left_fin.color_r = (uint8_t)leftFin.r;
+        sections.left_fin.color_g = (uint8_t)leftFin.g;
+        sections.left_fin.color_b = (uint8_t)leftFin.b;
+        sections.left_fin.brightness = (uint8_t)leftFin.brightness;
+        sections.left_fin._reserved[0] = 0;
+        sections.left_fin._reserved[1] = 0;
+        
+        // Tongue
+        sections.tongue.mode = (uint8_t)tongue.mode;
+        sections.tongue.color_r = (uint8_t)tongue.r;
+        sections.tongue.color_g = (uint8_t)tongue.g;
+        sections.tongue.color_b = (uint8_t)tongue.b;
+        sections.tongue.brightness = (uint8_t)tongue.brightness;
+        sections.tongue._reserved[0] = 0;
+        sections.tongue._reserved[1] = 0;
+        
+        // Right Fin
+        sections.right_fin.mode = (uint8_t)rightFin.mode;
+        sections.right_fin.color_r = (uint8_t)rightFin.r;
+        sections.right_fin.color_g = (uint8_t)rightFin.g;
+        sections.right_fin.color_b = (uint8_t)rightFin.b;
+        sections.right_fin.brightness = (uint8_t)rightFin.brightness;
+        sections.right_fin._reserved[0] = 0;
+        sections.right_fin._reserved[1] = 0;
+        
+        // Scale
+        sections.scale.mode = (uint8_t)scale.mode;
+        sections.scale.color_r = (uint8_t)scale.r;
+        sections.scale.color_g = (uint8_t)scale.g;
+        sections.scale.color_b = (uint8_t)scale.b;
+        sections.scale.brightness = (uint8_t)scale.brightness;
+        sections.scale._reserved[0] = 0;
+        sections.scale._reserved[1] = 0;
+        
+        // Send packet to GPU via UART
+        bool sent = ::uart_comm.sendPacket(
+          arcos::communication::MessageType::LED_SECTIONS,
+          (const uint8_t*)&sections,
+          sizeof(sections)
+        );
+        
+        if(sent) {
+          Serial.println("WIFI: LED section settings sent to GPU successfully!");
+          request->send(200, "application/json", 
+                       "{\"success\":true,\"message\":\"LED section settings applied!\"}");
+        } else {
+          Serial.println("WIFI: ERROR - Failed to send LED section settings to GPU!");
+          request->send(500, "application/json", 
+                       "{\"success\":false,\"message\":\"Failed to send to GPU\"}");
+        }
+      }
+    }
+  );
+  
+  // API endpoint for fan speed control (POST)
+  server_->on(
+    "/api/fan-speed",
+    HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, // Request handler (empty)
+    nullptr, // Upload handler (not used)
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      // Body handler - receives JSON with fan speed percentage
+      if(index == 0) {
+        Serial.printf("WIFI: Fan speed control received (%u bytes)\n", len);
+        
+        // Parse JSON: {"speed": 75}  // Percentage 0-100
+        String body_str((char*)data, len);
+        Serial.printf("WIFI: Body: %s\n", body_str.c_str());
+        
+        int speed_percent = 50; // Default 50%
+        int speed_pos = body_str.indexOf("\"speed\":");
+        if(speed_pos != -1) {
+          speed_percent = body_str.substring(speed_pos + 8).toInt();
+          // Clamp to 0-100
+          if(speed_percent < 0) speed_percent = 0;
+          if(speed_percent > 100) speed_percent = 100;
+        }
+        
+        // Convert percentage to 0-255 range
+        uint8_t speed_value = (uint8_t)((speed_percent * 255) / 100);
+        
+        Serial.printf("WIFI: Fan speed set to %d%% (value: %d/255)\n", speed_percent, speed_value);
+        
+        // Create fan speed packet
+        arcos::communication::FanSpeedData fan_data;
+        fan_data.speed = speed_value;
+        fan_data._reserved[0] = 0;
+        fan_data._reserved[1] = 0;
+        fan_data._reserved[2] = 0;
+        
+        // Send packet to GPU via UART
+        bool sent = ::uart_comm.sendPacket(
+          arcos::communication::MessageType::FAN_SPEED,
+          (const uint8_t*)&fan_data,
+          sizeof(fan_data)
+        );
+        
+        if(sent) {
+          Serial.println("WIFI: Fan speed sent to GPU successfully!");
+          request->send(200, "application/json", 
+                       "{\"success\":true,\"message\":\"Fan speed applied!\"}");
+        } else {
+          Serial.println("WIFI: ERROR - Failed to send fan speed to GPU!");
+          request->send(500, "application/json", 
+                       "{\"success\":false,\"message\":\"Failed to send to GPU\"}");
+        }
+      }
+    }
+  );
+  
   // API endpoint for device restart (POST)
   server_->on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* request) {
     Serial.println("WIFI: Restart requested via web interface");

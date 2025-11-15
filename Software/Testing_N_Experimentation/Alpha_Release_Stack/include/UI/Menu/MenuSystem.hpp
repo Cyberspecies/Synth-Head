@@ -33,6 +33,7 @@ enum class TopLevelMode : uint8_t {
   DISPLAY_EFFECTS,
   DISPLAY_SHADERS,
   LED_STRIP_CONFIG,
+  FAN_SPEED_CONTROL,
   COUNT
 };
 
@@ -108,6 +109,7 @@ public:
     , m_display_effect(DisplayEffect::NONE)
     , m_display_shader(DisplayShader::NONE)
     , m_led_strip_mode(LedStripMode::RAINBOW)
+    , m_fan_speed(128)  // Default 50% fan speed
     , m_mode_selector_index(0)
     , m_submenu_index(0)
   {}
@@ -187,6 +189,16 @@ public:
    * @brief Get current LED strip mode
    */
   LedStripMode getLedStripMode() const { return m_led_strip_mode; }
+  
+  /**
+   * @brief Get current fan speed (0-255)
+   */
+  uint8_t getFanSpeed() const { return m_fan_speed; }
+  
+  /**
+   * @brief Set fan speed (for web interface control)
+   */
+  void setFanSpeed(uint8_t speed) { m_fan_speed = speed; }
 
   /**
    * @brief Get menu state
@@ -226,6 +238,7 @@ private:
   DisplayEffect m_display_effect;
   DisplayShader m_display_shader;
   LedStripMode m_led_strip_mode;
+  uint8_t m_fan_speed;  // Fan speed 0-255
   uint8_t m_mode_selector_index;
   uint8_t m_submenu_index;
   const arcos::communication::SensorDataPayload* m_sensor_data;
@@ -299,10 +312,42 @@ private:
       case TopLevelMode::LED_STRIP_CONFIG:
         // These modes show their current selection, press SET to enter submenu
         break;
+      
+      case TopLevelMode::FAN_SPEED_CONTROL:
+        updateFanSpeedControl(btnMgr);
+        break;
         
       case TopLevelMode::COUNT:
         // Invalid state
         break;
+    }
+  }
+  
+  void updateFanSpeedControl(ButtonManager& btnMgr) {
+    // Hold or tap UP to increase fan speed
+    if (btnMgr.wasPressed(ButtonID::UP) || btnMgr.isHeld(ButtonID::UP)) {
+      if(m_fan_speed < 255) {
+        // Tap = +5, Hold = +1 per frame (faster when held)
+        uint8_t increment = btnMgr.wasPressed(ButtonID::UP) ? 5 : 1;
+        if(m_fan_speed > 255 - increment) {
+          m_fan_speed = 255;
+        } else {
+          m_fan_speed += increment;
+        }
+      }
+    }
+    
+    // Hold or tap DOWN to decrease fan speed
+    if (btnMgr.wasPressed(ButtonID::DOWN) || btnMgr.isHeld(ButtonID::DOWN)) {
+      if(m_fan_speed > 0) {
+        // Tap = -5, Hold = -1 per frame (faster when held)
+        uint8_t decrement = btnMgr.wasPressed(ButtonID::DOWN) ? 5 : 1;
+        if(m_fan_speed < decrement) {
+          m_fan_speed = 0;
+        } else {
+          m_fan_speed -= decrement;
+        }
+      }
     }
   }
   

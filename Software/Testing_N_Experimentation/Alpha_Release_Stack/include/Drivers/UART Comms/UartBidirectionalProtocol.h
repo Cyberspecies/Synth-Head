@@ -35,6 +35,9 @@ enum class MessageType : uint8_t{
   FILE_TRANSFER_ACK = 0x17,    // Acknowledge file fragment
   DISPLAY_SETTINGS = 0x18,     // Display settings (face, effect, shader)
   LED_SETTINGS = 0x19,         // LED strip settings (mode, colors, speed, brightness)
+  LED_SECTIONS = 0x1A,         // LED body part sections (individual control)
+  FAN_SPEED = 0x1B,            // Fan speed control (0-255)
+  ANIMATION_PARAMS = 0x1C,     // Animation parameter configuration (sprite/shader params with sensor modifiers)
   COMMAND = 0x20,        // Send command to peer
   ACK = 0x30,            // Acknowledge received message
   NACK = 0x31,           // Negative acknowledgment
@@ -248,6 +251,49 @@ struct __attribute__((packed)) LedSettings{
   uint8_t _reserved[2];       // Alignment
   
   // Total: 1 + 6 + 1 + 1 + 2 = 11 bytes
+};
+
+/** LED body part section settings structure (CPU -> GPU) */
+struct __attribute__((packed)) LedSectionData{
+  uint8_t mode;               // 0=Dynamic, 1=Rainbow, 2=Breathing, 3=Solid, 4=Off
+  uint8_t color_r, color_g, color_b;  // RGB color
+  uint8_t brightness;         // Brightness (0-255)
+  uint8_t _reserved[2];       // Alignment
+  
+  // Total: 1 + 3 + 1 + 2 = 7 bytes
+};
+
+struct __attribute__((packed)) LedSections{
+  LedSectionData left_fin;    // Left fin (13 LEDs)
+  LedSectionData tongue;      // Tongue (9 LEDs)
+  LedSectionData right_fin;   // Right fin (13 LEDs)
+  LedSectionData scale;       // Scale (14 LEDs)
+  
+  // Total: 7 * 4 = 28 bytes
+};
+
+/** Fan speed control structure (CPU -> GPU) */
+struct __attribute__((packed)) FanSpeedData{
+  uint8_t speed;              // Fan speed (0-255, 0=off, 255=100%)
+  uint8_t _reserved[3];       // Alignment
+  
+  // Total: 1 + 3 = 4 bytes
+};
+
+/** Animation parameter update structure (CPU -> GPU) */
+struct __attribute__((packed)) AnimationParamUpdate{
+  uint8_t target_type;        // 0=Left sprite, 1=Right sprite, 2=Shader
+  uint8_t param_index;        // Which parameter (0-15)
+  uint8_t sensor_source;      // SensorSource enum value
+  uint8_t modifier_type;      // ModifierType enum value
+  float base_value;           // Static base value
+  float scale;                // Scale factor
+  float min_value;            // Minimum value
+  float max_value;            // Maximum value
+  float threshold;            // Threshold value
+  uint8_t _reserved[4];       // Alignment
+  
+  // Total: 4 + 4*5 + 4 = 28 bytes
 };
 
 /** Message packet structure */

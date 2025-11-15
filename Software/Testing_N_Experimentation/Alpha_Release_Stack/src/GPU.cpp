@@ -87,7 +87,8 @@ constexpr uint32_t BOOT_DURATION_MS = 1500;  // Minimum boot animation duration
 // ============== Global Managers ==============
 HUB75DisplayManager hub75_manager;
 OLEDDisplayManager oled_manager;
-LEDAnimationManager led_manager;
+LedDataPayload led_data_payload;  // LED data storage
+LEDAnimationManager led_manager(led_data_payload);
 GpuUartBidirectional uart_comm;
 FileTransferReceiver file_receiver;
 ImageSpriteLoader sprite_loader;
@@ -449,6 +450,52 @@ void uartReceiveTask(void* parameter){
             // (brightness, colors, speed should be used by LED manager)
             
             ESP_LOGI(TAG, "LED settings applied successfully!");
+          }
+          break;
+          
+        case MessageType::LED_SECTIONS:
+          if(packet.payload_length == sizeof(LedSections)){
+            LedSections sections;
+            memcpy(&sections, packet.payload, sizeof(LedSections));
+            
+            ESP_LOGI(TAG, "LED section settings received from CPU:");
+            ESP_LOGI(TAG, "  Left Fin - Mode:%u, RGB:(%u,%u,%u), Brightness:%u",
+                    sections.left_fin.mode, sections.left_fin.color_r, 
+                    sections.left_fin.color_g, sections.left_fin.color_b, 
+                    sections.left_fin.brightness);
+            ESP_LOGI(TAG, "  Tongue - Mode:%u, RGB:(%u,%u,%u), Brightness:%u",
+                    sections.tongue.mode, sections.tongue.color_r, 
+                    sections.tongue.color_g, sections.tongue.color_b, 
+                    sections.tongue.brightness);
+            ESP_LOGI(TAG, "  Right Fin - Mode:%u, RGB:(%u,%u,%u), Brightness:%u",
+                    sections.right_fin.mode, sections.right_fin.color_r, 
+                    sections.right_fin.color_g, sections.right_fin.color_b, 
+                    sections.right_fin.brightness);
+            ESP_LOGI(TAG, "  Scale - Mode:%u, RGB:(%u,%u,%u), Brightness:%u",
+                    sections.scale.mode, sections.scale.color_r, 
+                    sections.scale.color_g, sections.scale.color_b, 
+                    sections.scale.brightness);
+            
+            // Apply section settings to LED manager
+            led_manager.setSectionSettings(sections);
+            
+            ESP_LOGI(TAG, "LED section settings applied successfully!");
+          }
+          break;
+        
+        case MessageType::FAN_SPEED:
+          if(packet.payload_length == sizeof(FanSpeedData)){
+            FanSpeedData fan_data;
+            memcpy(&fan_data, packet.payload, sizeof(FanSpeedData));
+            
+            uint8_t percent = (fan_data.speed * 100) / 255;
+            ESP_LOGI(TAG, "Fan speed received from CPU: %u/255 (%u%%)", 
+                    fan_data.speed, percent);
+            
+            // Apply fan speed to LED manager
+            led_manager.setFanSpeed(fan_data.speed);
+            
+            ESP_LOGI(TAG, "Fan speed applied successfully!");
           }
           break;
           

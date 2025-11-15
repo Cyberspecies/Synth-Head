@@ -41,48 +41,53 @@ inline void renderModeSelector(arcos::manager::OLEDDisplayManager& oled, uint8_t
     "4.Display Faces",
     "5.Display Effects",
     "6.Display Shaders",
-    "7.LED Strip Cfg"
+    "7.LED Strip Cfg",
+    "8.Fan Speed"
   };
   
-  // Mode descriptions (unused but kept for future reference)
-  // const char* mode_desc[] = {
-  //   "Bouncing Text",
-  //   "GPS Time",
-  //   "Sensor Data",
-  //   "Shape Select",
-  //   "Effect Select",
-  //   "Shader Select",
-  //   "LED Config"
-  // };
+  uint8_t mode_count = static_cast<uint8_t>(TopLevelMode::COUNT);
   
-  // Draw mode list (very compact for 7 items)
-  int start_y = 16;
-  int item_height = 14;
-  int spacing = 1;
+  // Vertical carousel - centered selection (same as submenu)
+  int item_height = 12;
+  int visible_items = 8;  // Show up to 8 items
+  int middle_slot = visible_items / 2;  // Middle position (slot 4 of 0-7)
+  int start_y = 14;
   
-  for (uint8_t i = 0; i < static_cast<uint8_t>(TopLevelMode::COUNT); i++) {
-    int item_y = start_y + i * (item_height + spacing);
-    bool selected = (i == selected_index);
+  // Calculate which items to display (carousel wrapping)
+  // Selected item should be in the middle slot
+  int first_visible_index = selected_index - middle_slot;
+  
+  // Draw visible items in carousel
+  for (int slot = 0; slot < visible_items; slot++) {
+    // Calculate actual item index with wrapping
+    int item_index = first_visible_index + slot;
     
-    // Draw selection box with flashing border if selected
+    // Wrap around for carousel effect
+    while (item_index < 0) item_index += mode_count;
+    while (item_index >= mode_count) item_index -= mode_count;
+    
+    int item_y = start_y + slot * item_height;
+    bool selected = (item_index == selected_index);
+    
+    // Draw selection highlight for middle item
     if (selected) {
       // Flashing outline (500ms period)
       bool flash_on = (time_ms / 250) % 2 == 0;
       if (flash_on) {
         // Double border for emphasis when flashing
-        oled.drawRect(3, item_y - 2, 122, item_height, false, true);
-        oled.drawRect(5, item_y, 118, item_height - 4, false, true);
+        oled.drawRect(3, item_y - 1, 122, item_height, false, true);
+        oled.drawRect(5, item_y + 1, 118, item_height - 4, false, true);
       } else {
         // Single thick border
-        oled.drawRect(3, item_y - 2, 122, item_height, false, true);
+        oled.drawRect(3, item_y - 1, 122, item_height, false, true);
       }
       
       // Arrow indicator
       oled.drawText(8, item_y + 1, ">", true);
     }
     
-    // Draw mode name (always visible, always use true for visibility)
-    oled.drawText(18, item_y + 3, mode_names[i], true);
+    // Draw mode name
+    oled.drawText(18, item_y + 2, mode_names[item_index], true);
   }
   
   // Instructions at bottom
@@ -274,6 +279,34 @@ inline void renderLedStripConfig(arcos::manager::OLEDDisplayManager& oled, LedSt
   if (mode == LedStripMode::DYNAMIC_DISPLAY) {
     oled.drawText(10, 55, "Uses HUB75 display", true);
     oled.drawText(10, 65, "as LED source", true);
+  }
+  
+  oled.show();
+}
+
+/**
+ * @brief Render fan speed control mode
+ */
+inline void renderFanSpeedControl(arcos::manager::OLEDDisplayManager& oled, uint8_t speed) {
+  oled.clear();
+  oled.drawText(15, 0, "FAN SPEED CTRL", true);
+  oled.drawLine(0, 10, 127, 10, true);
+  oled.drawText(5, 15, "UP/DN: Adjust", true);
+  oled.drawText(5, 25, "Hold: Fast adjust", true);
+  
+  // Calculate percentage
+  uint8_t percent = (speed * 100) / 255;
+  
+  // Show current speed
+  char text[32];
+  snprintf(text, sizeof(text), "Speed: %u%% (%u/255)", percent, speed);
+  oled.drawText(10, 42, text, true);
+  
+  // Visual bar (100 pixels wide)
+  int bar_width = (speed * 100) / 255;
+  oled.drawRect(14, 58, 100, 8, true);  // Outline
+  if(bar_width > 0) {
+    oled.fillRect(15, 59, bar_width, 6, true);  // Filled portion
   }
   
   oled.show();
@@ -501,6 +534,10 @@ inline void MenuSystem::render(arcos::manager::OLEDDisplayManager& oled) {
           
         case TopLevelMode::LED_STRIP_CONFIG:
           renderLedStripConfig(oled, m_led_strip_mode);
+          break;
+        
+        case TopLevelMode::FAN_SPEED_CONTROL:
+          renderFanSpeedControl(oled, m_fan_speed);
           break;
           
         case TopLevelMode::COUNT:
