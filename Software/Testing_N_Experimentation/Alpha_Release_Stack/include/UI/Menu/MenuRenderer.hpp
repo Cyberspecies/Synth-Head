@@ -181,7 +181,7 @@ inline void renderDisplayFaces(arcos::manager::OLEDDisplayManager& oled, Display
   oled.drawLine(0, 10, 127, 10, true);
   oled.drawText(10, 15, "Press SET to change", true);
   
-  const char* face_names[] = {"Custom", "Panel #", "Orient"};
+  const char* face_names[] = {"Custom", "Panel #", "Orient", "Axes"};
   
   
   char text[32];
@@ -212,6 +212,16 @@ inline void renderDisplayFaces(arcos::manager::OLEDDisplayManager& oled, Display
       oled.drawText(cx - 18, cy + 5, "DOWN", true);
       oled.drawLine(cx - 10, cy - 3, cx + 10, cy - 3, true);
       oled.drawLine(cx - 10, cy + 3, cx + 10, cy + 3, true);
+      break;
+    case DisplayFace::PANEL_AXES:
+      // Show axes preview (X+, Y+, CW)
+      oled.drawLine(cx - 15, cy, cx + 5, cy, true);  // X axis
+      oled.drawLine(cx + 5, cy, cx + 2, cy - 2, true);  // X arrowhead
+      oled.drawLine(cx + 5, cy, cx + 2, cy + 2, true);
+      oled.drawLine(cx, cy - 10, cx, cy + 10, true);  // Y axis
+      oled.drawLine(cx, cy + 10, cx - 2, cy + 7, true);  // Y arrowhead
+      oled.drawLine(cx, cy + 10, cx + 2, cy + 7, true);
+      oled.drawCircle(cx - 8, cy - 5, 4, true);  // CW circle
       break;
     default:
       break;
@@ -326,7 +336,7 @@ inline void renderSubmenu(arcos::manager::OLEDDisplayManager& oled,
   uint8_t item_count = 0;
   
   // Get appropriate items based on mode
-  static const char* face_names[] = {"Custom", "Panel #", "Orient"};
+  static const char* face_names[] = {"Custom", "Panel #", "Orient", "Axes"};
   static const char* effect_names[] = {"None", "Particles", "Trails", "Grid", "Wave"};
   static const char* shader_names[] = {
     "None", "Hue Row", "Hue All", "Color", "Breathe", 
@@ -338,7 +348,7 @@ inline void renderSubmenu(arcos::manager::OLEDDisplayManager& oled,
     case TopLevelMode::DISPLAY_FACES:
       title = "SELECT FACE";
       item_names = face_names;
-      item_count = 3;
+      item_count = 4;
       break;
     case TopLevelMode::DISPLAY_EFFECTS:
       title = "SELECT EFFECT";

@@ -97,6 +97,39 @@ LedDataPayload shared_led_data;
 bool led_data_received = false;
 uint32_t last_led_data_time = 0;
 
+// ============== High-Pass Filter for Accelerometer (Remove Gravity) ==============
+struct AccelHighPassFilter{
+  float gravity_x = 0.0f;
+  float gravity_y = 0.0f;
+  float gravity_z = 0.0f;
+  bool initialized = false;
+  
+  // Alpha for low-pass filter to track gravity (0.98 = very slow tracking, filters out motion)
+  static constexpr float ALPHA = 0.98f;
+  
+  void update(float raw_x, float raw_y, float raw_z, float& filtered_x, float& filtered_y, float& filtered_z){
+    if(!initialized){
+      // Initialize gravity estimate with first reading
+      gravity_x = raw_x;
+      gravity_y = raw_y;
+      gravity_z = raw_z;
+      initialized = true;
+    }
+    
+    // Low-pass filter to isolate gravity component
+    gravity_x = ALPHA * gravity_x + (1.0f - ALPHA) * raw_x;
+    gravity_y = ALPHA * gravity_y + (1.0f - ALPHA) * raw_y;
+    gravity_z = ALPHA * gravity_z + (1.0f - ALPHA) * raw_z;
+    
+    // High-pass filter output = raw - gravity (leaves only dynamic acceleration)
+    filtered_x = raw_x - gravity_x;
+    filtered_y = raw_y - gravity_y;
+    filtered_z = raw_z - gravity_z;
+  }
+};
+
+AccelHighPassFilter accel_filter;
+
 // ============== Statistics ==============
 struct Statistics{
   uint32_t sensor_frames_sent = 0;
@@ -248,16 +281,24 @@ void sensorReadTask(void* parameter){
     if(sensor_manager.isImuValid()){
       const Icm20948Data& imu = sensor_manager.getImuData();
       
+      // Apply high-pass filter to remove gravity from accelerometer
+      float filtered_accel_x, filtered_accel_y, filtered_accel_z;
+      accel_filter.update(imu.accel_x, imu.accel_y, imu.accel_z,
+                         filtered_accel_x, filtered_accel_y, filtered_accel_z);
+      
       // Debug: Print actual IMU values every 1000 reads
       if(debug_counter % 1000 == 0){
         Serial.printf("SENSOR: Raw IMU - Accel: %.2f, %.2f, %.2f | Gyro: %.1f, %.1f, %.1f\n",
           imu.accel_x, imu.accel_y, imu.accel_z,
           imu.gyro_x, imu.gyro_y, imu.gyro_z);
+        Serial.printf("SENSOR: Filtered Accel (no gravity): %.2f, %.2f, %.2f\n",
+          filtered_accel_x, filtered_accel_y, filtered_accel_z);
       }
       
-      write_buffer.accel_x = imu.accel_x;
-      write_buffer.accel_y = imu.accel_y;
-      write_buffer.accel_z = imu.accel_z;
+      // Store filtered acceleration (gravity removed)
+      write_buffer.accel_x = filtered_accel_x;
+      write_buffer.accel_y = filtered_accel_y;
+      write_buffer.accel_z = filtered_accel_z;
       write_buffer.gyro_x = imu.gyro_x;
       write_buffer.gyro_y = imu.gyro_y;
       write_buffer.gyro_z = imu.gyro_z;

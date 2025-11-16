@@ -99,6 +99,69 @@ SensorDataPayload current_sensor_data;
 bool data_received = false;
 uint32_t last_data_time = 0;
 
+// ============== Moving Average Filter for Sprite Positioning ==============
+constexpr int MOVING_AVG_WINDOW = 6;  // 0.1 seconds at 60Hz (6 samples)
+struct MovingAverageFilter{
+  float gyro_y_buffer[MOVING_AVG_WINDOW] = {0};
+  float gyro_z_buffer[MOVING_AVG_WINDOW] = {0};
+  float accel_y_buffer[MOVING_AVG_WINDOW] = {0};
+  float accel_z_buffer[MOVING_AVG_WINDOW] = {0};
+  float gyro_y_sum = 0.0f;
+  float gyro_z_sum = 0.0f;
+  float accel_y_sum = 0.0f;
+  float accel_z_sum = 0.0f;
+  int index = 0;
+  int count = 0;
+  
+  void addSample(float gyro_y, float gyro_z, float accel_y, float accel_z){
+    // Subtract old values from sums (circular buffer)
+    gyro_y_sum -= gyro_y_buffer[index];
+    gyro_z_sum -= gyro_z_buffer[index];
+    accel_y_sum -= accel_y_buffer[index];
+    accel_z_sum -= accel_z_buffer[index];
+    
+    // Add new values to buffers and sums
+    gyro_y_buffer[index] = gyro_y;
+    gyro_z_buffer[index] = gyro_z;
+    accel_y_buffer[index] = accel_y;
+    accel_z_buffer[index] = accel_z;
+    
+    gyro_y_sum += gyro_y;
+    gyro_z_sum += gyro_z;
+    accel_y_sum += accel_y;
+    accel_z_sum += accel_z;
+    
+    // Update circular buffer index
+    index++;
+    if(index >= MOVING_AVG_WINDOW){
+      index = 0;
+    }
+    
+    // Track how many samples we have (up to window size)
+    if(count < MOVING_AVG_WINDOW){
+      count++;
+    }
+  }
+  
+  float getGyroYAvg() const{
+    return (count > 0) ? (gyro_y_sum / count) : 0.0f;
+  }
+  
+  float getGyroZAvg() const{
+    return (count > 0) ? (gyro_z_sum / count) : 0.0f;
+  }
+  
+  float getAccelYAvg() const{
+    return (count > 0) ? (accel_y_sum / count) : 0.0f;
+  }
+  
+  float getAccelZAvg() const{
+    return (count > 0) ? (accel_z_sum / count) : 0.0f;
+  }
+};
+
+MovingAverageFilter sprite_filter;
+
 // ============== Shader Parameters ==============
 uint8_t shader_color1_r = 255, shader_color1_g = 0, shader_color1_b = 0;
 uint8_t shader_color2_r = 0, shader_color2_g = 0, shader_color2_b = 255;
@@ -647,8 +710,52 @@ void hub75UpdateTask(void* parameter){
       case menu::DisplayFace::CUSTOM_IMAGE:
         // Display custom image loaded from file transfer
         if(sprite_loader.isLoaded()){
-          // Render sprite on both panels (centered at x=32, y=16 and x=96, y=16)
-          sprite_loader.renderOnBothPanels(hub75_manager);
+          // Get sensor data for sprite positioning
+          float gyro_y, gyro_z, accel_y, accel_z;
+          if(xSemaphoreTake(sensor_data_mutex, pdMS_TO_TICKS(1)) == pdTRUE){
+            gyro_y = current_sensor_data.gyro_y;
+            gyro_z = current_sensor_data.gyro_z;
+            accel_y = current_sensor_data.accel_y;
+            accel_z = current_sensor_data.accel_z;
+            xSemaphoreGive(sensor_data_mutex);
+            
+            // Add sample to moving average filter
+            sprite_filter.addSample(gyro_y, gyro_z, accel_y, accel_z);
+          }else{
+            gyro_y = gyro_z = accel_y = accel_z = 0.0f;
+          }
+          
+          // Get filtered (smoothed) values from moving average
+          float filtered_gyro_y = sprite_filter.getGyroYAvg();
+          float filtered_gyro_z = sprite_filter.getGyroZAvg();
+          float filtered_accel_y = sprite_filter.getAccelYAvg();
+          float filtered_accel_z = sprite_filter.getAccelZAvg();
+          
+          // Panel 0 (left): center at (32, 16)
+          // Sprite Y+ = Gyro Y+
+          // Sprite Y+ (additional) = Accel Z+
+          // Sprite X+ = Accel Y-
+          // Sprite X+ (additional) = Gyro Z+
+          constexpr float gyro_y_scale = 0.05f * 8.0f;     // Gyro Y strength (8x)
+          constexpr float gyro_z_scale = 0.05f * 8.0f;     // Gyro Z strength (8x)
+          constexpr float accel_y_scale = 5.0f * 100.0f;   // Accel Y strength (100x)
+          constexpr float accel_z_scale = 5.0f * 100.0f;   // Accel Z strength (100x)
+          
+          int left_sprite_x = 32 + static_cast<int>(filtered_accel_y * accel_y_scale) + static_cast<int>(filtered_gyro_z * gyro_z_scale);
+          int left_sprite_y = 16 + static_cast<int>(filtered_gyro_y * gyro_y_scale) + static_cast<int>(filtered_accel_z * accel_z_scale);
+          
+          // Panel 1 (right): center at (96, 16)
+          // Sprite Y+ = Gyro Y-
+          // Sprite Y+ (additional) = Accel Z- (flipped)
+          // Sprite X+ = Accel Y+
+          // Sprite X+ (additional) = Gyro Z-
+          
+          int right_sprite_x = 96 + static_cast<int>(filtered_accel_y * accel_y_scale) - static_cast<int>(filtered_gyro_z * gyro_z_scale);
+          int right_sprite_y = 16 - static_cast<int>(filtered_gyro_y * gyro_y_scale) - static_cast<int>(filtered_accel_z * accel_z_scale);
+          
+          // Render sprite on both panels with calculated positions
+          sprite_loader.renderCentered(hub75_manager, left_sprite_x, left_sprite_y);
+          sprite_loader.renderCentered(hub75_manager, right_sprite_x, right_sprite_y);
         }else{
           // No image loaded - show "NO IMAGE" message
           // Draw text indicator on left panel
@@ -718,6 +825,10 @@ void hub75UpdateTask(void* parameter){
         hub75_manager.drawLine(99, cy, 114, cy, RGB(0, 255, 255)); // Horizontal shaft
         hub75_manager.drawLine(114, cy, 110, cy - 3, RGB(0, 255, 255)); // Top arrowhead
         hub75_manager.drawLine(114, cy, 110, cy + 3, RGB(0, 255, 255)); // Bottom arrowhead
+        break;
+      case menu::DisplayFace::PANEL_AXES:
+        // Show coordinate system: X+, Y+, and clockwise on each panel
+        hub75_manager.executeAnimation("test_panel_axes", anim_time);
         break;
       default:
         break;

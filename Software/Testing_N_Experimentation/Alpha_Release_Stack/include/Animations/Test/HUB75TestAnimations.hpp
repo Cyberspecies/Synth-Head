@@ -221,6 +221,143 @@ inline void testStarfield(arcos::manager::HUB75DisplayManager& manager, uint32_t
 }
 
 /**
+ * @brief Test animation: Panel axes and rotation indicators
+ * Shows X+, Y+, and clockwise direction arrows on each panel
+ * @param manager HUB75 display manager reference
+ * @param time_ms Animation time in milliseconds
+ */
+inline void testPanelAxes(arcos::manager::HUB75DisplayManager& manager, uint32_t time_ms){
+  manager.clear({0, 0, 0});
+  
+  // Panel dimensions (assuming dual 64x32 panels = 128x32 total)
+  const int panel_width = 64;
+  const int panel_height = 32;
+  const int total_width = manager.getWidth();
+  
+  // Colors for axes
+  const RGB x_color = {255, 0, 0};      // Red for X+
+  const RGB y_color = {0, 255, 0};      // Green for Y+
+  const RGB cw_color = {0, 128, 255};   // Cyan for Clockwise
+  const RGB label_color = {255, 255, 255}; // White for labels
+  
+  // Draw axes for each panel
+  for(int panel = 0; panel < 2; panel++){
+    int panel_x_offset = panel * panel_width;
+    
+    // Center of panel
+    int center_x = panel_x_offset + panel_width / 2;
+    int center_y = panel_height / 2;
+    
+    // X+ Arrow (horizontal, pointing right)
+    // Arrow shaft
+    for(int i = 0; i < 20; i++){
+      manager.setPixel(center_x + i, center_y, x_color);
+    }
+    // Arrowhead
+    manager.setPixel(center_x + 20, center_y, x_color);
+    manager.setPixel(center_x + 19, center_y - 1, x_color);
+    manager.setPixel(center_x + 19, center_y + 1, x_color);
+    manager.setPixel(center_x + 18, center_y - 2, x_color);
+    manager.setPixel(center_x + 18, center_y + 2, x_color);
+    
+    // Label "X+"
+    int x_label_x = center_x + 22;
+    int x_label_y = center_y - 5;
+    manager.setPixel(x_label_x, x_label_y, label_color);
+    manager.setPixel(x_label_x + 1, x_label_y + 1, label_color);
+    manager.setPixel(x_label_x + 2, x_label_y + 2, label_color);
+    manager.setPixel(x_label_x + 1, x_label_y + 3, label_color);
+    manager.setPixel(x_label_x, x_label_y + 4, label_color);
+    manager.setPixel(x_label_x + 4, x_label_y + 1, label_color);
+    manager.setPixel(x_label_x + 5, x_label_y + 2, label_color);
+    manager.setPixel(x_label_x + 4, x_label_y + 3, label_color);
+    
+    // Y+ Arrow (vertical, pointing down - standard screen coordinates)
+    // Arrow shaft
+    for(int i = 0; i < 10; i++){
+      manager.setPixel(center_x, center_y + i, y_color);
+    }
+    // Arrowhead
+    manager.setPixel(center_x, center_y + 10, y_color);
+    manager.setPixel(center_x - 1, center_y + 9, y_color);
+    manager.setPixel(center_x + 1, center_y + 9, y_color);
+    manager.setPixel(center_x - 2, center_y + 8, y_color);
+    manager.setPixel(center_x + 2, center_y + 8, y_color);
+    
+    // Label "Y+"
+    int y_label_x = center_x + 4;
+    int y_label_y = center_y + 8;
+    manager.setPixel(y_label_x, y_label_y, label_color);
+    manager.setPixel(y_label_x + 1, y_label_y + 1, label_color);
+    manager.setPixel(y_label_x + 2, y_label_y + 2, label_color);
+    manager.setPixel(y_label_x + 3, y_label_y + 1, label_color);
+    manager.setPixel(y_label_x + 4, y_label_y, label_color);
+    manager.setPixel(y_label_x + 6, y_label_y + 1, label_color);
+    manager.setPixel(y_label_x + 7, y_label_y + 2, label_color);
+    manager.setPixel(y_label_x + 6, y_label_y + 3, label_color);
+    
+    // Clockwise indicator (circular arc in top-left quadrant)
+    float arc_radius = 12.0f;
+    float start_angle = -3.14159f;  // PI (left)
+    float end_angle = -1.5708f;     // PI/2 (up)
+    
+    // Draw arc
+    for(float angle = start_angle; angle < end_angle; angle += 0.1f){
+      int arc_x = center_x + static_cast<int>(arc_radius * cosf(angle));
+      int arc_y = center_y + static_cast<int>(arc_radius * sinf(angle));
+      manager.setPixel(arc_x, arc_y, cw_color);
+    }
+    
+    // Clockwise arrow at end of arc
+    int arrow_x = center_x + static_cast<int>(arc_radius * cosf(end_angle));
+    int arrow_y = center_y + static_cast<int>(arc_radius * sinf(end_angle));
+    manager.setPixel(arrow_x + 1, arrow_y, cw_color);
+    manager.setPixel(arrow_x + 2, arrow_y + 1, cw_color);
+    manager.setPixel(arrow_x, arrow_y + 1, cw_color);
+    manager.setPixel(arrow_x + 1, arrow_y + 2, cw_color);
+    
+    // Label "CW" above arc
+    int cw_label_x = center_x - 16;
+    int cw_label_y = center_y - 14;
+    // C
+    manager.setPixel(cw_label_x + 1, cw_label_y, label_color);
+    manager.setPixel(cw_label_x + 2, cw_label_y, label_color);
+    manager.setPixel(cw_label_x, cw_label_y + 1, label_color);
+    manager.setPixel(cw_label_x, cw_label_y + 2, label_color);
+    manager.setPixel(cw_label_x, cw_label_y + 3, label_color);
+    manager.setPixel(cw_label_x + 1, cw_label_y + 4, label_color);
+    manager.setPixel(cw_label_x + 2, cw_label_y + 4, label_color);
+    // W
+    manager.setPixel(cw_label_x + 4, cw_label_y, label_color);
+    manager.setPixel(cw_label_x + 4, cw_label_y + 1, label_color);
+    manager.setPixel(cw_label_x + 4, cw_label_y + 2, label_color);
+    manager.setPixel(cw_label_x + 4, cw_label_y + 3, label_color);
+    manager.setPixel(cw_label_x + 4, cw_label_y + 4, label_color);
+    manager.setPixel(cw_label_x + 5, cw_label_y + 3, label_color);
+    manager.setPixel(cw_label_x + 6, cw_label_y + 2, label_color);
+    manager.setPixel(cw_label_x + 7, cw_label_y + 3, label_color);
+    manager.setPixel(cw_label_x + 8, cw_label_y, label_color);
+    manager.setPixel(cw_label_x + 8, cw_label_y + 1, label_color);
+    manager.setPixel(cw_label_x + 8, cw_label_y + 2, label_color);
+    manager.setPixel(cw_label_x + 8, cw_label_y + 3, label_color);
+    manager.setPixel(cw_label_x + 8, cw_label_y + 4, label_color);
+    
+    // Panel label
+    const char* panel_label = (panel == 0) ? "PANEL 0" : "PANEL 1";
+    int label_x = panel_x_offset + 2;
+    int label_y = 2;
+    
+    // Simple text rendering for panel number
+    for(int i = 0; i < 7; i++){
+      manager.setPixel(label_x + i, label_y, label_color);
+    }
+    manager.setPixel(label_x + 6, label_y + 1, label_color);
+  }
+  
+  // NO show() - called in main loop
+}
+
+/**
  * @brief Register all HUB75 test animations
  * @param manager HUB75 display manager reference
  */
@@ -247,6 +384,10 @@ inline void registerTestAnimations(arcos::manager::HUB75DisplayManager& manager)
   
   manager.registerAnimation("test_starfield", [&manager](uint32_t time_ms){
     testStarfield(manager, time_ms);
+  });
+  
+  manager.registerAnimation("test_panel_axes", [&manager](uint32_t time_ms){
+    testPanelAxes(manager, time_ms);
   });
 }
 

@@ -53,6 +53,7 @@ enum class DisplayFace : uint8_t {
   CUSTOM_IMAGE = 0,  // Custom image loaded from file transfer
   PANEL_NUMBER,      // Shows panel numbers (0/1) for dual panel setup
   ORIENTATION,       // Shows orientation arrows for panel alignment
+  PANEL_AXES,        // Shows X+, Y+, and clockwise direction on each panel
   COUNT
 };
 
