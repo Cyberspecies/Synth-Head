@@ -1,0 +1,12 @@
+# GPU-specific sdkconfig overrides
+# Disable brownout detector - HUB75 panels cause voltage drops during GPIO init
+CONFIG_ESP_BROWNOUT_DET=n
+CONFIG_BROWNOUT_DET=n
+CONFIG_ESP32S3_BROWNOUT_DET=n
+
+# HUB75 Display Configuration
+# Reduce colour depth to fit DMA buffers in ESP32-S3 memory
+# Default colour_depth=5 needs ~148KB DMA buffer which exceeds available
+# colour_depth=3 needs ~89KB which fits comfortably
+# Note: This must be configured via code, not sdkconfig
+# (Included here for documentation purposes)

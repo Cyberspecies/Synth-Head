@@ -1,0 +1,9 @@
+# Synth-Head GPU SDK Configuration
+# Disables task watchdog for main loop flexibility
+
+# Disable task watchdog
+CONFIG_ESP_TASK_WDT_EN=n
+
+# Flash size
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=n
