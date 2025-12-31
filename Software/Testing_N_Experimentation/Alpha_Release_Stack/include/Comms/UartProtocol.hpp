@@ -69,8 +69,9 @@ enum class MsgType : uint8_t{
   STATUS      = 0x12,  // Status update
   
   // Display messages (0x20 - 0x2F)
-  FRAME_DATA  = 0x20,  // Frame buffer data
-  FRAME_SYNC  = 0x21,  // Frame synchronization
+  FRAME_DATA    = 0x20,  // Frame buffer data
+  FRAME_SYNC    = 0x21,  // Frame synchronization
+  FRAME_REQUEST = 0x22,  // Request next frame (GPU -> CPU)
   
   // Error messages (0xF0 - 0xFF)
   ERROR       = 0xF0,  // Error notification

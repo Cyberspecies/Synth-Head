@@ -30,23 +30,39 @@ GpuUartHandler uart;
 // Frame statistics
 struct FrameStats {
   uint32_t frames_received = 0;
+  uint32_t frames_displayed = 0;
   uint32_t last_frame_time = 0;
+  uint32_t last_display_time = 0;
   uint32_t fps = 0;
+  uint32_t display_fps = 0;
   uint32_t min_frame_time = 0xFFFFFFFF;
   uint32_t max_frame_time = 0;
+  uint32_t min_display_time = 0xFFFFFFFF;
+  uint32_t max_display_time = 0;
+  uint32_t frame_requests_sent = 0;
   
-  void updateFps() {
+  void updateReceiveFps() {
     uint32_t now = esp_timer_get_time() / 1000;
     if(last_frame_time > 0) {
       uint32_t frame_time = now - last_frame_time;
       if(frame_time < min_frame_time) min_frame_time = frame_time;
       if(frame_time > max_frame_time) max_frame_time = frame_time;
-      
-      // Calculate FPS based on last frame interval
       fps = (frame_time > 0) ? (1000 / frame_time) : 0;
     }
     last_frame_time = now;
     frames_received++;
+  }
+  
+  void updateDisplayFps() {
+    uint32_t now = esp_timer_get_time() / 1000;
+    if(last_display_time > 0) {
+      uint32_t display_time = now - last_display_time;
+      if(display_time < min_display_time) min_display_time = display_time;
+      if(display_time > max_display_time) max_display_time = display_time;
+      display_fps = (display_time > 0) ? (1000 / display_time) : 0;
+    }
+    last_display_time = now;
+    frames_displayed++;
   }
 };
 
@@ -104,23 +120,33 @@ extern "C" void app_main(void){
   
   ESP_LOGI(TAG, "UART initialized at %lu baud", uart_config.baud_rate);
   ESP_LOGI(TAG, "Waiting for frames from CPU...");
+  ESP_LOGI(TAG, "Frame request mode: GPU controls frame rate");
   
   // Clear display to black
   display.clear();
   display.show();
   
+  // Send initial frame request to start the loop
+  ESP_LOGI(TAG, "Sending initial frame request...");
+  uart.sendMessage(MsgType::FRAME_REQUEST, nullptr, 0);
+  stats.frame_requests_sent++;
+  
   uint32_t last_stats_time = 0;
+  bool waiting_for_frame = true;
   
   while(1){
     // Process incoming UART data
-    int messages = uart.process(8192);
+    uart.process(8192);
     
-    // Check if we have a complete frame
-    if(uart.hasFrame()){
+    // Check if we have a complete frame and we're waiting for one
+    if(waiting_for_frame && uart.hasFrame()){
       const UartFrameBuffer* frame = uart.getFrame();
       
       if(frame && frame->complete && 
          frame->width == 128 && frame->height == 32){
+        
+        // Track frame receive timing
+        stats.updateReceiveFps();
         
         // Copy frame data to display using setPixel (writes to back buffer)
         const uint8_t* pixel_data = frame->data;
@@ -137,23 +163,37 @@ extern "C" void app_main(void){
         // Swap buffers and display (presents to front buffer)
         display.show();
         
+        // Track display swap timing
+        stats.updateDisplayFps();
+        
         // Mark frame as consumed
         uart.consumeFrame();
         
-        // Update statistics
-        stats.updateFps();
+        // Request next frame NOW - right after buffer swap
+        uart.sendMessage(MsgType::FRAME_REQUEST, nullptr, 0);
+        stats.frame_requests_sent++;
+        
+        // We've sent the request, now wait for next frame
+        waiting_for_frame = true;
       }
     }
     
     // Print statistics every second
     uint32_t now = esp_timer_get_time() / 1000;
     if(now - last_stats_time >= 1000){
-      ESP_LOGI(TAG, "Frames: %lu | FPS: %lu | Frame time: %lu ms (min: %lu, max: %lu)",
+      uint32_t display_interval = (stats.last_display_time > 0) ? 
+                                   (now - stats.last_display_time) : 0;
+      
+      ESP_LOGI(TAG, "RX: %lu frames @ %lu FPS (recv: %lu-%lu ms) | Display: %lu @ %lu FPS (swap: %lu-%lu ms) | Requests: %lu",
                (unsigned long)stats.frames_received,
                (unsigned long)stats.fps,
-               (unsigned long)(now - stats.last_frame_time),
                (unsigned long)stats.min_frame_time,
-               (unsigned long)stats.max_frame_time);
+               (unsigned long)stats.max_frame_time,
+               (unsigned long)stats.frames_displayed,
+               (unsigned long)stats.display_fps,
+               (unsigned long)stats.min_display_time,
+               (unsigned long)stats.max_display_time,
+               (unsigned long)stats.frame_requests_sent);
       last_stats_time = now;
     }
     

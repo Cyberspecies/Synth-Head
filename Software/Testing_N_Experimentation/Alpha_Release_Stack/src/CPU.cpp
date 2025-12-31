@@ -162,8 +162,8 @@ void generateFrame(){
 
 void setup(){
   Serial.begin(115200);
-  delay(1000);
-  
+  delay(3000); // 3 second delay for user observation
+
   Serial.println();
   Serial.println("========================================");
   Serial.println("    CPU Image Transmission Test");
@@ -171,6 +171,17 @@ void setup(){
   Serial.printf("  Frame: %dx%d @ %lu fps\n", FRAME_WIDTH, FRAME_HEIGHT, TARGET_FPS);
   Serial.printf("  Frame size: %lu bytes\n", FRAME_SIZE);
   Serial.printf("  UART baud: %lu (%.1f Mbps)\n", (uint32_t)UART_BAUD_RATE, UART_BAUD_RATE / 1000000.0);
+
+  // RAM usage calculation
+  size_t framebuffer_ram = FRAME_SIZE;
+  size_t double_buffer = 0;
+  #ifdef CPU_DOUBLE_BUFFER
+    double_buffer = FRAME_SIZE;
+  #endif
+  size_t total_cpu_frame_ram = framebuffer_ram + double_buffer;
+  Serial.printf("  [RAM] Framebuffer: %lu bytes\n", framebuffer_ram);
+  Serial.printf("  [RAM] Double buffer: %lu bytes\n", double_buffer);
+  Serial.printf("  [RAM] Total CPU frame RAM: %lu bytes (%.2f KB)\n", total_cpu_frame_ram, total_cpu_frame_ram/1024.0);
   Serial.println("========================================\n");
   
   // Initialize UART handler
