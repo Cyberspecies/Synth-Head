@@ -1,11 +1,16 @@
 /*****************************************************************
- * GPU.cpp - HUB75 Display with UART Frame Reception
- * Receives 128x32 RGB frames from CPU via UART and displays on HUB75
+ * GPU.cpp - Dual Display Driver (HUB75 + OLED) with UART Frame Reception
+ * Receives frames from CPU via UART and displays on HUB75 and OLED
  * 
- * Optimized Memory Usage:
- * - Buffer size: 26,352 samples (105KB DMA for double buffering)
- * - Brightness levels: 16 (0-255 mapped to 0-15)
- * - Colour depth: 5 bits (32 levels per channel)
+ * Display Configuration:
+ * - HUB75: 128x32 RGB (dual 64x32 panels) @ 60fps
+ * - OLED: SH1107 128x128 monochrome @ 15fps
+ * 
+ * UART Configuration:
+ * - Baud: 20 Mbps
+ * - RX: GPIO13 (GPU RX <- CPU TX GPIO12)
+ * - TX: GPIO12 (GPU TX -> CPU RX GPIO11)
+ * - Frame reception: HUB75 (12,288 bytes) + OLED (2,048 bytes)
  *****************************************************************/
 
 #include <stdio.h>
@@ -16,57 +21,90 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 
+#include "abstraction/hal.hpp"  // For ESP32S3_I2C_HAL
 #include "abstraction/drivers/components/HUB75/driver_hub75_simple.hpp"
+#include "abstraction/drivers/components/OLED/driver_oled_sh1107.hpp"
 #include "Comms/GpuUartHandler.hpp"
 
 using namespace arcos::abstraction::drivers;
+using namespace arcos::abstraction;
 using namespace arcos::comms;
 
-static const char* TAG = "GPU_UART_DISPLAY";
+static const char* TAG = "GPU_DUAL_DISPLAY";
 
-SimpleHUB75Display display;
+// Display objects
+SimpleHUB75Display hub75_display;
+DRIVER_OLED_SH1107 oled_display(0x3C, 0);  // I2C address 0x3C, bus 0
+
+// UART handler
 GpuUartHandler uart;
 
 // Frame statistics
-struct FrameStats {
-  uint32_t frames_received = 0;
-  uint32_t frames_displayed = 0;
-  uint32_t last_frame_time = 0;
-  uint32_t last_display_time = 0;
-  uint32_t fps = 0;
-  uint32_t display_fps = 0;
-  uint32_t min_frame_time = 0xFFFFFFFF;
-  uint32_t max_frame_time = 0;
-  uint32_t min_display_time = 0xFFFFFFFF;
-  uint32_t max_display_time = 0;
-  uint32_t frame_requests_sent = 0;
+struct DisplayStats {
+  // HUB75 stats
+  uint32_t hub75_frames_received = 0;
+  uint32_t hub75_frames_displayed = 0;
+  uint32_t hub75_fps = 0;
+  uint32_t hub75_display_fps = 0;
+  uint32_t hub75_last_rx_time = 0;
+  uint32_t hub75_last_display_time = 0;
   
-  void updateReceiveFps() {
+  // OLED stats  
+  uint32_t oled_frames_received = 0;
+  uint32_t oled_frames_displayed = 0;
+  uint32_t oled_fps = 0;
+  uint32_t oled_display_fps = 0;
+  uint32_t oled_last_rx_time = 0;
+  uint32_t oled_last_display_time = 0;
+  
+  // Error stats
+  uint32_t checksum_errors = 0;
+  uint32_t sync_errors = 0;
+  
+  void updateHub75Rx() {
     uint32_t now = esp_timer_get_time() / 1000;
-    if(last_frame_time > 0) {
-      uint32_t frame_time = now - last_frame_time;
-      if(frame_time < min_frame_time) min_frame_time = frame_time;
-      if(frame_time > max_frame_time) max_frame_time = frame_time;
-      fps = (frame_time > 0) ? (1000 / frame_time) : 0;
+    if(hub75_last_rx_time > 0) {
+      uint32_t dt = now - hub75_last_rx_time;
+      hub75_fps = (dt > 0) ? (1000 / dt) : 0;
     }
-    last_frame_time = now;
-    frames_received++;
+    hub75_last_rx_time = now;
+    hub75_frames_received++;
   }
   
-  void updateDisplayFps() {
+  void updateHub75Display() {
     uint32_t now = esp_timer_get_time() / 1000;
-    if(last_display_time > 0) {
-      uint32_t display_time = now - last_display_time;
-      if(display_time < min_display_time) min_display_time = display_time;
-      if(display_time > max_display_time) max_display_time = display_time;
-      display_fps = (display_time > 0) ? (1000 / display_time) : 0;
+    if(hub75_last_display_time > 0) {
+      uint32_t dt = now - hub75_last_display_time;
+      hub75_display_fps = (dt > 0) ? (1000 / dt) : 0;
     }
-    last_display_time = now;
-    frames_displayed++;
+    hub75_last_display_time = now;
+    hub75_frames_displayed++;
+  }
+  
+  void updateOledRx() {
+    uint32_t now = esp_timer_get_time() / 1000;
+    if(oled_last_rx_time > 0) {
+      uint32_t dt = now - oled_last_rx_time;
+      oled_fps = (dt > 0) ? (1000 / dt) : 0;
+    }
+    oled_last_rx_time = now;
+    oled_frames_received++;
+  }
+  
+  void updateOledDisplay() {
+    uint32_t now = esp_timer_get_time() / 1000;
+    if(oled_last_display_time > 0) {
+      uint32_t dt = now - oled_last_display_time;
+      oled_display_fps = (dt > 0) ? (1000 / dt) : 0;
+    }
+    oled_last_display_time = now;
+    oled_frames_displayed++;
   }
 };
 
-FrameStats stats;
+DisplayStats stats;
+bool hub75_ok = false;
+bool oled_ok = false;
 
 void printMemoryStats(){
   ESP_LOGI(TAG, "=== Memory Stats ===");
@@ -76,18 +114,44 @@ void printMemoryStats(){
   ESP_LOGI(TAG, "Free internal: %lu bytes", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 }
 
+/** Initialize I2C bus for OLED */
+bool initI2C(){
+  ESP_LOGI(TAG, "Initializing I2C bus for OLED...");
+  
+  // Initialize I2C bus 0 with SDA=2, SCL=1 using ESP32S3_I2C_HAL
+  HalResult result = ESP32S3_I2C_HAL::Initialize(
+    0,      // Bus ID 0
+    2,      // SDA = GPIO2
+    1,      // SCL = GPIO1
+    400000, // 400kHz
+    1000    // 1000ms timeout
+  );
+  
+  if(result != HalResult::Success){
+    ESP_LOGE(TAG, "Failed to initialize I2C bus!");
+    return false;
+  }
+  
+  ESP_LOGI(TAG, "I2C bus initialized (SDA=2, SCL=1 @ 400kHz)");
+  return true;
+}
+
 extern "C" void app_main(void){
   // 3 second delay to see boot messages
   ESP_LOGI(TAG, "Starting in 3 seconds...");
   vTaskDelay(pdMS_TO_TICKS(3000));
   
-  ESP_LOGI(TAG, "==============================================");
-  ESP_LOGI(TAG, "= GPU: UART Frame Reception -> HUB75 Display =");
-  ESP_LOGI(TAG, "==============================================");
+  ESP_LOGI(TAG, "================================================");
+  ESP_LOGI(TAG, "= GPU: Dual Display Driver (HUB75 + OLED)      =");
+  ESP_LOGI(TAG, "= HUB75: 128x32 RGB @ 60fps                    =");
+  ESP_LOGI(TAG, "= OLED:  128x128 Mono @ 15fps                  =");
+  ESP_LOGI(TAG, "================================================");
   
   printMemoryStats();
   
-  // Configure HUB75 with optimized settings
+  // ============ Initialize HUB75 Display ============
+  ESP_LOGI(TAG, "--- Initializing HUB75 Display ---");
+  
   HUB75Config config = HUB75Config::getDefault();
   config.colour_depth = 5;  // 5-bit color (32 levels per channel)
   config.colour_buffer_count = 5;
@@ -95,60 +159,76 @@ extern "C" void app_main(void){
   config.enable_gamma_correction = true;
   config.gamma_value = 2.2f;
   
-  ESP_LOGI(TAG, "HUB75 Config: colour_depth=%d, gamma=%.1f", config.colour_depth, config.gamma_value);
-  
-  // Initialize display with dual OE mode
-  if(!display.begin(true, config)){
+  if(!hub75_display.begin(true, config)){
     ESP_LOGE(TAG, "Failed to initialize HUB75!");
-    while(1) vTaskDelay(pdMS_TO_TICKS(1000));
+  } else {
+    hub75_ok = true;
+    ESP_LOGI(TAG, "HUB75 initialized: %dx%d", hub75_display.getWidth(), hub75_display.getHeight());
+    hub75_display.setBrightness(255);
+    hub75_display.clear();
+    hub75_display.show();
   }
   
-  ESP_LOGI(TAG, "HUB75 initialized: %dx%d", display.getWidth(), display.getHeight());
-  display.setBrightness(255);  // Maximum brightness
-  ESP_LOGI(TAG, "Brightness set to maximum (255)");
+  // ============ Initialize I2C and OLED ============
+  ESP_LOGI(TAG, "--- Initializing OLED Display ---");
+  
+  if(!initI2C()){
+    ESP_LOGW(TAG, "I2C init failed, OLED disabled");
+  } else {
+    OLEDConfig oled_config;
+    oled_config.contrast = 0xFF;  // Maximum contrast
+    
+    if(!oled_display.initialize(oled_config)){
+      ESP_LOGE(TAG, "Failed to initialize OLED!");
+    } else {
+      oled_ok = true;
+      ESP_LOGI(TAG, "OLED initialized: 128x128 @ 0x3C");
+      oled_display.clearBuffer();
+      oled_display.updateDisplay();
+    }
+  }
   
   printMemoryStats();
   
-  // Initialize UART
+  // ============ Initialize UART ============
+  ESP_LOGI(TAG, "--- Initializing UART ---");
+  
   GpuUartHandler::Config uart_config;
-  uart_config.baud_rate = 10000000;  // 10 Mbps
+  uart_config.baud_rate = UART_BAUD_RATE;  // 20 Mbps from protocol
+  uart_config.rx_pin = 13;  // GPU RX <- CPU TX (GPIO12)
+  uart_config.tx_pin = 12;  // GPU TX -> CPU RX (GPIO11)
+  uart_config.rx_buffer_size = 16384;
   
   if(!uart.init(uart_config)){
     ESP_LOGE(TAG, "Failed to initialize UART!");
     while(1) vTaskDelay(pdMS_TO_TICKS(1000));
   }
   
-  ESP_LOGI(TAG, "UART initialized at %lu baud", uart_config.baud_rate);
+  ESP_LOGI(TAG, "UART initialized: %lu baud (%.1f Mbps)", 
+           (unsigned long)uart_config.baud_rate,
+           uart_config.baud_rate / 1000000.0f);
+  
   ESP_LOGI(TAG, "Waiting for frames from CPU...");
-  ESP_LOGI(TAG, "Frame request mode: GPU controls frame rate");
-  
-  // Clear display to black
-  display.clear();
-  display.show();
-  
-  // Send initial frame request to start the loop
-  ESP_LOGI(TAG, "Sending initial frame request...");
-  uart.sendMessage(MsgType::FRAME_REQUEST, nullptr, 0);
-  stats.frame_requests_sent++;
+  ESP_LOGI(TAG, "  HUB75: %s", hub75_ok ? "READY" : "DISABLED");
+  ESP_LOGI(TAG, "  OLED:  %s", oled_ok ? "READY" : "DISABLED");
   
   uint32_t last_stats_time = 0;
-  bool waiting_for_frame = true;
   
+  // ============ Main Loop ============
   while(1){
     // Process incoming UART data
-    uart.process(8192);
+    uart.process(16384);
     
-    // Check if we have a complete frame and we're waiting for one
-    if(waiting_for_frame && uart.hasFrame()){
+    // ============ Handle HUB75 Frame ============
+    if(hub75_ok && uart.hasFrame()){
       const UartFrameBuffer* frame = uart.getFrame();
       
       if(frame && frame->complete && 
          frame->width == 128 && frame->height == 32){
         
-        // Track frame receive timing
-        stats.updateReceiveFps();
+        stats.updateHub75Rx();
         
-        // Copy frame data to display using setPixel (writes to back buffer)
+        // Copy frame data to display
         const uint8_t* pixel_data = frame->data;
         for(int y = 0; y < 32; y++){
           for(int x = 0; x < 128; x++){
@@ -156,44 +236,61 @@ extern "C" void app_main(void){
             uint8_t r = pixel_data[idx + 0];
             uint8_t g = pixel_data[idx + 1];
             uint8_t b = pixel_data[idx + 2];
-            display.setPixel(x, y, RGB(r, g, b));
+            hub75_display.setPixel(x, y, RGB(r, g, b));
           }
         }
         
-        // Swap buffers and display (presents to front buffer)
-        display.show();
-        
-        // Track display swap timing
-        stats.updateDisplayFps();
+        // Swap buffers
+        hub75_display.show();
+        stats.updateHub75Display();
         
         // Mark frame as consumed
         uart.consumeFrame();
-        
-        // Request next frame NOW - right after buffer swap
-        uart.sendMessage(MsgType::FRAME_REQUEST, nullptr, 0);
-        stats.frame_requests_sent++;
-        
-        // We've sent the request, now wait for next frame
-        waiting_for_frame = true;
       }
     }
     
-    // Print statistics every second
+    // ============ Handle OLED Frame ============
+    if(oled_ok && uart.hasOledFrame()){
+      const UartFrameBuffer* frame = uart.getOledFrame();
+      
+      if(frame && frame->complete){
+        stats.updateOledRx();
+        
+        // Copy packed monochrome data directly to OLED buffer
+        // The CPU sends 1-bit packed data (MSB first)
+        uint8_t* oled_buffer = oled_display.getBuffer();
+        if(oled_buffer){
+          memcpy(oled_buffer, frame->data, 2048);
+          
+          // Update OLED display
+          oled_display.updateDisplay();
+          stats.updateOledDisplay();
+        }
+        
+        // Mark frame as consumed
+        uart.consumeOledFrame();
+      }
+    }
+    
+    // ============ Print Statistics ============
     uint32_t now = esp_timer_get_time() / 1000;
     if(now - last_stats_time >= 1000){
-      uint32_t display_interval = (stats.last_display_time > 0) ? 
-                                   (now - stats.last_display_time) : 0;
+      const auto& uart_stats = uart.getStats();
       
-      ESP_LOGI(TAG, "RX: %lu frames @ %lu FPS (recv: %lu-%lu ms) | Display: %lu @ %lu FPS (swap: %lu-%lu ms) | Requests: %lu",
-               (unsigned long)stats.frames_received,
-               (unsigned long)stats.fps,
-               (unsigned long)stats.min_frame_time,
-               (unsigned long)stats.max_frame_time,
-               (unsigned long)stats.frames_displayed,
-               (unsigned long)stats.display_fps,
-               (unsigned long)stats.min_display_time,
-               (unsigned long)stats.max_display_time,
-               (unsigned long)stats.frame_requests_sent);
+      ESP_LOGI(TAG, "HUB75: RX %lu @ %lu fps, Display %lu @ %lu fps | OLED: RX %lu @ %lu fps, Display %lu @ %lu fps | Errors: %lu",
+               (unsigned long)stats.hub75_frames_received,
+               (unsigned long)stats.hub75_fps,
+               (unsigned long)stats.hub75_frames_displayed,
+               (unsigned long)stats.hub75_display_fps,
+               (unsigned long)stats.oled_frames_received,
+               (unsigned long)stats.oled_fps,
+               (unsigned long)stats.oled_frames_displayed,
+               (unsigned long)stats.oled_display_fps,
+               (unsigned long)(uart_stats.checksum_errors + uart_stats.sync_errors));
+      
+      // Send status back to CPU periodically
+      uart.sendStatus();
+      
       last_stats_time = now;
     }
     

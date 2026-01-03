@@ -1,126 +1,212 @@
 /*****************************************************************
  * File:      UartProtocol.hpp
- * Category:  include/Comms
+ * Category:  Communication Protocol
  * Author:    XCR1793 (Feather Forge)
  * 
  * Purpose:
- *    Shared UART communication protocol definitions between
- *    CPU and GPU. Defines message structure, types, and
- *    common constants for high-speed serial communication.
+ *    UART protocol definitions for CPU-GPU display streaming.
+ *    Supports HUB75 (128x32 RGB) and OLED (128x128 mono) frames.
+ * 
+ * Bandwidth Requirements:
+ *    - HUB75: 128x32x3 = 12,288 bytes @ 60fps = 5.9 Mbps
+ *    - OLED:  128x128/8 = 2,048 bytes @ 15fps = 0.25 Mbps
+ *    - Total: ~6.2 Mbps + protocol overhead
+ *    - Recommended baud: 8,000,000 (8 Mbps)
  *****************************************************************/
 
-#ifndef ARCOS_INCLUDE_COMMS_UART_PROTOCOL_HPP_
-#define ARCOS_INCLUDE_COMMS_UART_PROTOCOL_HPP_
+#ifndef ARCOS_COMMS_UART_PROTOCOL_HPP_
+#define ARCOS_COMMS_UART_PROTOCOL_HPP_
 
 #include <stdint.h>
 
-namespace arcos::comms{
+namespace arcos::comms {
 
 // ============================================================
-// UART Configuration
+// Protocol Constants
 // ============================================================
 
-/** UART baud rate - 10 Mbps for high-speed data transfer */
+constexpr uint8_t SYNC_BYTE_1 = 0xAA;
+constexpr uint8_t SYNC_BYTE_2 = 0x55;
+constexpr uint8_t SYNC_BYTE_3 = 0xCC;
+
+// Baud rate - 10 Mbps for reliable 1KB fragmented streaming
 constexpr uint32_t UART_BAUD_RATE = 10000000;
 
-/** Maximum payload size in bytes */
-constexpr uint16_t MAX_PAYLOAD_SIZE = 512;
+// Fragment configuration (tested optimal: 1KB @ 10 Mbps = 100% reliable)
+constexpr uint16_t FRAGMENT_SIZE = 1024;  // 1KB packets
+constexpr uint8_t HUB75_FRAGMENT_COUNT = 12;  // 12KB / 1KB = 12 fragments
+constexpr uint8_t OLED_FRAGMENT_COUNT = 2;   // 2KB / 1KB = 2 fragments
+constexpr uint8_t MAX_RETRIES = 3;  // Max retries per fragment
+constexpr uint32_t ACK_TIMEOUT_US = 2000;  // 2ms ACK timeout (ACK ~13 bytes = 13μs @ 10Mbps)
 
-/** UART buffer sizes - large buffers for high-speed transfer */
-constexpr int UART_TX_BUFFER_SIZE = 8192;
-constexpr int UART_RX_BUFFER_SIZE = 16384;
+// Streaming mode: 0 = wait for ACK per fragment, 1 = stream all then verify
+constexpr bool STREAMING_MODE = true;  // True = no per-fragment ACK (faster)
+
+// Display dimensions
+constexpr uint16_t HUB75_WIDTH = 128;
+constexpr uint16_t HUB75_HEIGHT = 32;
+constexpr uint32_t HUB75_RGB_SIZE = HUB75_WIDTH * HUB75_HEIGHT * 3;  // 12,288 bytes
+
+constexpr uint16_t OLED_WIDTH = 128;
+constexpr uint16_t OLED_HEIGHT = 128;
+constexpr uint32_t OLED_MONO_SIZE = (OLED_WIDTH * OLED_HEIGHT) / 8;  // 2,048 bytes
+
+// Frame rates
+constexpr uint8_t HUB75_TARGET_FPS = 60;
+constexpr uint8_t HUB75_MIN_FPS = 30;
+constexpr uint8_t OLED_TARGET_FPS = 15;
+constexpr uint8_t OLED_MIN_FPS = 10;
+
+// Maximum packet payload (fragment size for transfers)
+constexpr uint16_t MAX_PAYLOAD_SIZE = FRAGMENT_SIZE;
 
 // ============================================================
-// Pin Definitions
+// Message Types
 // ============================================================
 
-/** CPU UART pins (connects to GPU) */
-namespace cpu{
-  constexpr int UART_RX_PIN = 11;  // CPU RX <- GPU TX
-  constexpr int UART_TX_PIN = 12;  // CPU TX -> GPU RX
-}
-
-/** GPU UART pins (connects to CPU) */
-namespace gpu{
-  constexpr int UART_TX_PIN = 12;  // GPU TX -> CPU RX (GPIO 11)
-  constexpr int UART_RX_PIN = 13;  // GPU RX <- CPU TX (GPIO 12)
-}
-
-// ============================================================
-// Message Protocol
-// ============================================================
-
-/** Message frame markers */
-constexpr uint8_t MSG_START_BYTE = 0xAA;
-constexpr uint8_t MSG_END_BYTE = 0x55;
-
-/** Message types */
-enum class MsgType : uint8_t{
-  // System messages (0x00 - 0x0F)
-  PING        = 0x01,  // Request echo response
-  PONG        = 0x02,  // Echo response with timestamp
-  HEARTBEAT   = 0x03,  // Keep-alive signal
-  ACK         = 0x04,  // Acknowledge receipt
-  NACK        = 0x05,  // Negative acknowledge
+enum class MsgType : uint8_t {
+  // Control messages (0x0X)
+  PING          = 0x01,
+  PONG          = 0x02,
+  ACK           = 0x03,
+  NACK          = 0x04,
+  STATUS        = 0x05,
+  FRAME_REQUEST = 0x06,  // GPU requests a frame from CPU
+  RESEND_FRAG   = 0x07,  // GPU requests fragment resend
   
-  // Data messages (0x10 - 0x1F)
-  DATA        = 0x10,  // Generic data payload
-  COMMAND     = 0x11,  // Command from CPU to GPU
-  STATUS      = 0x12,  // Status update
+  // Display frames (0x1X)
+  HUB75_FRAME   = 0x10,  // Full HUB75 RGB frame (12,288 bytes) - legacy
+  HUB75_FRAG    = 0x11,  // HUB75 frame fragment (1KB)
+  OLED_FRAME    = 0x12,  // Full OLED monochrome frame (2,048 bytes) - legacy
+  OLED_FRAG     = 0x13,  // OLED frame fragment (1KB)
   
-  // Display messages (0x20 - 0x2F)
-  FRAME_DATA    = 0x20,  // Frame buffer data
-  FRAME_SYNC    = 0x21,  // Frame synchronization
-  FRAME_REQUEST = 0x22,  // Request next frame (GPU -> CPU)
+  // Settings (0x2X)
+  SET_FPS       = 0x20,  // Change target FPS
+  SET_BRIGHTNESS = 0x21, // Set display brightness
   
-  // Error messages (0xF0 - 0xFF)
-  ERROR       = 0xF0,  // Error notification
+  // Diagnostics (0x3X)
+  STATS_REQUEST = 0x30,
+  STATS_RESPONSE = 0x31,
 };
 
-/** Message header structure
- * 
- * Frame format: [START][TYPE][LEN_L][LEN_H][DATA...][CHECKSUM][END]
- * 
- * - START: 0xAA (1 byte)
- * - TYPE: Message type (1 byte)
- * - LEN: Payload length (2 bytes, little-endian)
- * - DATA: Payload (0-512 bytes)
- * - CHECKSUM: XOR of TYPE, LEN, and DATA (1 byte)
- * - END: 0x55 (1 byte)
- */
-struct MsgHeader{
-  uint8_t start;
-  uint8_t type;
-  uint16_t length;
+// ============================================================
+// Packet Header Structure
+// ============================================================
+
+#pragma pack(push, 1)
+
+struct PacketHeader {
+  uint8_t sync1;        // SYNC_BYTE_1 (0xAA)
+  uint8_t sync2;        // SYNC_BYTE_2 (0x55)
+  uint8_t sync3;        // SYNC_BYTE_3 (0xCC)
+  uint8_t msg_type;     // MsgType
+  uint16_t payload_len; // Payload length (little-endian)
+  uint16_t frame_num;   // Frame sequence number
+  uint8_t frag_index;   // Fragment index (0 for non-fragmented)
+  uint8_t frag_total;   // Total fragments (1 for non-fragmented)
+  // Total: 10 bytes
 };
 
-/** Calculate checksum for message
- * @param type Message type byte
- * @param data Pointer to payload data
- * @param len Length of payload
- * @return XOR checksum byte
- */
-inline uint8_t calculateChecksum(uint8_t type, const uint8_t* data, uint16_t len){
-  uint8_t checksum = type;
-  checksum ^= (len & 0xFF);
-  checksum ^= ((len >> 8) & 0xFF);
-  for(uint16_t i = 0; i < len; i++){
-    checksum ^= data[i];
+struct PacketFooter {
+  uint16_t checksum;    // CRC16 or simple sum
+  uint8_t end_byte;     // 0x55
+  // Total: 3 bytes
+};
+
+// ============================================================
+// Payload Structures
+// ============================================================
+
+/** HUB75 full frame (12,288 bytes RGB data) */
+struct Hub75FramePayload {
+  uint8_t rgb_data[HUB75_RGB_SIZE];
+};
+
+/** OLED full frame (2,048 bytes monochrome, 1 bit per pixel) */
+struct OledFramePayload {
+  uint8_t mono_data[OLED_MONO_SIZE];
+};
+
+/** Frame fragment for reliable transfer */
+struct FrameFragmentPayload {
+  uint16_t offset;      // Byte offset in full frame
+  uint16_t length;      // Length of this fragment
+  uint8_t data[];       // Variable length data
+};
+
+/** Status response */
+struct StatusPayload {
+  uint32_t uptime_ms;
+  uint16_t hub75_fps;   // Actual HUB75 FPS (x10 for 1 decimal)
+  uint16_t oled_fps;    // Actual OLED FPS (x10 for 1 decimal)  
+  uint16_t frames_rx;   // Frames received
+  uint16_t frames_drop; // Frames dropped
+  uint8_t hub75_ok;     // HUB75 display status
+  uint8_t oled_ok;      // OLED display status
+};
+
+/** Ping/Pong payload */
+struct PingPayload {
+  uint32_t timestamp_us;
+  uint16_t seq_num;
+};
+
+#pragma pack(pop)
+
+// ============================================================
+// Helper Functions
+// ============================================================
+
+/** Calculate simple checksum (sum of all bytes) */
+inline uint16_t calcChecksum(const uint8_t* data, size_t len) {
+  uint16_t sum = 0;
+  for (size_t i = 0; i < len; i++) {
+    sum += data[i];
   }
-  return checksum;
+  return sum;
 }
 
-/** Verify message checksum
- * @param type Message type byte
- * @param data Pointer to payload data
- * @param len Length of payload
- * @param expected Expected checksum value
- * @return true if checksum matches
- */
-inline bool verifyChecksum(uint8_t type, const uint8_t* data, uint16_t len, uint8_t expected){
-  return calculateChecksum(type, data, len) == expected;
+/** Validate packet header sync bytes */
+inline bool validateSync(const PacketHeader& hdr) {
+  return (hdr.sync1 == SYNC_BYTE_1) && 
+         (hdr.sync2 == SYNC_BYTE_2) && 
+         (hdr.sync3 == SYNC_BYTE_3);
 }
+
+// ============================================================
+// UART Statistics
+// ============================================================
+
+struct UartStats {
+  uint32_t tx_bytes;
+  uint32_t rx_bytes;
+  uint32_t tx_frames;
+  uint32_t rx_frames;
+  uint32_t tx_fragments;     // Total fragments sent
+  uint32_t rx_fragments;     // Total fragments received
+  uint32_t retries;          // Fragment retries requested
+  uint32_t retry_success;    // Successful retries
+  uint32_t checksum_errors;
+  uint32_t sync_errors;
+  uint32_t timeout_errors;   // ACK timeout errors
+  uint32_t last_rtt_us;
+  uint16_t hub75_fps_actual;  // x10
+  uint16_t oled_fps_actual;   // x10
+  uint8_t hub75_fps;          // Actual FPS
+  uint8_t oled_fps;           // Actual FPS
+  
+  // Error rate calculation helpers
+  float getFragmentErrorRate() const {
+    if (tx_fragments == 0) return 0.0f;
+    return 100.0f * retries / tx_fragments;
+  }
+  
+  float getChecksumErrorRate() const {
+    if (rx_fragments == 0) return 0.0f;
+    return 100.0f * checksum_errors / rx_fragments;
+  }
+};
 
 } // namespace arcos::comms
 
-#endif // ARCOS_INCLUDE_COMMS_UART_PROTOCOL_HPP_
+#endif // ARCOS_COMMS_UART_PROTOCOL_HPP_

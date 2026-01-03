@@ -1,452 +1,734 @@
 /*****************************************************************
  * File:      GpuUartHandler.hpp
- * Category:  include/Comms
+ * Category:  Communication/GPU
  * Author:    XCR1793 (Feather Forge)
  * 
  * Purpose:
- *    GPU-side UART communication handler for ESP-IDF framework.
- *    Manages high-speed serial communication with CPU including
- *    frame buffer reception at 60fps.
+ *    GPU-side UART handler for receiving display frames from CPU.
+ *    Receives HUB75 frames at 60fps and OLED frames at 15fps.
+ *    ESP-IDF compatible (no Arduino dependency).
  * 
- * Features:
- *    - Non-blocking frame reception
- *    - Chunked data reassembly
- *    - Double-buffered frame storage
- *    - Statistics tracking (TX/RX bytes, FPS, errors)
+ * Pin Configuration:
+ *    - TX: GPIO12 (GPU TX → CPU RX GPIO11)
+ *    - RX: GPIO13 (GPU RX ← CPU TX GPIO12)
+ * 
+ * Frame Buffers:
+ *    - HUB75: 12,288 bytes (128x32 RGB)
+ *    - OLED: 2,048 bytes (128x128 mono, 1-bit)
  *****************************************************************/
 
-#ifndef ARCOS_INCLUDE_COMMS_GPU_UART_HANDLER_HPP_
-#define ARCOS_INCLUDE_COMMS_GPU_UART_HANDLER_HPP_
+#ifndef ARCOS_COMMS_GPU_UART_HANDLER_HPP_
+#define ARCOS_COMMS_GPU_UART_HANDLER_HPP_
 
-#include <cstring>
+// ESP-IDF includes
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include <string.h>
+#include <stdlib.h>
+
 #include "UartProtocol.hpp"
 
-namespace arcos::comms{
+namespace arcos::comms {
 
-/** Frame buffer for storing received image data */
-struct UartFrameBuffer{
-  static constexpr uint16_t MAX_WIDTH = 128;
-  static constexpr uint16_t MAX_HEIGHT = 32;
-  static constexpr uint32_t MAX_SIZE = MAX_WIDTH * MAX_HEIGHT * 3;
-  
-  uint8_t data[MAX_SIZE];
-  uint16_t width = 0;
-  uint16_t height = 0;
-  uint16_t frame_num = 0;
-  uint16_t chunks_expected = 0;
-  uint16_t chunks_received = 0;
-  bool complete = false;
+// Frame buffer structure for GPU
+struct UartFrameBuffer {
+  uint8_t* data;
+  uint16_t width;
+  uint16_t height;
+  uint16_t frame_num;
+  bool complete;
 };
 
-/** GPU UART Handler - ESP-IDF Framework
- * 
- * Handles all UART communication from GPU to CPU.
- * Designed for high-speed frame buffer reception.
- */
-class GpuUartHandler{
+class GpuUartHandler {
 public:
-  static constexpr const char* TAG = "GpuUartHandler";
-  
-  /** Configuration for the handler */
-  struct Config{
-    int rx_pin;
-    int tx_pin;
+  struct Config {
     uint32_t baud_rate;
-    uart_port_t uart_num;
+    uint8_t rx_pin;
+    uint8_t tx_pin;
+    uint16_t rx_buffer_size;
     
-    Config() : rx_pin(gpu::UART_RX_PIN), tx_pin(gpu::UART_TX_PIN),
-               baud_rate(UART_BAUD_RATE), uart_num(UART_NUM_1) {}
+    Config() : baud_rate(UART_BAUD_RATE), rx_pin(13), tx_pin(12), rx_buffer_size(16384) {}
   };
-  
-  /** Statistics structure */
-  struct Stats{
-    uint32_t tx_bytes = 0;
-    uint32_t rx_bytes = 0;
-    uint32_t rx_frames = 0;
-    uint32_t errors = 0;
-    uint32_t fps = 0;
-    uint32_t last_frame_time = 0;
-  };
-  
-  GpuUartHandler() = default;
-  ~GpuUartHandler(){
-    if(initialized_){
-      uart_driver_delete(config_.uart_num);
-    }
+
+  GpuUartHandler() : initialized_(false), 
+                     uart_num_(UART_NUM_1),
+                     rx_temp_buffer_(nullptr),
+                     hub75_write_idx_(0),
+                     hub75_read_idx_(0),
+                     oled_write_idx_(0),
+                     oled_read_idx_(0),
+                     hub75_frame_ready_(false),
+                     oled_frame_ready_(false),
+                     last_hub75_time_(0),
+                     last_oled_time_(0),
+                     hub75_frag_received_(0),
+                     oled_frag_received_(0),
+                     current_hub75_frame_(0),
+                     current_oled_frame_(0) {
+    memset(&stats_, 0, sizeof(stats_));
+    hub75_buffer_[0] = nullptr;
+    hub75_buffer_[1] = nullptr;
+    oled_buffer_[0] = nullptr;
+    oled_buffer_[1] = nullptr;
   }
   
-  /** Initialize UART communication
-   * @param config Optional configuration
-   * @return true if initialization successful
-   */
-  bool init(const Config& config = Config()){
+  ~GpuUartHandler() {
+    if (hub75_buffer_[0]) free(hub75_buffer_[0]);
+    if (hub75_buffer_[1]) free(hub75_buffer_[1]);
+    if (oled_buffer_[0]) free(oled_buffer_[0]);
+    if (oled_buffer_[1]) free(oled_buffer_[1]);
+    if (rx_temp_buffer_) free(rx_temp_buffer_);
+  }
+  
+  /** Initialize UART communication */
+  bool init(const Config& config = Config()) {
     config_ = config;
     
-    uart_config_t uart_config = {
-      .baud_rate = static_cast<int>(config_.baud_rate),
-      .data_bits = UART_DATA_8_BITS,
-      .parity = UART_PARITY_DISABLE,
-      .stop_bits = UART_STOP_BITS_1,
-      .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-      .rx_flow_ctrl_thresh = 0,
-      .source_clk = UART_SCLK_DEFAULT
-    };
+    // Configure UART parameters
+    uart_config_t uart_config = {};
+    uart_config.baud_rate = config.baud_rate;
+    uart_config.data_bits = UART_DATA_8_BITS;
+    uart_config.parity = UART_PARITY_DISABLE;
+    uart_config.stop_bits = UART_STOP_BITS_1;
+    uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+    uart_config.source_clk = UART_SCLK_DEFAULT;
     
-    esp_err_t ret = uart_param_config(config_.uart_num, &uart_config);
-    if(ret != ESP_OK){
-      ESP_LOGE(TAG, "uart_param_config failed: %d", ret);
+    // Install UART driver with large RX buffer
+    esp_err_t err = uart_driver_install(uart_num_, config.rx_buffer_size, 1024, 0, NULL, 0);
+    if (err != ESP_OK) {
+      ESP_LOGE("GpuUart", "uart_driver_install failed: %d", err);
       return false;
     }
     
-    ret = uart_set_pin(config_.uart_num,
-                       config_.tx_pin,
-                       config_.rx_pin,
-                       UART_PIN_NO_CHANGE,
-                       UART_PIN_NO_CHANGE);
-    if(ret != ESP_OK){
-      ESP_LOGE(TAG, "uart_set_pin failed: %d", ret);
+    err = uart_param_config(uart_num_, &uart_config);
+    if (err != ESP_OK) {
+      ESP_LOGE("GpuUart", "uart_param_config failed: %d", err);
       return false;
     }
     
-    ret = uart_driver_install(config_.uart_num, 
-                               4096,                       // 4KB RX buffer (small, write directly to display)
-                               512,                        // 512B TX buffer
-                               0, nullptr, 0);
-    if(ret != ESP_OK){
-      ESP_LOGE(TAG, "uart_driver_install failed: %d", ret);
+    // Set UART pins
+    err = uart_set_pin(uart_num_, config.tx_pin, config.rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    if (err != ESP_OK) {
+      ESP_LOGE("GpuUart", "uart_set_pin failed: %d", err);
       return false;
     }
+    
+    // Allocate DOUBLE BUFFERS for HUB75 (receive into one, display from other)
+    hub75_buffer_[0] = (uint8_t*)malloc(HUB75_RGB_SIZE);
+    hub75_buffer_[1] = (uint8_t*)malloc(HUB75_RGB_SIZE);
+    oled_buffer_[0] = (uint8_t*)malloc(OLED_MONO_SIZE);
+    oled_buffer_[1] = (uint8_t*)malloc(OLED_MONO_SIZE);
+    rx_temp_buffer_ = (uint8_t*)malloc(HUB75_RGB_SIZE);  // Temp buffer for receiving
+    
+    if (!hub75_buffer_[0] || !hub75_buffer_[1] || 
+        !oled_buffer_[0] || !oled_buffer_[1] || !rx_temp_buffer_) {
+      ESP_LOGE("GpuUart", "Failed to allocate frame buffers");
+      return false;
+    }
+    
+    memset(hub75_buffer_[0], 0, HUB75_RGB_SIZE);
+    memset(hub75_buffer_[1], 0, HUB75_RGB_SIZE);
+    memset(oled_buffer_[0], 0, OLED_MONO_SIZE);
+    memset(oled_buffer_[1], 0, OLED_MONO_SIZE);
+    memset(rx_temp_buffer_, 0, HUB75_RGB_SIZE);
+    
+    // Initialize HUB75 frame struct (points to read buffer)
+    hub75_frame_.data = hub75_buffer_[hub75_read_idx_];
+    hub75_frame_.width = HUB75_WIDTH;
+    hub75_frame_.height = HUB75_HEIGHT;
+    hub75_frame_.frame_num = 0;
+    hub75_frame_.complete = false;
+    
+    // Initialize OLED frame struct
+    oled_frame_.data = oled_buffer_[oled_read_idx_];
+    oled_frame_.width = OLED_WIDTH;
+    oled_frame_.height = OLED_HEIGHT;
+    oled_frame_.frame_num = 0;
+    oled_frame_.complete = false;
     
     initialized_ = true;
-    ESP_LOGI(TAG, "UART initialized at %lu baud", config_.baud_rate);
     return true;
   }
   
-  /** Process incoming UART data - call frequently
-   * @param max_bytes Maximum bytes to process per call (0 = unlimited)
-   * @return Number of complete messages processed
-   */
-  int process(int max_bytes = 8192){
-    if(!initialized_) return 0;
+  /** Process incoming UART data - call frequently with max bytes to process */
+  void process(size_t max_bytes = 16384) {
+    if (!initialized_) return;
     
-    int messages_processed = 0;
-    int bytes_processed = 0;
+    size_t bytes_processed = 0;
+    size_t available = 0;
+    uart_get_buffered_data_len(uart_num_, &available);
     
-    // Read in chunks for better performance
-    uint8_t chunk[512];
-    while(max_bytes == 0 || bytes_processed < max_bytes){
-      int chunk_size = (max_bytes == 0) ? sizeof(chunk) : 
-                       (max_bytes - bytes_processed < (int)sizeof(chunk) ? 
-                        max_bytes - bytes_processed : sizeof(chunk));
+    while (bytes_processed < max_bytes && available >= (sizeof(PacketHeader) + sizeof(PacketFooter))) {
       
-      int len = uart_read_bytes(config_.uart_num, chunk, chunk_size, 0);
-      if(len <= 0) break;
+      // Look for 3-byte sync pattern (0xAA, 0x55, 0xCC)
+      uint8_t sync_buf[3];
+      if (uart_read_bytes(uart_num_, sync_buf, 1, 0) != 1) break;
+      bytes_processed++;
       
-      bytes_processed += len;
-      stats_.rx_bytes += len;
+      if (sync_buf[0] != SYNC_BYTE_1) {
+        stats_.sync_errors++;
+        uart_get_buffered_data_len(uart_num_, &available);
+        continue;
+      }
       
-      // Process each byte through state machine
-      for(int i = 0; i < len; i++){
-        if(processRxByte(chunk[i])){
-          messages_processed++;
-          handleMessage();
-        }
+      // Read next 2 bytes for sync verification
+      if (uart_read_bytes(uart_num_, &sync_buf[1], 2, pdMS_TO_TICKS(5)) != 2) {
+        stats_.sync_errors++;
+        uart_get_buffered_data_len(uart_num_, &available);
+        continue;
+      }
+      bytes_processed += 2;
+      
+      if (sync_buf[1] != SYNC_BYTE_2 || sync_buf[2] != SYNC_BYTE_3) {
+        stats_.sync_errors++;
+        uart_get_buffered_data_len(uart_num_, &available);
+        continue;
+      }
+      
+      // Read rest of header (already have sync bytes)
+      PacketHeader hdr;
+      hdr.sync1 = sync_buf[0];
+      hdr.sync2 = sync_buf[1];
+      hdr.sync3 = sync_buf[2];
+      int read_count = uart_read_bytes(uart_num_, ((uint8_t*)&hdr) + 3, sizeof(hdr) - 3, pdMS_TO_TICKS(10));
+      bytes_processed += read_count;
+      
+      if (read_count != (int)(sizeof(hdr) - 3)) {
+        stats_.sync_errors++;
+        uart_get_buffered_data_len(uart_num_, &available);
+        continue;
+      }
+      
+      // Validate payload length (max 1KB fragment)
+      if (hdr.payload_len > FRAGMENT_SIZE + 64) {
+        stats_.checksum_errors++;
+        uart_get_buffered_data_len(uart_num_, &available);
+        continue;
+      }
+      
+      MsgType type = static_cast<MsgType>(hdr.msg_type);
+      
+      // Handle HUB75 fragment
+      if (type == MsgType::HUB75_FRAG) {
+        processHub75Fragment(hdr, bytes_processed);
+      }
+      // Handle OLED fragment
+      else if (type == MsgType::OLED_FRAG) {
+        processOledFragment(hdr, bytes_processed);
+      }
+      // Handle legacy full HUB75 frame
+      else if (type == MsgType::HUB75_FRAME) {
+        processLegacyHub75Frame(hdr, bytes_processed);
+      }
+      // Handle legacy full OLED frame
+      else if (type == MsgType::OLED_FRAME) {
+        processLegacyOledFrame(hdr, bytes_processed);
+      }
+      // Handle PING
+      else if (type == MsgType::PING) {
+        PingPayload ping;
+        uart_read_bytes(uart_num_, (uint8_t*)&ping, sizeof(ping), pdMS_TO_TICKS(10));
+        bytes_processed += sizeof(ping);
+        
+        PacketFooter ftr;
+        uart_read_bytes(uart_num_, (uint8_t*)&ftr, sizeof(ftr), pdMS_TO_TICKS(10));
+        bytes_processed += sizeof(ftr);
+        
+        sendPong(ping);
+        stats_.rx_bytes += sizeof(hdr) + sizeof(ping) + sizeof(ftr);
+      }
+      else {
+        // Unknown or control message - skip payload
+        flushPayload(hdr.payload_len + sizeof(PacketFooter));
+        bytes_processed += hdr.payload_len + sizeof(PacketFooter);
+      }
+      
+      uart_get_buffered_data_len(uart_num_, &available);
+    }
+  }
+  
+  /** Process HUB75 fragment (1KB) */
+  void processHub75Fragment(const PacketHeader& hdr, size_t& bytes_processed) {
+    uint8_t frag_idx = hdr.frag_index;
+    uint8_t frag_total = hdr.frag_total;
+    uint16_t frame_num = hdr.frame_num;
+    uint16_t frag_len = hdr.payload_len;
+    
+    // Validate fragment parameters
+    if (frag_idx >= frag_total || frag_total != HUB75_FRAGMENT_COUNT || frag_len > FRAGMENT_SIZE) {
+      stats_.checksum_errors++;
+      flushPayload(frag_len + sizeof(PacketFooter));
+      bytes_processed += frag_len + sizeof(PacketFooter);
+      if (!STREAMING_MODE) sendNack(frag_idx);
+      return;
+    }
+    
+    // Check for new frame (reset fragment tracking)
+    if (frame_num != current_hub75_frame_) {
+      current_hub75_frame_ = frame_num;
+      hub75_frag_received_ = 0;
+    }
+    
+    // Read fragment data into correct position in temp buffer
+    uint32_t offset = frag_idx * FRAGMENT_SIZE;
+    int read_count = uart_read_bytes(uart_num_, rx_temp_buffer_ + offset, frag_len, pdMS_TO_TICKS(20));
+    bytes_processed += read_count;
+    
+    if (read_count != (int)frag_len) {
+      stats_.checksum_errors++;
+      flushPayload(sizeof(PacketFooter));
+      bytes_processed += sizeof(PacketFooter);
+      if (!STREAMING_MODE) sendNack(frag_idx);
+      return;
+    }
+    
+    // Read footer
+    PacketFooter ftr;
+    uart_read_bytes(uart_num_, (uint8_t*)&ftr, sizeof(ftr), pdMS_TO_TICKS(5));
+    bytes_processed += sizeof(ftr);
+    
+    // Validate checksum
+    uint16_t calc_checksum = calcChecksum((uint8_t*)&hdr, sizeof(hdr));
+    calc_checksum += calcChecksum(rx_temp_buffer_ + offset, frag_len);
+    
+    if (calc_checksum != ftr.checksum) {
+      stats_.checksum_errors++;
+      stats_.retries++;  // Will trigger retry
+      if (!STREAMING_MODE) sendNack(frag_idx);
+      return;
+    }
+    
+    // Fragment valid - mark as received
+    hub75_frag_received_ |= (1 << frag_idx);
+    stats_.rx_fragments++;
+    stats_.rx_bytes += sizeof(hdr) + frag_len + sizeof(ftr);
+    
+    // Only send ACK in non-streaming mode
+    if (!STREAMING_MODE) {
+      sendAck(frag_idx);
+    }
+    
+    // Check if all fragments received
+    uint16_t all_frags_mask = (1 << HUB75_FRAGMENT_COUNT) - 1;
+    if (hub75_frag_received_ == all_frags_mask) {
+      // Complete frame - copy to display buffer and swap
+      uint8_t write_idx = 1 - hub75_read_idx_;
+      memcpy(hub75_buffer_[write_idx], rx_temp_buffer_, HUB75_RGB_SIZE);
+      
+      hub75_read_idx_ = write_idx;
+      hub75_frame_.data = hub75_buffer_[hub75_read_idx_];
+      hub75_frame_.frame_num = frame_num;
+      hub75_frame_.complete = true;
+      hub75_frame_ready_ = true;
+      
+      stats_.rx_frames++;
+      updateHub75Fps();
+      
+      // Reset for next frame
+      hub75_frag_received_ = 0;
+    }
+  }
+  
+  /** Process OLED fragment (1KB) */
+  void processOledFragment(const PacketHeader& hdr, size_t& bytes_processed) {
+    uint8_t frag_idx = hdr.frag_index;
+    uint8_t frag_total = hdr.frag_total;
+    uint16_t frame_num = hdr.frame_num;
+    uint16_t frag_len = hdr.payload_len;
+    
+    // Validate fragment parameters
+    if (frag_idx >= frag_total || frag_total != OLED_FRAGMENT_COUNT || frag_len > FRAGMENT_SIZE) {
+      stats_.checksum_errors++;
+      flushPayload(frag_len + sizeof(PacketFooter));
+      bytes_processed += frag_len + sizeof(PacketFooter);
+      if (!STREAMING_MODE) sendNack(frag_idx);
+      return;
+    }
+    
+    // Check for new frame
+    if (frame_num != current_oled_frame_) {
+      current_oled_frame_ = frame_num;
+      oled_frag_received_ = 0;
+    }
+    
+    // Read fragment data
+    uint32_t offset = frag_idx * FRAGMENT_SIZE;
+    // For last fragment, only read remaining bytes
+    uint16_t expected_len = (frag_idx == frag_total - 1) ? 
+                            (OLED_MONO_SIZE - offset) : FRAGMENT_SIZE;
+    
+    int read_count = uart_read_bytes(uart_num_, rx_temp_buffer_ + offset, frag_len, pdMS_TO_TICKS(20));
+    bytes_processed += read_count;
+    
+    if (read_count != (int)frag_len) {
+      stats_.checksum_errors++;
+      flushPayload(sizeof(PacketFooter));
+      bytes_processed += sizeof(PacketFooter);
+      if (!STREAMING_MODE) sendNack(frag_idx);
+      return;
+    }
+    
+    // Read footer
+    PacketFooter ftr;
+    uart_read_bytes(uart_num_, (uint8_t*)&ftr, sizeof(ftr), pdMS_TO_TICKS(5));
+    bytes_processed += sizeof(ftr);
+    
+    // Validate checksum
+    uint16_t calc_checksum = calcChecksum((uint8_t*)&hdr, sizeof(hdr));
+    calc_checksum += calcChecksum(rx_temp_buffer_ + offset, frag_len);
+    
+    if (calc_checksum != ftr.checksum) {
+      stats_.checksum_errors++;
+      stats_.retries++;
+      if (!STREAMING_MODE) sendNack(frag_idx);
+      return;
+    }
+    
+    // Fragment valid
+    oled_frag_received_ |= (1 << frag_idx);
+    stats_.rx_fragments++;
+    stats_.rx_bytes += sizeof(hdr) + frag_len + sizeof(ftr);
+    
+    // Only send ACK in non-streaming mode
+    if (!STREAMING_MODE) {
+      sendAck(frag_idx);
+    }
+    
+    // Check if all fragments received
+    uint8_t all_frags_mask = (1 << OLED_FRAGMENT_COUNT) - 1;
+    if (oled_frag_received_ == all_frags_mask) {
+      // Complete frame
+      uint8_t write_idx = 1 - oled_read_idx_;
+      memcpy(oled_buffer_[write_idx], rx_temp_buffer_, OLED_MONO_SIZE);
+      
+      oled_read_idx_ = write_idx;
+      oled_frame_.data = oled_buffer_[oled_read_idx_];
+      oled_frame_.frame_num = frame_num;
+      oled_frame_.complete = true;
+      oled_frame_ready_ = true;
+      
+      stats_.rx_frames++;
+      updateOledFps();
+      
+      oled_frag_received_ = 0;
+    }
+  }
+  
+  /** Process legacy full HUB75 frame (for backwards compatibility) */
+  void processLegacyHub75Frame(const PacketHeader& hdr, size_t& bytes_processed) {
+    if (hdr.payload_len != HUB75_RGB_SIZE) {
+      stats_.checksum_errors++;
+      flushPayload(hdr.payload_len + sizeof(PacketFooter));
+      return;
+    }
+    
+    int read_count = uart_read_bytes(uart_num_, rx_temp_buffer_, HUB75_RGB_SIZE, pdMS_TO_TICKS(100));
+    bytes_processed += read_count;
+    
+    if (read_count == (int)HUB75_RGB_SIZE) {
+      PacketFooter ftr;
+      uart_read_bytes(uart_num_, (uint8_t*)&ftr, sizeof(ftr), pdMS_TO_TICKS(10));
+      bytes_processed += sizeof(ftr);
+      
+      uint16_t calc_checksum = calcChecksum((uint8_t*)&hdr, sizeof(hdr));
+      calc_checksum += calcChecksum(rx_temp_buffer_, HUB75_RGB_SIZE);
+      
+      if (calc_checksum == ftr.checksum) {
+        uint8_t write_idx = 1 - hub75_read_idx_;
+        memcpy(hub75_buffer_[write_idx], rx_temp_buffer_, HUB75_RGB_SIZE);
+        
+        hub75_read_idx_ = write_idx;
+        hub75_frame_.data = hub75_buffer_[hub75_read_idx_];
+        hub75_frame_.frame_num = hdr.frame_num;
+        hub75_frame_.complete = true;
+        hub75_frame_ready_ = true;
+        
+        stats_.rx_frames++;
+        stats_.rx_bytes += sizeof(hdr) + HUB75_RGB_SIZE + sizeof(ftr);
+        updateHub75Fps();
+      } else {
+        stats_.checksum_errors++;
       }
     }
-    
-    return messages_processed;
   }
   
-  /** Send a raw message
-   * @param type Message type
-   * @param data Payload data (can be nullptr if len is 0)
-   * @param len Payload length
-   * @return true if sent successfully
-   */
-  bool sendMessage(MsgType type, const uint8_t* data, uint16_t len){
-    if(!initialized_) return false;
-    if(len > MAX_PAYLOAD_SIZE) return false;
-    
-    // Build frame
-    uint8_t header[4] = {
-      MSG_START_BYTE,
-      static_cast<uint8_t>(type),
-      static_cast<uint8_t>(len & 0xFF),
-      static_cast<uint8_t>((len >> 8) & 0xFF)
-    };
-    
-    // Calculate checksum
-    uint8_t checksum = calculateChecksum(static_cast<uint8_t>(type), data, len);
-    
-    // Send frame
-    uart_write_bytes(config_.uart_num, header, 4);
-    if(len > 0 && data != nullptr){
-      uart_write_bytes(config_.uart_num, data, len);
-    }
-    uart_write_bytes(config_.uart_num, &checksum, 1);
-    uint8_t end_byte = MSG_END_BYTE;
-    uart_write_bytes(config_.uart_num, &end_byte, 1);
-    
-    stats_.tx_bytes += 6 + len;
-    return true;
-  }
-  
-  /** Send pong response with timing data
-   * @param ping_id Ping sequence number from received ping
-   * @return true if sent successfully
-   */
-  bool sendPong(uint16_t ping_id){
-    uint8_t data[4];
-    data[0] = ping_id & 0xFF;
-    data[1] = (ping_id >> 8) & 0xFF;
-    uint32_t timestamp = esp_timer_get_time() / 1000;  // ms
-    data[2] = timestamp & 0xFF;
-    data[3] = (timestamp >> 8) & 0xFF;
-    return sendMessage(MsgType::PONG, data, 4);
-  }
-  
-  /** Check if a new frame is ready
-   * @return true if a complete frame is available
-   */
-  bool hasFrame() const{
-    return frame_buffers_[read_buffer_].complete;
-  }
-  
-  /** Get the current frame buffer
-   * @return Pointer to the completed frame buffer
-   */
-  const UartFrameBuffer* getFrame() const{
-    return &frame_buffers_[read_buffer_];
-  }
-  
-  /** Mark current frame as consumed and swap buffers */
-  void consumeFrame(){
-    frame_buffers_[read_buffer_].complete = false;
-    read_buffer_ = 1 - read_buffer_;
-  }
-  
-  /** Get RGB pixel from current frame
-   * @param x X coordinate
-   * @param y Y coordinate
-   * @param r Output red value
-   * @param g Output green value
-   * @param b Output blue value
-   * @return true if pixel is valid
-   */
-  bool getPixel(int x, int y, uint8_t& r, uint8_t& g, uint8_t& b) const{
-    const UartFrameBuffer* fb = &frame_buffers_[read_buffer_];
-    if(!fb->complete || x < 0 || x >= fb->width || y < 0 || y >= fb->height){
-      r = g = b = 0;
-      return false;
+  /** Process legacy full OLED frame */
+  void processLegacyOledFrame(const PacketHeader& hdr, size_t& bytes_processed) {
+    if (hdr.payload_len != OLED_MONO_SIZE) {
+      stats_.checksum_errors++;
+      flushPayload(hdr.payload_len + sizeof(PacketFooter));
+      return;
     }
     
-    uint32_t idx = (y * fb->width + x) * 3;
-    r = fb->data[idx];
-    g = fb->data[idx + 1];
-    b = fb->data[idx + 2];
-    return true;
+    int read_count = uart_read_bytes(uart_num_, rx_temp_buffer_, OLED_MONO_SIZE, pdMS_TO_TICKS(50));
+    bytes_processed += read_count;
+    
+    if (read_count == (int)OLED_MONO_SIZE) {
+      PacketFooter ftr;
+      uart_read_bytes(uart_num_, (uint8_t*)&ftr, sizeof(ftr), pdMS_TO_TICKS(10));
+      bytes_processed += sizeof(ftr);
+      
+      uint16_t calc_checksum = calcChecksum((uint8_t*)&hdr, sizeof(hdr));
+      calc_checksum += calcChecksum(rx_temp_buffer_, OLED_MONO_SIZE);
+      
+      if (calc_checksum == ftr.checksum) {
+        uint8_t write_idx = 1 - oled_read_idx_;
+        memcpy(oled_buffer_[write_idx], rx_temp_buffer_, OLED_MONO_SIZE);
+        
+        oled_read_idx_ = write_idx;
+        oled_frame_.data = oled_buffer_[oled_read_idx_];
+        oled_frame_.frame_num = hdr.frame_num;
+        oled_frame_.complete = true;
+        oled_frame_ready_ = true;
+        
+        stats_.rx_frames++;
+        stats_.rx_bytes += sizeof(hdr) + OLED_MONO_SIZE + sizeof(ftr);
+        updateOledFps();
+      } else {
+        stats_.checksum_errors++;
+      }
+    }
+  }
+  
+  /** Check if HUB75 frame is ready */
+  bool hasFrame() const { return hub75_frame_ready_; }
+  
+  /** Check if OLED frame is ready */
+  bool hasOledFrame() const { return oled_frame_ready_; }
+  
+  /** Get HUB75 frame buffer (returns pointer to frame struct) */
+  const UartFrameBuffer* getFrame() const {
+    if (hub75_frame_ready_) return &hub75_frame_;
+    return nullptr;
+  }
+  
+  /** Get OLED frame buffer */
+  const UartFrameBuffer* getOledFrame() const {
+    if (oled_frame_ready_) return &oled_frame_;
+    return nullptr;
+  }
+  
+  /** Mark HUB75 frame as consumed */
+  void consumeFrame() {
+    hub75_frame_ready_ = false;
+    hub75_frame_.complete = false;
+  }
+  
+  /** Mark OLED frame as consumed */
+  void consumeOledFrame() {
+    oled_frame_ready_ = false;
+    oled_frame_.complete = false;
+  }
+  
+  /** Send generic message */
+  void sendMessage(MsgType type, const uint8_t* data, size_t len) {
+    PacketHeader hdr;
+    hdr.sync1 = SYNC_BYTE_1;
+    hdr.sync2 = SYNC_BYTE_2;
+    hdr.sync3 = SYNC_BYTE_3;
+    hdr.msg_type = static_cast<uint8_t>(type);
+    hdr.payload_len = len;
+    hdr.frame_num = 0;
+    hdr.frag_index = 0;
+    hdr.frag_total = 1;
+    
+    uint16_t checksum = calcChecksum((uint8_t*)&hdr, sizeof(hdr));
+    if (data && len > 0) {
+      checksum += calcChecksum(data, len);
+    }
+    
+    PacketFooter ftr;
+    ftr.checksum = checksum;
+    ftr.end_byte = SYNC_BYTE_2;
+    
+    uart_write_bytes(uart_num_, (const char*)&hdr, sizeof(hdr));
+    if (data && len > 0) {
+      uart_write_bytes(uart_num_, (const char*)data, len);
+    }
+    uart_write_bytes(uart_num_, (const char*)&ftr, sizeof(ftr));
+    
+    stats_.tx_bytes += sizeof(hdr) + len + sizeof(ftr);
+  }
+  
+  /** Send status back to CPU */
+  void sendStatus() {
+    StatusPayload status;
+    status.uptime_ms = esp_timer_get_time() / 1000;
+    status.hub75_fps = stats_.hub75_fps * 10;
+    status.oled_fps = stats_.oled_fps * 10;
+    status.frames_rx = stats_.rx_frames & 0xFFFF;
+    status.frames_drop = (stats_.checksum_errors + stats_.sync_errors) & 0xFFFF;
+    status.hub75_ok = hub75_frame_ready_ ? 1 : 0;
+    status.oled_ok = oled_frame_ready_ ? 1 : 0;
+    
+    sendMessage(MsgType::STATUS, (uint8_t*)&status, sizeof(status));
   }
   
   /** Get statistics */
-  const Stats& getStats() const { return stats_; }
+  const UartStats& getStats() const { return stats_; }
+  
+  /** Get actual FPS values */
+  uint8_t getHub75Fps() const { return stats_.hub75_fps; }
+  uint8_t getOledFps() const { return stats_.oled_fps; }
   
   /** Reset statistics */
-  void resetStats(){ stats_ = Stats(); }
+  void resetStats() { 
+    uint8_t hub75_fps = stats_.hub75_fps;
+    uint8_t oled_fps = stats_.oled_fps;
+    memset(&stats_, 0, sizeof(stats_));
+    stats_.hub75_fps = hub75_fps;
+    stats_.oled_fps = oled_fps;
+  }
   
-  /** Check if initialized */
-  bool isInitialized() const { return initialized_; }
-  
+  /** Print statistics */
+  void printStats() {
+    ESP_LOGI("GpuUart", "═══ UART RX Statistics ═══");
+    ESP_LOGI("GpuUart", "  RX Frames: %lu", stats_.rx_frames);
+    ESP_LOGI("GpuUart", "  RX Fragments: %lu", stats_.rx_fragments);
+    ESP_LOGI("GpuUart", "  Retries Requested: %lu (%.2f%%)", stats_.retries, stats_.getFragmentErrorRate());
+    ESP_LOGI("GpuUart", "  Checksum Errors: %lu", stats_.checksum_errors);
+    ESP_LOGI("GpuUart", "  Sync Errors: %lu", stats_.sync_errors);
+    ESP_LOGI("GpuUart", "  RX Bytes: %lu, TX Bytes: %lu", stats_.rx_bytes, stats_.tx_bytes);
+    ESP_LOGI("GpuUart", "  HUB75 FPS: %u, OLED FPS: %u", stats_.hub75_fps, stats_.oled_fps);
+    ESP_LOGI("GpuUart", "═══════════════════════════");
+  }
+
 private:
-  /** Process a single received byte
-   * @return true if a complete message was received
-   */
-  bool processRxByte(uint8_t byte){
-    switch(rx_state_){
-      case RxState::WAIT_START:
-        if(byte == MSG_START_BYTE){
-          rx_state_ = RxState::WAIT_TYPE;
-        }
-        break;
-        
-      case RxState::WAIT_TYPE:
-        rx_type_ = byte;
-        rx_state_ = RxState::WAIT_LEN_L;
-        break;
-        
-      case RxState::WAIT_LEN_L:
-        rx_len_ = byte;
-        rx_state_ = RxState::WAIT_LEN_H;
-        break;
-        
-      case RxState::WAIT_LEN_H:
-        rx_len_ |= (byte << 8);
-        if(rx_len_ > MAX_PAYLOAD_SIZE){
-          rx_state_ = RxState::WAIT_START;
-          stats_.errors++;
-          return false;
-        }
-        rx_idx_ = 0;
-        if(rx_len_ == 0){
-          rx_state_ = RxState::WAIT_CHECKSUM;
-        }else{
-          rx_state_ = RxState::WAIT_DATA;
-        }
-        break;
-        
-      case RxState::WAIT_DATA:
-        rx_buffer_[rx_idx_++] = byte;
-        if(rx_idx_ >= rx_len_){
-          rx_state_ = RxState::WAIT_CHECKSUM;
-        }
-        break;
-        
-      case RxState::WAIT_CHECKSUM:
-        rx_checksum_ = byte;
-        rx_state_ = RxState::WAIT_END;
-        break;
-        
-      case RxState::WAIT_END:
-        rx_state_ = RxState::WAIT_START;
-        if(byte == MSG_END_BYTE){
-          // Verify checksum
-          uint8_t calc_checksum = calculateChecksum(rx_type_, rx_buffer_, rx_len_);
-          if(calc_checksum == rx_checksum_){
-            last_msg_type_ = static_cast<MsgType>(rx_type_);
-            last_msg_len_ = rx_len_;
-            return true;
-          }else{
-            stats_.errors++;
-          }
-        }else{
-          stats_.errors++;
-        }
-        break;
-    }
-    return false;
-  }
-  
-  /** Handle a complete received message */
-  void handleMessage(){
-    switch(last_msg_type_){
-      case MsgType::PING:
-        handlePing();
-        break;
-        
-      case MsgType::FRAME_SYNC:
-        handleFrameSync();
-        break;
-        
-      case MsgType::FRAME_DATA:
-        handleFrameData();
-        break;
-        
-      default:
-        break;
-    }
-  }
-  
-  /** Handle ping request */
-  void handlePing(){
-    if(last_msg_len_ >= 2){
-      uint16_t ping_id = rx_buffer_[0] | (rx_buffer_[1] << 8);
-      sendPong(ping_id);
-    }
-  }
-  
-  /** Handle frame sync (start of new frame) */
-  void handleFrameSync(){
-    if(last_msg_len_ < 8) return;
-    
-    UartFrameBuffer* fb = &frame_buffers_[write_buffer_];
-    
-    fb->width = rx_buffer_[0] | (rx_buffer_[1] << 8);
-    fb->height = rx_buffer_[2] | (rx_buffer_[3] << 8);
-    fb->frame_num = rx_buffer_[4] | (rx_buffer_[5] << 8);
-    fb->chunks_expected = rx_buffer_[6] | (rx_buffer_[7] << 8);
-    fb->chunks_received = 0;
-    fb->complete = false;
-    
-    // Validate dimensions
-    if(fb->width > UartFrameBuffer::MAX_WIDTH) fb->width = UartFrameBuffer::MAX_WIDTH;
-    if(fb->height > UartFrameBuffer::MAX_HEIGHT) fb->height = UartFrameBuffer::MAX_HEIGHT;
-  }
-  
-  /** Handle frame data chunk */
-  void handleFrameData(){
-    if(last_msg_len_ < 3) return;
-    
-    UartFrameBuffer* fb = &frame_buffers_[write_buffer_];
-    
-    uint16_t chunk_num = rx_buffer_[0] | (rx_buffer_[1] << 8);
-    uint16_t data_len = last_msg_len_ - 2;
-    
-    // Calculate offset in frame buffer
-    uint16_t chunk_size = MAX_PAYLOAD_SIZE - 8;
-    uint32_t offset = chunk_num * chunk_size;
-    uint32_t max_size = fb->width * fb->height * 3;
-    
-    if(offset + data_len <= max_size){
-      memcpy(&fb->data[offset], &rx_buffer_[2], data_len);
-      fb->chunks_received++;
-      
-      // Check if frame is complete
-      if(fb->chunks_received >= fb->chunks_expected){
-        fb->complete = true;
-        stats_.rx_frames++;
-        
-        // Calculate FPS
-        uint32_t now = esp_timer_get_time() / 1000;
-        if(stats_.last_frame_time > 0){
-          uint32_t delta = now - stats_.last_frame_time;
-          if(delta > 0){
-            stats_.fps = 1000 / delta;
-          }
-        }
-        stats_.last_frame_time = now;
-        
-        // Swap write buffer
-        write_buffer_ = 1 - write_buffer_;
-      }
-    }
-  }
-  
-  // Receiver state machine
-  enum class RxState{
-    WAIT_START,
-    WAIT_TYPE,
-    WAIT_LEN_L,
-    WAIT_LEN_H,
-    WAIT_DATA,
-    WAIT_CHECKSUM,
-    WAIT_END
-  };
-  
   Config config_;
-  Stats stats_;
-  bool initialized_ = false;
+  bool initialized_;
+  uart_port_t uart_num_;
   
-  // RX state machine
-  RxState rx_state_ = RxState::WAIT_START;
-  uint8_t rx_type_ = 0;
-  uint16_t rx_len_ = 0;
-  uint16_t rx_idx_ = 0;
-  uint8_t rx_checksum_ = 0;
-  uint8_t rx_buffer_[MAX_PAYLOAD_SIZE];
+  // Double buffers for HUB75 and OLED
+  uint8_t* hub75_buffer_[2];  // Double buffer
+  uint8_t* oled_buffer_[2];   // Double buffer
+  uint8_t* rx_temp_buffer_;   // Temp buffer for receiving (validates before swap)
+  uint8_t hub75_write_idx_;
+  uint8_t hub75_read_idx_;
+  uint8_t oled_write_idx_;
+  uint8_t oled_read_idx_;
   
-  // Message handling
-  MsgType last_msg_type_ = MsgType::PING;
-  uint16_t last_msg_len_ = 0;
+  UartFrameBuffer hub75_frame_;
+  UartFrameBuffer oled_frame_;
+  bool hub75_frame_ready_;
+  bool oled_frame_ready_;
+  uint32_t last_hub75_time_ = 0;
+  uint32_t last_oled_time_ = 0;
+  UartStats stats_;
   
-  // Double-buffered frame storage
-  UartFrameBuffer frame_buffers_[2];
-  int write_buffer_ = 0;
-  int read_buffer_ = 0;
+  // Fragment assembly tracking
+  uint16_t hub75_frag_received_;  // Bitmask of received fragments
+  uint8_t oled_frag_received_;    // Bitmask of received fragments
+  uint16_t current_hub75_frame_;  // Current frame number being assembled
+  uint16_t current_oled_frame_;   // Current frame number being assembled
+  
+  /** Send ACK for fragment */
+  void sendAck(uint8_t frag_idx) {
+    PacketHeader hdr;
+    hdr.sync1 = SYNC_BYTE_1;
+    hdr.sync2 = SYNC_BYTE_2;
+    hdr.sync3 = SYNC_BYTE_3;
+    hdr.msg_type = static_cast<uint8_t>(MsgType::ACK);
+    hdr.payload_len = 1;
+    hdr.frame_num = 0;
+    hdr.frag_index = frag_idx;
+    hdr.frag_total = 1;
+    
+    uint16_t checksum = calcChecksum((uint8_t*)&hdr, sizeof(hdr));
+    checksum += frag_idx;
+    
+    PacketFooter ftr;
+    ftr.checksum = checksum;
+    ftr.end_byte = SYNC_BYTE_2;
+    
+    uart_write_bytes(uart_num_, (const char*)&hdr, sizeof(hdr));
+    uart_write_bytes(uart_num_, (const char*)&frag_idx, 1);
+    uart_write_bytes(uart_num_, (const char*)&ftr, sizeof(ftr));
+    
+    stats_.tx_bytes += sizeof(hdr) + 1 + sizeof(ftr);
+  }
+  
+  /** Send NACK for fragment (request resend) */
+  void sendNack(uint8_t frag_idx) {
+    PacketHeader hdr;
+    hdr.sync1 = SYNC_BYTE_1;
+    hdr.sync2 = SYNC_BYTE_2;
+    hdr.sync3 = SYNC_BYTE_3;
+    hdr.msg_type = static_cast<uint8_t>(MsgType::NACK);
+    hdr.payload_len = 1;
+    hdr.frame_num = 0;
+    hdr.frag_index = frag_idx;
+    hdr.frag_total = 1;
+    
+    uint16_t checksum = calcChecksum((uint8_t*)&hdr, sizeof(hdr));
+    checksum += frag_idx;
+    
+    PacketFooter ftr;
+    ftr.checksum = checksum;
+    ftr.end_byte = SYNC_BYTE_2;
+    
+    uart_write_bytes(uart_num_, (const char*)&hdr, sizeof(hdr));
+    uart_write_bytes(uart_num_, (const char*)&frag_idx, 1);
+    uart_write_bytes(uart_num_, (const char*)&ftr, sizeof(ftr));
+    
+    stats_.tx_bytes += sizeof(hdr) + 1 + sizeof(ftr);
+  }
+  
+  void flushPayload(size_t bytes) {
+    uint8_t discard[64];
+    while (bytes > 0) {
+      size_t to_read = bytes > sizeof(discard) ? sizeof(discard) : bytes;
+      int read = uart_read_bytes(uart_num_, discard, to_read, pdMS_TO_TICKS(10));
+      if (read <= 0) break;
+      bytes -= read;
+    }
+  }
+  
+  void updateHub75Fps() {
+    uint32_t now = esp_timer_get_time() / 1000;
+    if (last_hub75_time_ > 0 && now > last_hub75_time_) {
+      uint32_t dt = now - last_hub75_time_;
+      stats_.hub75_fps = (dt > 0) ? (1000 / dt) : 0;
+    }
+    last_hub75_time_ = now;
+  }
+  
+  void updateOledFps() {
+    uint32_t now = esp_timer_get_time() / 1000;
+    if (last_oled_time_ > 0 && now > last_oled_time_) {
+      uint32_t dt = now - last_oled_time_;
+      stats_.oled_fps = (dt > 0) ? (1000 / dt) : 0;
+    }
+    last_oled_time_ = now;
+  }
+  
+  void sendPong(const PingPayload& ping) {
+    PacketHeader hdr;
+    hdr.sync1 = SYNC_BYTE_1;
+    hdr.sync2 = SYNC_BYTE_2;
+    hdr.sync3 = SYNC_BYTE_3;
+    hdr.msg_type = static_cast<uint8_t>(MsgType::PONG);
+    hdr.payload_len = sizeof(PingPayload);
+    hdr.frame_num = ping.seq_num;
+    hdr.frag_index = 0;
+    hdr.frag_total = 1;
+    
+    uint16_t checksum = calcChecksum((uint8_t*)&hdr, sizeof(hdr));
+    checksum += calcChecksum((uint8_t*)&ping, sizeof(ping));
+    
+    PacketFooter ftr;
+    ftr.checksum = checksum;
+    ftr.end_byte = SYNC_BYTE_2;
+    
+    uart_write_bytes(uart_num_, (const char*)&hdr, sizeof(hdr));
+    uart_write_bytes(uart_num_, (const char*)&ping, sizeof(ping));
+    uart_write_bytes(uart_num_, (const char*)&ftr, sizeof(ftr));
+    
+    stats_.tx_bytes += sizeof(hdr) + sizeof(ping) + sizeof(ftr);
+  }
 };
 
-}  // namespace arcos::comms
+} // namespace arcos::comms
 
-#endif  // ARCOS_INCLUDE_COMMS_GPU_UART_HANDLER_HPP_
+#endif // ARCOS_COMMS_GPU_UART_HANDLER_HPP_
