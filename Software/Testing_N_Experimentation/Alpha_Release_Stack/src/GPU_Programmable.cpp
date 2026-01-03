@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cmath>
+#include <atomic>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
@@ -36,6 +37,15 @@ using namespace arcos::abstraction::drivers;
 using namespace arcos::abstraction;
 
 static const char* TAG = "GPU_PROG";
+
+// Debug counters (atomics for cross-core visibility)
+static std::atomic<uint32_t> dbg_hub75_presents{0};
+static std::atomic<uint32_t> dbg_oled_presents{0};
+static std::atomic<uint32_t> dbg_oled_updates{0};
+static std::atomic<uint32_t> dbg_cmd_count{0};
+static std::atomic<uint32_t> dbg_oled_cmd_count{0};
+static std::atomic<int64_t> dbg_last_hub75_present{0};
+static std::atomic<int64_t> dbg_last_oled_present{0};
 
 // ============================================================
 // Hardware Configuration
@@ -229,9 +239,36 @@ static bool hub75_ok = false;
 static DRIVER_OLED_SH1107* oled = nullptr;
 static bool oled_ok = false;
 
+// OLED update runs on Core 0 to avoid interfering with HUB75 DMA on Core 1
+static volatile bool oled_update_pending = false;
+static uint8_t* oled_update_buffer = nullptr;  // Double buffer for safe cross-core transfer
+
+// Anti-aliasing enabled by default
+static bool aa_enabled = true;
+
 // ============================================================
 // Pixel Operations
 // ============================================================
+
+// Alpha-blend a pixel (for anti-aliasing)
+// alpha: 0-255, where 255 = fully opaque
+static inline void blendPixelHUB75(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t alpha) {
+  if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
+  if (alpha == 0) return;
+  int idx = (y * TOTAL_WIDTH + x) * 3;
+  if (alpha == 255) {
+    hub75_buffer[idx + 0] = r;
+    hub75_buffer[idx + 1] = g;
+    hub75_buffer[idx + 2] = b;
+  } else {
+    // Linear blend: out = bg * (1 - a) + fg * a
+    uint8_t inv_alpha = 255 - alpha;
+    hub75_buffer[idx + 0] = (hub75_buffer[idx + 0] * inv_alpha + r * alpha) >> 8;
+    hub75_buffer[idx + 1] = (hub75_buffer[idx + 1] * inv_alpha + g * alpha) >> 8;
+    hub75_buffer[idx + 2] = (hub75_buffer[idx + 2] * inv_alpha + b * alpha) >> 8;
+  }
+}
+
 static inline void setPixelHUB75(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
   if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
   int idx = (y * TOTAL_WIDTH + x) * 3;
@@ -291,9 +328,93 @@ static inline uint32_t getPixel(int x, int y) {
 }
 
 // ============================================================
-// Drawing Primitives
+// Drawing Primitives (with Fast Anti-Aliasing)
 // ============================================================
-static void drawLine(int x0, int y0, int x1, int y1, uint8_t r, uint8_t g, uint8_t b) {
+
+// Helper: Clamp float to 0-1 range
+static inline float clamp01(float x) {
+  return (x < 0.0f) ? 0.0f : (x > 1.0f) ? 1.0f : x;
+}
+
+// Helper: Fractional part
+static inline float fract(float x) {
+  return x - floorf(x);
+}
+
+// Fast anti-aliased line using Xiaolin Wu algorithm with float coordinates
+// This walks along the line and only touches pixels near the line (O(length) not O(area))
+static void drawLineAA(float x0, float y0, float x1, float y1, uint8_t r, uint8_t g, uint8_t b) {
+  bool steep = fabsf(y1 - y0) > fabsf(x1 - x0);
+  
+  if (steep) {
+    std::swap(x0, y0);
+    std::swap(x1, y1);
+  }
+  if (x0 > x1) {
+    std::swap(x0, x1);
+    std::swap(y0, y1);
+  }
+  
+  float dx = x1 - x0;
+  float dy = y1 - y0;
+  float gradient = (dx < 0.0001f) ? 1.0f : dy / dx;
+  
+  // First endpoint
+  float xend = roundf(x0);
+  float yend = y0 + gradient * (xend - x0);
+  float xgap = 1.0f - fract(x0 + 0.5f);
+  int xpxl1 = (int)xend;
+  int ypxl1 = (int)floorf(yend);
+  float frac1 = fract(yend);
+  
+  if (steep) {
+    blendPixelHUB75(ypxl1, xpxl1, r, g, b, (uint8_t)((1.0f - frac1) * xgap * 255.0f));
+    blendPixelHUB75(ypxl1 + 1, xpxl1, r, g, b, (uint8_t)(frac1 * xgap * 255.0f));
+  } else {
+    blendPixelHUB75(xpxl1, ypxl1, r, g, b, (uint8_t)((1.0f - frac1) * xgap * 255.0f));
+    blendPixelHUB75(xpxl1, ypxl1 + 1, r, g, b, (uint8_t)(frac1 * xgap * 255.0f));
+  }
+  
+  float intery = yend + gradient;
+  
+  // Second endpoint
+  xend = roundf(x1);
+  yend = y1 + gradient * (xend - x1);
+  xgap = fract(x1 + 0.5f);
+  int xpxl2 = (int)xend;
+  int ypxl2 = (int)floorf(yend);
+  float frac2 = fract(yend);
+  
+  if (steep) {
+    blendPixelHUB75(ypxl2, xpxl2, r, g, b, (uint8_t)((1.0f - frac2) * xgap * 255.0f));
+    blendPixelHUB75(ypxl2 + 1, xpxl2, r, g, b, (uint8_t)(frac2 * xgap * 255.0f));
+  } else {
+    blendPixelHUB75(xpxl2, ypxl2, r, g, b, (uint8_t)((1.0f - frac2) * xgap * 255.0f));
+    blendPixelHUB75(xpxl2, ypxl2 + 1, r, g, b, (uint8_t)(frac2 * xgap * 255.0f));
+  }
+  
+  // Main line body
+  if (steep) {
+    for (int x = xpxl1 + 1; x < xpxl2; x++) {
+      int y = (int)floorf(intery);
+      float f = fract(intery);
+      blendPixelHUB75(y, x, r, g, b, (uint8_t)((1.0f - f) * 255.0f));
+      blendPixelHUB75(y + 1, x, r, g, b, (uint8_t)(f * 255.0f));
+      intery += gradient;
+    }
+  } else {
+    for (int x = xpxl1 + 1; x < xpxl2; x++) {
+      int y = (int)floorf(intery);
+      float f = fract(intery);
+      blendPixelHUB75(x, y, r, g, b, (uint8_t)((1.0f - f) * 255.0f));
+      blendPixelHUB75(x, y + 1, r, g, b, (uint8_t)(f * 255.0f));
+      intery += gradient;
+    }
+  }
+}
+
+// Non-AA Bresenham line (used for OLED or when AA disabled)
+static void drawLineBasic(int x0, int y0, int x1, int y1, uint8_t r, uint8_t g, uint8_t b) {
   int dx = abs(x1 - x0);
   int dy = -abs(y1 - y0);
   int sx = x0 < x1 ? 1 : -1;
@@ -309,11 +430,37 @@ static void drawLine(int x0, int y0, int x1, int y1, uint8_t r, uint8_t g, uint8
   }
 }
 
+// Main line function with integer coords - uses AA for HUB75 when enabled
+static void drawLine(int x0, int y0, int x1, int y1, uint8_t r, uint8_t g, uint8_t b) {
+  if (aa_enabled && gpu.target == 0) {
+    drawLineAA((float)x0, (float)y0, (float)x1, (float)y1, r, g, b);
+  } else {
+    drawLineBasic(x0, y0, x1, y1, r, g, b);
+  }
+}
+
+// Float coordinate line - enables sub-pixel smooth movement
+static void drawLineF(float x0, float y0, float x1, float y1, uint8_t r, uint8_t g, uint8_t b) {
+  if (aa_enabled && gpu.target == 0) {
+    drawLineAA(x0, y0, x1, y1, r, g, b);
+  } else {
+    drawLineBasic((int)roundf(x0), (int)roundf(y0), (int)roundf(x1), (int)roundf(y1), r, g, b);
+  }
+}
+
 static void drawRect(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
   drawLine(x, y, x + w - 1, y, r, g, b);
   drawLine(x + w - 1, y, x + w - 1, y + h - 1, r, g, b);
   drawLine(x + w - 1, y + h - 1, x, y + h - 1, r, g, b);
   drawLine(x, y + h - 1, x, y, r, g, b);
+}
+
+// Float coordinate rect
+static void drawRectF(float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b) {
+  drawLineF(x, y, x + w, y, r, g, b);
+  drawLineF(x + w, y, x + w, y + h, r, g, b);
+  drawLineF(x + w, y + h, x, y + h, r, g, b);
+  drawLineF(x, y + h, x, y, r, g, b);
 }
 
 static void fillRect(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
@@ -324,7 +471,34 @@ static void fillRect(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b
   }
 }
 
-static void drawCircle(int cx, int cy, int radius, uint8_t r, uint8_t g, uint8_t b) {
+// Fast AA circle using midpoint algorithm with distance-based alpha
+static void drawCircleAA(float cx, float cy, float radius, uint8_t r, uint8_t g, uint8_t b) {
+  // Scan only pixels near the circle edge
+  int ir = (int)ceilf(radius);
+  int icx = (int)roundf(cx);
+  int icy = (int)roundf(cy);
+  
+  for (int py = icy - ir - 1; py <= icy + ir + 1; py++) {
+    if (py < 0 || py >= TOTAL_HEIGHT) continue;
+    for (int px = icx - ir - 1; px <= icx + ir + 1; px++) {
+      if (px < 0 || px >= TOTAL_WIDTH) continue;
+      
+      float dx = px + 0.5f - cx;
+      float dy = py + 0.5f - cy;
+      float dist = sqrtf(dx * dx + dy * dy);
+      float diff = fabsf(dist - radius);
+      
+      // Only draw pixels within 1 pixel of the circle edge
+      if (diff < 1.0f) {
+        uint8_t alpha = (uint8_t)((1.0f - diff) * 255.0f);
+        blendPixelHUB75(px, py, r, g, b, alpha);
+      }
+    }
+  }
+}
+
+// Basic Bresenham circle (for OLED or when AA disabled)
+static void drawCircleBasic(int cx, int cy, int radius, uint8_t r, uint8_t g, uint8_t b) {
   int x = radius;
   int y = 0;
   int err = 0;
@@ -344,6 +518,59 @@ static void drawCircle(int cx, int cy, int radius, uint8_t r, uint8_t g, uint8_t
     if (2 * (err - x) + 1 > 0) {
       x--;
       err += 1 - 2 * x;
+    }
+  }
+}
+
+// Main circle function (integer coords)
+static void drawCircle(int cx, int cy, int radius, uint8_t r, uint8_t g, uint8_t b) {
+  if (aa_enabled && gpu.target == 0) {
+    drawCircleAA((float)cx, (float)cy, (float)radius, r, g, b);
+  } else {
+    drawCircleBasic(cx, cy, radius, r, g, b);
+  }
+}
+
+// Float coordinate circle - enables sub-pixel smooth movement
+static void drawCircleF(float cx, float cy, float radius, uint8_t r, uint8_t g, uint8_t b) {
+  if (aa_enabled && gpu.target == 0) {
+    drawCircleAA(cx, cy, radius, r, g, b);
+  } else {
+    drawCircleBasic((int)roundf(cx), (int)roundf(cy), (int)roundf(radius), r, g, b);
+  }
+}
+
+// Filled circle with AA edge
+static void fillCircle(float cx, float cy, float radius, uint8_t r, uint8_t g, uint8_t b) {
+  int minX = (int)floorf(cx - radius - 1);
+  int maxX = (int)ceilf(cx + radius + 1);
+  int minY = (int)floorf(cy - radius - 1);
+  int maxY = (int)ceilf(cy + radius + 1);
+  
+  if (minX < 0) minX = 0;
+  if (minY < 0) minY = 0;
+  if (maxX >= TOTAL_WIDTH) maxX = TOTAL_WIDTH - 1;
+  if (maxY >= TOTAL_HEIGHT) maxY = TOTAL_HEIGHT - 1;
+  
+  for (int py = minY; py <= maxY; py++) {
+    for (int px = minX; px <= maxX; px++) {
+      float dx = px + 0.5f - cx;
+      float dy = py + 0.5f - cy;
+      float dist = sqrtf(dx * dx + dy * dy);
+      
+      if (aa_enabled && gpu.target == 0) {
+        // AA edge
+        if (dist <= radius - 0.5f) {
+          setPixelHUB75(px, py, r, g, b);
+        } else if (dist < radius + 0.5f) {
+          uint8_t alpha = (uint8_t)((radius + 0.5f - dist) * 255.0f);
+          blendPixelHUB75(px, py, r, g, b, alpha);
+        }
+      } else {
+        if (dist <= radius) {
+          setPixel(px, py, r, g, b);
+        }
+      }
     }
   }
 }
@@ -391,6 +618,41 @@ static void fillPolygon(int n, int16_t* vx, int16_t* vy, uint8_t r, uint8_t g, u
   }
 }
 
+// Bilinear sample from RGB sprite (for supersampling)
+static void sampleSpriteRGB(Sprite& s, float fx, float fy, uint8_t& r, uint8_t& g, uint8_t& b) {
+  int x0 = (int)floorf(fx);
+  int y0 = (int)floorf(fy);
+  int x1 = x0 + 1;
+  int y1 = y0 + 1;
+  float dx = fx - x0;
+  float dy = fy - y0;
+  
+  // Clamp to sprite bounds
+  x0 = (x0 < 0) ? 0 : (x0 >= s.width) ? s.width - 1 : x0;
+  y0 = (y0 < 0) ? 0 : (y0 >= s.height) ? s.height - 1 : y0;
+  x1 = (x1 < 0) ? 0 : (x1 >= s.width) ? s.width - 1 : x1;
+  y1 = (y1 < 0) ? 0 : (y1 >= s.height) ? s.height - 1 : y1;
+  
+  // Get four corner pixels
+  int idx00 = (y0 * s.width + x0) * 3;
+  int idx10 = (y0 * s.width + x1) * 3;
+  int idx01 = (y1 * s.width + x0) * 3;
+  int idx11 = (y1 * s.width + x1) * 3;
+  
+  // Bilinear interpolation
+  float w00 = (1 - dx) * (1 - dy);
+  float w10 = dx * (1 - dy);
+  float w01 = (1 - dx) * dy;
+  float w11 = dx * dy;
+  
+  r = (uint8_t)(s.data[idx00 + 0] * w00 + s.data[idx10 + 0] * w10 + 
+                s.data[idx01 + 0] * w01 + s.data[idx11 + 0] * w11);
+  g = (uint8_t)(s.data[idx00 + 1] * w00 + s.data[idx10 + 1] * w10 + 
+                s.data[idx01 + 1] * w01 + s.data[idx11 + 1] * w11);
+  b = (uint8_t)(s.data[idx00 + 2] * w00 + s.data[idx10 + 2] * w10 + 
+                s.data[idx01 + 2] * w01 + s.data[idx11 + 2] * w11);
+}
+
 static void blitSprite(int id, int dx, int dy) {
   if (id < 0 || id >= MAX_SPRITES || !gpu.sprites[id].valid) return;
   
@@ -398,10 +660,32 @@ static void blitSprite(int id, int dx, int dy) {
   
   if (s.format == 0 && gpu.target == 0) {
     // RGB sprite to HUB75
-    for (int y = 0; y < s.height; y++) {
-      for (int x = 0; x < s.width; x++) {
-        int idx = (y * s.width + x) * 3;
-        setPixelHUB75(dx + x, dy + y, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+    if (aa_enabled) {
+      // Supersampled blit: 2x2 samples per output pixel
+      for (int y = 0; y < s.height; y++) {
+        for (int x = 0; x < s.width; x++) {
+          uint16_t tr = 0, tg = 0, tb = 0;
+          // Sample at 4 sub-pixel positions
+          for (int sy = 0; sy < 2; sy++) {
+            for (int sx = 0; sx < 2; sx++) {
+              uint8_t sr, sg, sb;
+              float fx = x + sx * 0.5f;
+              float fy = y + sy * 0.5f;
+              sampleSpriteRGB(s, fx, fy, sr, sg, sb);
+              tr += sr; tg += sg; tb += sb;
+            }
+          }
+          // Average the 4 samples
+          setPixelHUB75(dx + x, dy + y, tr >> 2, tg >> 2, tb >> 2);
+        }
+      }
+    } else {
+      // Direct blit (no AA)
+      for (int y = 0; y < s.height; y++) {
+        for (int x = 0; x < s.width; x++) {
+          int idx = (y * s.width + x) * 3;
+          setPixelHUB75(dx + x, dy + y, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+        }
       }
     }
   } else if (s.format == 1 && gpu.target == 1) {
@@ -802,8 +1086,21 @@ enum class CmdType : uint8_t {
   BLIT_SPRITE = 0x46,
   CLEAR = 0x47,
   
+  // Float coordinate versions (sub-pixel precision for smooth animation)
+  DRAW_LINE_F = 0x48,    // Float coords: x0,y0,x1,y1 as 16.16 fixed point
+  DRAW_CIRCLE_F = 0x49,  // Float coords: cx,cy,r as 16.16 fixed point
+  DRAW_RECT_F = 0x4A,    // Float coords: x,y,w,h as 16.16 fixed point
+  
   SET_TARGET = 0x50,     // 0=HUB75, 1=OLED
   PRESENT = 0x51,        // Push framebuffer to display
+  
+  // OLED-specific commands (always target OLED buffer)
+  OLED_CLEAR = 0x60,
+  OLED_LINE = 0x61,
+  OLED_RECT = 0x62,
+  OLED_FILL = 0x63,
+  OLED_CIRCLE = 0x64,
+  OLED_PRESENT = 0x65,
   
   PING = 0xF0,
   RESET = 0xFF,
@@ -969,6 +1266,40 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
       break;
     }
     
+    // Float coordinate commands - uses 8.8 fixed point for sub-pixel precision
+    case CmdType::DRAW_LINE_F: {
+      if (hdr->length >= 11) {
+        // 8.8 fixed point: high byte = integer, low byte = fraction (0-255 = 0.0-0.996)
+        float x1 = (int8_t)payload[1] + (payload[0] / 256.0f);
+        float y1 = (int8_t)payload[3] + (payload[2] / 256.0f);
+        float x2 = (int8_t)payload[5] + (payload[4] / 256.0f);
+        float y2 = (int8_t)payload[7] + (payload[6] / 256.0f);
+        drawLineF(x1, y1, x2, y2, payload[8], payload[9], payload[10]);
+      }
+      break;
+    }
+    
+    case CmdType::DRAW_CIRCLE_F: {
+      if (hdr->length >= 9) {
+        float cx = (int8_t)payload[1] + (payload[0] / 256.0f);
+        float cy = (int8_t)payload[3] + (payload[2] / 256.0f);
+        float r = (int8_t)payload[5] + (payload[4] / 256.0f);
+        drawCircleF(cx, cy, r, payload[6], payload[7], payload[8]);
+      }
+      break;
+    }
+    
+    case CmdType::DRAW_RECT_F: {
+      if (hdr->length >= 11) {
+        float x = (int8_t)payload[1] + (payload[0] / 256.0f);
+        float y = (int8_t)payload[3] + (payload[2] / 256.0f);
+        float w = (int8_t)payload[5] + (payload[4] / 256.0f);
+        float h = (int8_t)payload[7] + (payload[6] / 256.0f);
+        drawRectF(x, y, w, h, payload[8], payload[9], payload[10]);
+      }
+      break;
+    }
+    
     case CmdType::DRAW_POLY: {
       if (hdr->length >= 4) {
         uint8_t n = payload[0];
@@ -1028,11 +1359,150 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
           }
         }
         hub75->show();
+        dbg_hub75_presents.fetch_add(1, std::memory_order_relaxed);
+        // Use release semantics so Core 0 sees this update
+        dbg_last_hub75_present.store(esp_timer_get_time(), std::memory_order_release);
       } else if (gpu.target == 1 && oled_ok) {
-        memcpy(oled->getBuffer(), oled_buffer, OLED_BUFFER_SIZE);
-        oled->updateDisplay();
+        // Copy to update buffer and signal Core 0 task (non-blocking)
+        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
+        oled_update_pending = true;
       }
       gpu.frameCount++;
+      break;
+    }
+    
+    // ========== OLED-Specific Commands (always target OLED) ==========
+    case CmdType::OLED_CLEAR: {
+      memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      break;
+    }
+    
+    case CmdType::OLED_LINE: {
+      if (hdr->length >= 9) {
+        int16_t x1 = (int16_t)(payload[0] | (payload[1] << 8));
+        int16_t y1 = (int16_t)(payload[2] | (payload[3] << 8));
+        int16_t x2 = (int16_t)(payload[4] | (payload[5] << 8));
+        int16_t y2 = (int16_t)(payload[6] | (payload[7] << 8));
+        bool on = payload[8] > 0;
+        // Draw directly to OLED buffer using Bresenham
+        int dx = abs(x2 - x1);
+        int dy = -abs(y2 - y1);
+        int sx = x1 < x2 ? 1 : -1;
+        int sy = y1 < y2 ? 1 : -1;
+        int err = dx + dy;
+        while (true) {
+          if (x1 >= 0 && x1 < OLED_WIDTH && y1 >= 0 && y1 < OLED_HEIGHT) {
+            int byte_idx = (y1 / 8) * OLED_WIDTH + x1;
+            int bit = y1 % 8;
+            if (on) oled_buffer[byte_idx] |= (1 << bit);
+            else oled_buffer[byte_idx] &= ~(1 << bit);
+          }
+          if (x1 == x2 && y1 == y2) break;
+          int e2 = 2 * err;
+          if (e2 >= dy) { err += dy; x1 += sx; }
+          if (e2 <= dx) { err += dx; y1 += sy; }
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_RECT: {
+      if (hdr->length >= 9) {
+        int16_t x = (int16_t)(payload[0] | (payload[1] << 8));
+        int16_t y = (int16_t)(payload[2] | (payload[3] << 8));
+        int16_t w = (int16_t)(payload[4] | (payload[5] << 8));
+        int16_t h = (int16_t)(payload[6] | (payload[7] << 8));
+        bool on = payload[8] > 0;
+        // Draw rectangle outline to OLED
+        for (int px = x; px < x + w && px < OLED_WIDTH; px++) {
+          if (px >= 0) {
+            if (y >= 0 && y < OLED_HEIGHT) {
+              int idx = (y / 8) * OLED_WIDTH + px;
+              if (on) oled_buffer[idx] |= (1 << (y % 8));
+              else oled_buffer[idx] &= ~(1 << (y % 8));
+            }
+            int y2 = y + h - 1;
+            if (y2 >= 0 && y2 < OLED_HEIGHT) {
+              int idx = (y2 / 8) * OLED_WIDTH + px;
+              if (on) oled_buffer[idx] |= (1 << (y2 % 8));
+              else oled_buffer[idx] &= ~(1 << (y2 % 8));
+            }
+          }
+        }
+        for (int py = y; py < y + h && py < OLED_HEIGHT; py++) {
+          if (py >= 0) {
+            if (x >= 0 && x < OLED_WIDTH) {
+              int idx = (py / 8) * OLED_WIDTH + x;
+              if (on) oled_buffer[idx] |= (1 << (py % 8));
+              else oled_buffer[idx] &= ~(1 << (py % 8));
+            }
+            int x2 = x + w - 1;
+            if (x2 >= 0 && x2 < OLED_WIDTH) {
+              int idx = (py / 8) * OLED_WIDTH + x2;
+              if (on) oled_buffer[idx] |= (1 << (py % 8));
+              else oled_buffer[idx] &= ~(1 << (py % 8));
+            }
+          }
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_FILL: {
+      if (hdr->length >= 9) {
+        int16_t x = (int16_t)(payload[0] | (payload[1] << 8));
+        int16_t y = (int16_t)(payload[2] | (payload[3] << 8));
+        int16_t w = (int16_t)(payload[4] | (payload[5] << 8));
+        int16_t h = (int16_t)(payload[6] | (payload[7] << 8));
+        bool on = payload[8] > 0;
+        for (int py = y; py < y + h && py < OLED_HEIGHT; py++) {
+          if (py < 0) continue;
+          for (int px = x; px < x + w && px < OLED_WIDTH; px++) {
+            if (px < 0) continue;
+            int idx = (py / 8) * OLED_WIDTH + px;
+            if (on) oled_buffer[idx] |= (1 << (py % 8));
+            else oled_buffer[idx] &= ~(1 << (py % 8));
+          }
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_CIRCLE: {
+      if (hdr->length >= 7) {
+        int16_t cx = (int16_t)(payload[0] | (payload[1] << 8));
+        int16_t cy = (int16_t)(payload[2] | (payload[3] << 8));
+        int16_t r = (int16_t)(payload[4] | (payload[5] << 8));
+        bool on = payload[6] > 0;
+        // Bresenham circle
+        int x = r, y = 0, err = 0;
+        while (x >= y) {
+          int pts[8][2] = {{cx+x,cy+y},{cx-x,cy+y},{cx+x,cy-y},{cx-x,cy-y},
+                           {cx+y,cy+x},{cx-y,cy+x},{cx+y,cy-x},{cx-y,cy-x}};
+          for (int i = 0; i < 8; i++) {
+            int px = pts[i][0], py = pts[i][1];
+            if (px >= 0 && px < OLED_WIDTH && py >= 0 && py < OLED_HEIGHT) {
+              int idx = (py / 8) * OLED_WIDTH + px;
+              if (on) oled_buffer[idx] |= (1 << (py % 8));
+              else oled_buffer[idx] &= ~(1 << (py % 8));
+            }
+          }
+          y++; err += 1 + 2*y;
+          if (2*(err-x) + 1 > 0) { x--; err += 1 - 2*x; }
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_PRESENT: {
+      if (oled_ok) {
+        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
+        oled_update_pending = true;
+        dbg_oled_presents++;
+        dbg_last_oled_present = esp_timer_get_time();
+        // Clear buffer after present to prevent stale data
+        memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      }
       break;
     }
     
@@ -1064,64 +1534,150 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
 // UART Receive Task
 // ============================================================
 static void uartTask(void* arg) {
-  uint8_t byte;
+  uint8_t rx_buffer[256];  // Bulk read buffer
   int state = 0;  // 0=sync0, 1=sync1, 2=type, 3=len_lo, 4=len_hi, 5=payload
   CmdHeader hdr;
   int payload_pos = 0;
+  int64_t lastByteTime = esp_timer_get_time();
   
   ESP_LOGI(TAG, "UART RX task started");
   
   while (true) {
-    int len = uart_read_bytes(UART_PORT, &byte, 1, pdMS_TO_TICKS(10));
-    if (len <= 0) continue;
+    // Read as many bytes as available (up to buffer size)
+    int len = uart_read_bytes(UART_PORT, rx_buffer, sizeof(rx_buffer), pdMS_TO_TICKS(1));
     
-    switch (state) {
-      case 0:  // Waiting for SYNC0
-        if (byte == SYNC0) state = 1;
-        break;
-        
-      case 1:  // Waiting for SYNC1
-        if (byte == SYNC1) {
-          state = 2;
-        } else if (byte == SYNC0) {
-          state = 1;  // Stay looking for SYNC1
-        } else {
-          state = 0;  // Reset
-        }
-        break;
-        
-      case 2:  // Read command type
-        hdr.type = (CmdType)byte;
-        state = 3;
-        break;
-        
-      case 3:  // Read length low byte
-        hdr.length = byte;
-        state = 4;
-        break;
-        
-      case 4:  // Read length high byte
-        hdr.length |= (byte << 8);
-        if (hdr.length == 0) {
-          processCommand(&hdr, nullptr);
-          state = 0;
-        } else if (hdr.length > sizeof(cmd_buffer)) {
-          ESP_LOGW(TAG, "Payload too large: %d", hdr.length);
-          state = 0;  // Too large, reset
-        } else {
-          state = 5;
-          payload_pos = 0;
-        }
-        break;
-        
-      case 5:  // Read payload
-        cmd_buffer[payload_pos++] = byte;
-        if (payload_pos >= hdr.length) {
-          processCommand(&hdr, cmd_buffer);
+    if (len <= 0) {
+      // Timeout - if we were mid-packet for too long, reset
+      if (state > 0) {
+        int64_t now = esp_timer_get_time();
+        if (now - lastByteTime > 50000) {  // 50ms timeout
           state = 0;
         }
-        break;
+      }
+      continue;
     }
+    
+    lastByteTime = esp_timer_get_time();
+    
+    // Process all received bytes
+    for (int i = 0; i < len; i++) {
+      uint8_t byte = rx_buffer[i];
+      
+      switch (state) {
+        case 0:  // Waiting for SYNC0
+          if (byte == SYNC0) state = 1;
+          break;
+          
+        case 1:  // Waiting for SYNC1
+          if (byte == SYNC1) {
+            state = 2;
+          } else if (byte == SYNC0) {
+            state = 1;  // Stay looking for SYNC1
+          } else {
+            state = 0;  // Reset
+          }
+          break;
+          
+        case 2:  // Read command type
+          hdr.type = (CmdType)byte;
+          // Validate command type - reject obviously invalid ones
+          if ((uint8_t)hdr.type > 0xFF || 
+              ((uint8_t)hdr.type > 0x6F && (uint8_t)hdr.type < 0xF0)) {
+            // Invalid command type, likely desync (0x00-0x6F and 0xF0-0xFF are valid)
+            state = (byte == SYNC0) ? 1 : 0;
+          } else {
+            state = 3;
+          }
+          break;
+          
+        case 3:  // Read length low byte
+          hdr.length = byte;
+          state = 4;
+          break;
+          
+        case 4:  // Read length high byte
+          hdr.length |= (byte << 8);
+          if (hdr.length == 0) {
+            processCommand(&hdr, nullptr);
+            state = 0;
+          } else if (hdr.length > 512) {  // More conservative limit
+            // Likely corrupt - flush UART and resync
+            uint8_t flush[64];
+            while (uart_read_bytes(UART_PORT, flush, sizeof(flush), 0) > 0) {}
+            state = 0;
+          } else {
+            state = 5;
+            payload_pos = 0;
+          }
+          break;
+          
+        case 5:  // Read payload
+          cmd_buffer[payload_pos++] = byte;
+          if (payload_pos >= hdr.length) {
+            processCommand(&hdr, cmd_buffer);
+            state = 0;
+          }
+          break;
+      }
+    }
+  }
+}
+
+// ============================================================
+// OLED Update Task (runs on Core 0 to avoid HUB75 DMA conflicts)
+// ============================================================
+static void oledTask(void* arg) {
+  ESP_LOGI(TAG, "OLED task started on Core 0");
+  int64_t lastUpdateTime = 0;
+  const int MIN_MS_AFTER_HUB75 = 8;  // Wait at least 8ms after HUB75 present
+  static uint32_t oled_update_num = 0;  // For sparse logging
+  
+  while (true) {
+    if (oled_update_pending && oled_ok) {
+      oled_update_pending = false;
+      
+      // Copy buffer first (fast operation)
+      memcpy(oled->getBuffer(), oled_update_buffer, OLED_BUFFER_SIZE);
+      
+      // Wait until at least MIN_MS_AFTER_HUB75 since last HUB75 present
+      // This gives DMA time to settle before we start I2C traffic
+      int retries = 0;
+      int64_t sinceHUB75;
+      while (retries < 50) {  // Max ~100ms of waiting
+        int64_t now = esp_timer_get_time();
+        // Use acquire semantics to ensure we see the latest value from Core 1
+        int64_t lastHUB75 = dbg_last_hub75_present.load(std::memory_order_acquire);
+        sinceHUB75 = (now - lastHUB75) / 1000;  // ms
+        
+        // Check if we're past the minimum time
+        if (sinceHUB75 >= MIN_MS_AFTER_HUB75) {
+          break;  // Safe to proceed
+        }
+        
+        // Short yield then check again
+        vTaskDelay(pdMS_TO_TICKS(1));  // 1ms tick
+        retries++;
+      }
+      
+      // Do the I2C update
+      oled->updateDisplay();
+      dbg_oled_updates++;
+      oled_update_num++;
+      lastUpdateTime = esp_timer_get_time();
+      
+      // Log only every 10th update to reduce overhead
+      if ((oled_update_num % 10) == 0) {
+        int64_t now = esp_timer_get_time();
+        int64_t lastHUB75 = dbg_last_hub75_present.load(std::memory_order_acquire);
+        sinceHUB75 = (now - lastHUB75) / 1000;
+        ESP_LOGI(TAG, "OLED #%lu: since_hub75=%lldms, retries=%d", 
+                 (unsigned long)oled_update_num, sinceHUB75, retries);
+      }
+      
+      // Give HUB75 DMA time to recover after I2C burst
+      vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));  // Check every 50ms (~20Hz max)
   }
 }
 
@@ -1199,9 +1755,9 @@ static bool initUART() {
   
   uart_param_config(UART_PORT, &uart_cfg);
   uart_set_pin(UART_PORT, UART_TX_PIN, UART_RX_PIN, -1, -1);
-  uart_driver_install(UART_PORT, 4096, 1024, 0, nullptr, 0);
+  uart_driver_install(UART_PORT, 8192, 1024, 0, nullptr, 0);  // Larger RX buffer
   
-  ESP_LOGI(TAG, "UART OK: %d baud, RX=%d, TX=%d", UART_BAUD, UART_RX_PIN, UART_TX_PIN);
+  ESP_LOGI(TAG, "UART OK: %d baud, RX=%d, TX=%d, RX_BUF=8KB", UART_BAUD, UART_RX_PIN, UART_TX_PIN);
   return true;
 }
 
@@ -1224,14 +1780,16 @@ extern "C" void app_main() {
   // Allocate framebuffers
   hub75_buffer = (uint8_t*)heap_caps_malloc(HUB75_BUFFER_SIZE, MALLOC_CAP_DMA);
   oled_buffer = (uint8_t*)heap_caps_malloc(OLED_BUFFER_SIZE, MALLOC_CAP_DEFAULT);
+  oled_update_buffer = (uint8_t*)heap_caps_malloc(OLED_BUFFER_SIZE, MALLOC_CAP_DEFAULT);
   
-  if (!hub75_buffer || !oled_buffer) {
+  if (!hub75_buffer || !oled_buffer || !oled_update_buffer) {
     ESP_LOGE(TAG, "Failed to allocate framebuffers!");
     return;
   }
   
   memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
   memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+  memset(oled_update_buffer, 0, OLED_BUFFER_SIZE);
   
   ESP_LOGI(TAG, "Framebuffers: HUB75=%d bytes, OLED=%d bytes", 
            HUB75_BUFFER_SIZE, OLED_BUFFER_SIZE);
@@ -1241,8 +1799,11 @@ extern "C" void app_main() {
   oled_ok = initOLED();
   initUART();
   
-  // Start UART receive task
-  xTaskCreatePinnedToCore(uartTask, "uart_rx", 4096, nullptr, 5, nullptr, 1);
+  // Start UART receive task on Core 1 (needs larger stack for command processing)
+  xTaskCreatePinnedToCore(uartTask, "uart_rx", 8192, nullptr, 5, nullptr, 1);
+  
+  // Start OLED update task on Core 0 (needs larger stack for I2C + logging)
+  xTaskCreatePinnedToCore(oledTask, "oled_update", 4096, nullptr, 3, nullptr, 0);
   
   // Print ready message
   ESP_LOGI(TAG, "");
@@ -1259,6 +1820,9 @@ extern "C" void app_main() {
   // Main loop - just status updates
   uint32_t lastStatus = 0;
   uint32_t lastFrameCount = 0;
+  uint32_t lastOledUpdates = 0;
+  uint32_t lastHub75Presents = 0;
+  uint32_t lastOledPresents = 0;
   
   while (true) {
     uint32_t now = esp_timer_get_time() / 1000;
@@ -1267,15 +1831,30 @@ extern "C" void app_main() {
       uint32_t frames = gpu.frameCount - lastFrameCount;
       float fps = frames * 1000.0f / (now - lastStatus);
       
-      int validShaders = 0, validSprites = 0;
-      for (int i = 0; i < MAX_SHADERS; i++) if (gpu.shaders[i].valid) validShaders++;
-      for (int i = 0; i < MAX_SPRITES; i++) if (gpu.sprites[i].valid) validSprites++;
+      uint32_t hub75_count = dbg_hub75_presents.load(std::memory_order_relaxed);
+      uint32_t oled_present_count = dbg_oled_presents.load(std::memory_order_relaxed);
+      uint32_t oled_update_count = dbg_oled_updates.load(std::memory_order_relaxed);
       
-      ESP_LOGI(TAG, "FPS: %.1f | Shaders: %d | Sprites: %d | Vars in use: checking...",
-               fps, validShaders, validSprites);
+      uint32_t hub75_rate = hub75_count - lastHub75Presents;
+      uint32_t oled_present_rate = oled_present_count - lastOledPresents;
+      uint32_t oled_update_rate = oled_update_count - lastOledUpdates;
+      
+      // Get heap info to detect memory leaks
+      uint32_t freeHeap = esp_get_free_heap_size();
+      uint32_t minFreeHeap = esp_get_minimum_free_heap_size();
+      
+      ESP_LOGI(TAG, "=== STATUS ===");
+      ESP_LOGI(TAG, "  FPS: %.1f | HUB75: %lu/2s | OLED_cmd: %lu/2s | OLED_i2c: %lu/2s",
+               fps, (unsigned long)hub75_rate, (unsigned long)oled_present_rate, (unsigned long)oled_update_rate);
+      ESP_LOGI(TAG, "  Heap: %lu free, %lu min | Total: HUB75=%lu, OLED=%lu",
+               (unsigned long)freeHeap, (unsigned long)minFreeHeap,
+               (unsigned long)hub75_count, (unsigned long)oled_present_count);
       
       lastStatus = now;
       lastFrameCount = gpu.frameCount;
+      lastHub75Presents = hub75_count;
+      lastOledPresents = oled_present_count;
+      lastOledUpdates = oled_update_count;
     }
     
     vTaskDelay(pdMS_TO_TICKS(100));

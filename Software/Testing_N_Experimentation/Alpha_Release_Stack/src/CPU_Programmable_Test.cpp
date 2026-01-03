@@ -58,8 +58,21 @@ enum class CmdType : uint8_t {
   BLIT_SPRITE = 0x46,
   CLEAR = 0x47,
   
+  // Float coordinate versions (sub-pixel precision for smooth animation)
+  DRAW_LINE_F = 0x48,
+  DRAW_CIRCLE_F = 0x49,
+  DRAW_RECT_F = 0x4A,
+  
   SET_TARGET = 0x50,
   PRESENT = 0x51,
+  
+  // OLED-specific commands (always target OLED buffer)
+  OLED_CLEAR = 0x60,
+  OLED_LINE = 0x61,
+  OLED_RECT = 0x62,
+  OLED_FILL = 0x63,
+  OLED_CIRCLE = 0x64,
+  OLED_PRESENT = 0x65,
   
   PING = 0xF0,
   RESET = 0xFF,
@@ -347,6 +360,98 @@ static void drawLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint8_t r, 
   sendCommand(CmdType::DRAW_LINE, payload, 11);
 }
 
+// ============================================================
+// Float Coordinate Drawing (sub-pixel precision for smooth animation)
+// Uses 8.8 fixed point: integer part + fraction (0-255 maps to 0.0-0.996)
+// ============================================================
+static inline void encodeFixed88(float v, uint8_t& lo, uint8_t& hi) {
+  int16_t fixed = (int16_t)(v * 256.0f);
+  lo = fixed & 0xFF;        // Fractional part
+  hi = (fixed >> 8) & 0xFF; // Integer part
+}
+
+// Draw line with float coordinates (smooth sub-pixel movement)
+static void drawLineF(float x1, float y1, float x2, float y2, uint8_t r, uint8_t g, uint8_t b) {
+  uint8_t payload[11];
+  encodeFixed88(x1, payload[0], payload[1]);
+  encodeFixed88(y1, payload[2], payload[3]);
+  encodeFixed88(x2, payload[4], payload[5]);
+  encodeFixed88(y2, payload[6], payload[7]);
+  payload[8] = r; payload[9] = g; payload[10] = b;
+  sendCommand(CmdType::DRAW_LINE_F, payload, 11);
+}
+
+// Draw circle with float coordinates
+static void drawCircleF(float cx, float cy, float radius, uint8_t r, uint8_t g, uint8_t b) {
+  uint8_t payload[9];
+  encodeFixed88(cx, payload[0], payload[1]);
+  encodeFixed88(cy, payload[2], payload[3]);
+  encodeFixed88(radius, payload[4], payload[5]);
+  payload[6] = r; payload[7] = g; payload[8] = b;
+  sendCommand(CmdType::DRAW_CIRCLE_F, payload, 9);
+}
+
+// Draw rect with float coordinates
+static void drawRectF(float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b) {
+  uint8_t payload[11];
+  encodeFixed88(x, payload[0], payload[1]);
+  encodeFixed88(y, payload[2], payload[3]);
+  encodeFixed88(w, payload[4], payload[5]);
+  encodeFixed88(h, payload[6], payload[7]);
+  payload[8] = r; payload[9] = g; payload[10] = b;
+  sendCommand(CmdType::DRAW_RECT_F, payload, 11);
+}
+
+// ============================================================
+// OLED Drawing Commands (always target OLED buffer)
+// ============================================================
+static void oledClear() {
+  sendCommand(CmdType::OLED_CLEAR, nullptr, 0);
+}
+
+static void oledLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool on = true) {
+  uint8_t payload[9];
+  payload[0] = x1 & 0xFF; payload[1] = (x1 >> 8) & 0xFF;
+  payload[2] = y1 & 0xFF; payload[3] = (y1 >> 8) & 0xFF;
+  payload[4] = x2 & 0xFF; payload[5] = (x2 >> 8) & 0xFF;
+  payload[6] = y2 & 0xFF; payload[7] = (y2 >> 8) & 0xFF;
+  payload[8] = on ? 1 : 0;
+  sendCommand(CmdType::OLED_LINE, payload, 9);
+}
+
+static void oledRect(int16_t x, int16_t y, int16_t w, int16_t h, bool on = true) {
+  uint8_t payload[9];
+  payload[0] = x & 0xFF; payload[1] = (x >> 8) & 0xFF;
+  payload[2] = y & 0xFF; payload[3] = (y >> 8) & 0xFF;
+  payload[4] = w & 0xFF; payload[5] = (w >> 8) & 0xFF;
+  payload[6] = h & 0xFF; payload[7] = (h >> 8) & 0xFF;
+  payload[8] = on ? 1 : 0;
+  sendCommand(CmdType::OLED_RECT, payload, 9);
+}
+
+static void oledFill(int16_t x, int16_t y, int16_t w, int16_t h, bool on = true) {
+  uint8_t payload[9];
+  payload[0] = x & 0xFF; payload[1] = (x >> 8) & 0xFF;
+  payload[2] = y & 0xFF; payload[3] = (y >> 8) & 0xFF;
+  payload[4] = w & 0xFF; payload[5] = (w >> 8) & 0xFF;
+  payload[6] = h & 0xFF; payload[7] = (h >> 8) & 0xFF;
+  payload[8] = on ? 1 : 0;
+  sendCommand(CmdType::OLED_FILL, payload, 9);
+}
+
+static void oledCircle(int16_t cx, int16_t cy, int16_t radius, bool on = true) {
+  uint8_t payload[7];
+  payload[0] = cx & 0xFF; payload[1] = (cx >> 8) & 0xFF;
+  payload[2] = cy & 0xFF; payload[3] = (cy >> 8) & 0xFF;
+  payload[4] = radius & 0xFF; payload[5] = (radius >> 8) & 0xFF;
+  payload[6] = on ? 1 : 0;
+  sendCommand(CmdType::OLED_CIRCLE, payload, 7);
+}
+
+static void oledPresent() {
+  sendCommand(CmdType::OLED_PRESENT, nullptr, 0);
+}
+
 // Draw polygon (vertices stored in variables)
 static void drawPoly(uint8_t nVerts, uint8_t varStart, uint8_t r, uint8_t g, uint8_t b) {
   uint8_t payload[5] = {nVerts, varStart, r, g, b};
@@ -472,74 +577,136 @@ static void animationTaskDirect(void* param) {
   uint32_t fpsCounter = 0;
   int64_t fpsTime = esp_timer_get_time();
   
+  // Use float time for smooth animation (not tied to frame count)
+  float t = 0.0f;
+  const float dt = 0.033f;  // ~30 FPS time step
+  
   while (true) {
     int64_t frameStart = esp_timer_get_time();
     
-    // Clear
+    // ========================================
+    // HUB75 Display (Target 0) - 128x32
+    // Using float coordinates for smooth sub-pixel movement
+    // ========================================
     setTarget(0);
     clearDisplay(0, 0, 20);  // Dark blue
     
-    // Compute hexagon vertices for left panel
-    float angle = frame * 0.05f;
-    int cx1 = 32, cy1 = 16, r1 = 12;
+    // Hexagon center with smooth float position
+    float cx1 = 32.0f;
+    float cy1 = 16.0f;
+    float r1 = 12.0f;
+    float angle = t * 1.5f;  // Rotation speed
     
-    // Draw hexagon
+    // Draw hexagon with float coordinates
     for (int i = 0; i < 6; i++) {
-      float a1 = angle + (i / 6.0f) * 2 * M_PI;
-      float a2 = angle + ((i + 1) / 6.0f) * 2 * M_PI;
-      int x1 = cx1 + r1 * cosf(a1);
-      int y1 = cy1 + r1 * sinf(a1);
-      int x2 = cx1 + r1 * cosf(a2);
-      int y2 = cy1 + r1 * sinf(a2);
+      float a1 = angle + (i / 6.0f) * 2.0f * M_PI;
+      float a2 = angle + ((i + 1) / 6.0f) * 2.0f * M_PI;
+      float x1 = cx1 + r1 * cosf(a1);
+      float y1 = cy1 + r1 * sinf(a1);
+      float x2 = cx1 + r1 * cosf(a2);
+      float y2 = cy1 + r1 * sinf(a2);
       
       // Color based on vertex
-      uint8_t red = 128 + 127 * sinf(angle + i);
+      uint8_t red = (uint8_t)(128 + 127 * sinf(angle + i));
       uint8_t green = 0;
-      uint8_t blue = 128 + 127 * cosf(angle + i);
+      uint8_t blue = (uint8_t)(128 + 127 * cosf(angle + i));
       
-      drawLine(x1, y1, x2, y2, red, green, blue);
+      drawLineF(x1, y1, x2, y2, red, green, blue);
     }
     
-    // Draw triangle on left panel (smaller, inside hexagon)
+    // Draw triangle (smaller, inside hexagon) with floats
     float triAngle = -angle * 1.5f;
-    int tr = 6;
+    float tr = 6.0f;
     for (int i = 0; i < 3; i++) {
-      float a1 = triAngle + (i / 3.0f) * 2 * M_PI;
-      float a2 = triAngle + ((i + 1) / 3.0f) * 2 * M_PI;
-      int x1 = cx1 + tr * cosf(a1);
-      int y1 = cy1 + tr * sinf(a1);
-      int x2 = cx1 + tr * cosf(a2);
-      int y2 = cy1 + tr * sinf(a2);
-      drawLine(x1, y1, x2, y2, 255, 255, 0);  // Yellow triangle
+      float a1 = triAngle + (i / 3.0f) * 2.0f * M_PI;
+      float a2 = triAngle + ((i + 1) / 3.0f) * 2.0f * M_PI;
+      float x1 = cx1 + tr * cosf(a1);
+      float y1 = cy1 + tr * sinf(a1);
+      float x2 = cx1 + tr * cosf(a2);
+      float y2 = cy1 + tr * sinf(a2);
+      drawLineF(x1, y1, x2, y2, 255, 255, 0);  // Yellow triangle
     }
     
-    // Right panel: Bouncing shapes
-    int cx2 = 96, cy2 = 16;
+    // Right panel: Bouncing shapes with float coords
+    float cx2 = 96.0f;
+    float cy2 = 16.0f;
     
-    // Bouncing circle
-    int circleY = 16 + 8 * sinf(frame * 0.1f);
-    drawCircle(cx2, circleY, 8, 0, 255, 255);  // Cyan
+    // Bouncing circle - smooth float position
+    float circleY = 16.0f + 8.0f * sinf(t * 3.0f);
+    drawCircleF(cx2, circleY, 8.0f, 0, 255, 255);  // Cyan
     
-    // Pulsing rectangle
-    int rectSize = 12 + 4 * sinf(frame * 0.15f);
-    drawRect(cx2 - rectSize/2, cy2 - rectSize/2, rectSize, rectSize, 255, 128, 0);  // Orange
+    // Pulsing rectangle - smooth float size
+    float rectSize = 12.0f + 4.0f * sinf(t * 4.5f);
+    float rectX = cx2 - rectSize * 0.5f;
+    float rectY = cy2 - rectSize * 0.5f;
+    drawRectF(rectX, rectY, rectSize, rectSize, 255, 128, 0);  // Orange
     
     // Small spinning square at center
-    float sqAngle = frame * 0.2f;
-    int sqr = 4;
+    float sqAngle = t * 6.0f;
+    float sqr = 4.0f;
     for (int i = 0; i < 4; i++) {
-      float a1 = sqAngle + (i / 4.0f) * 2 * M_PI;
-      float a2 = sqAngle + ((i + 1) / 4.0f) * 2 * M_PI;
-      int x1 = cx2 + sqr * cosf(a1);
-      int y1 = cy2 + sqr * sinf(a1);
-      int x2 = cx2 + sqr * cosf(a2);
-      int y2 = cy2 + sqr * sinf(a2);
-      drawLine(x1, y1, x2, y2, 0, 255, 0);  // Green
+      float a1 = sqAngle + (i / 4.0f) * 2.0f * M_PI;
+      float a2 = sqAngle + ((i + 1) / 4.0f) * 2.0f * M_PI;
+      float x1 = cx2 + sqr * cosf(a1);
+      float y1 = cy2 + sqr * sinf(a1);
+      float x2 = cx2 + sqr * cosf(a2);
+      float y2 = cy2 + sqr * sinf(a2);
+      drawLineF(x1, y1, x2, y2, 0, 255, 0);  // Green
     }
     
-    // Present to display
+    // Present HUB75
     present();
     
+    // ========================================
+    // OLED Display - Uses dedicated OLED commands (no target switching)
+    // Simplified animation to reduce command count
+    // GPU auto-clears OLED buffer after present, so no need for oledClear()
+    // ========================================
+    if (frame % 3 == 0) {  // Update OLED every 3rd frame (~10 FPS)
+      // Center of OLED (128x128)
+      int oledCx = 64;
+      int oledCy = 64;
+      
+      // Draw rotating hexagon (6 lines instead of 8)
+      float hexAngle = frame * 0.03f;
+      int hexR = 45;
+      for (int i = 0; i < 6; i++) {
+        float a1 = hexAngle + (i / 6.0f) * 2 * M_PI;
+        float a2 = hexAngle + ((i + 1) / 6.0f) * 2 * M_PI;
+        int x1 = oledCx + hexR * cosf(a1);
+        int y1 = oledCy + hexR * sinf(a1);
+        int x2 = oledCx + hexR * cosf(a2);
+        int y2 = oledCy + hexR * sinf(a2);
+        oledLine(x1, y1, x2, y2);
+      }
+      
+      // Inner rotating triangle (3 lines)
+      float triAngle = -frame * 0.05f;
+      int triR = 20;
+      for (int i = 0; i < 3; i++) {
+        float a1 = triAngle + (i / 3.0f) * 2 * M_PI;
+        float a2 = triAngle + ((i + 1) / 3.0f) * 2 * M_PI;
+        int x1 = oledCx + triR * cosf(a1);
+        int y1 = oledCy + triR * sinf(a1);
+        int x2 = oledCx + triR * cosf(a2);
+        int y2 = oledCy + triR * sinf(a2);
+        oledLine(x1, y1, x2, y2);
+      }
+      
+      // Orbiting circle
+      float orbitAngle = frame * 0.08f;
+      int orbitX = oledCx + 50 * cosf(orbitAngle);
+      int orbitY = oledCy + 50 * sinf(orbitAngle);
+      oledCircle(orbitX, orbitY, 6);
+      
+      // Present OLED
+      oledPresent();
+      
+      // Small delay to let GPU process OLED commands before next HUB75 frame
+      vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    
+    t += dt;  // Increment float time for smooth animation
     frame++;
     fpsCounter++;
     
