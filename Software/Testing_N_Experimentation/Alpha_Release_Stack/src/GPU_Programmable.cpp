@@ -247,6 +247,57 @@ static uint8_t* oled_update_buffer = nullptr;  // Double buffer for safe cross-c
 static bool aa_enabled = true;
 
 // ============================================================
+// Boot Animation & No Signal State
+// ============================================================
+enum class BootState {
+  FADE_IN,       // Fading in the logo
+  HOLD,          // Waiting for CPU connection
+  FADE_OUT,      // Fading out the logo
+  RUNNING,       // Normal operation
+  NO_SIGNAL      // CPU disconnected - show no signal animation
+};
+
+static BootState bootState = BootState::FADE_IN;
+static int64_t bootStartTime = 0;
+static int64_t lastCpuCommandTime = 0;
+static int64_t fadeOutStartTime = 0;
+static bool cpuConnected = false;
+static const int64_t FADE_DURATION_US = 1500000;  // 1.5 seconds
+static const int64_t NO_SIGNAL_TIMEOUT_US = 3000000;  // 3 seconds
+
+// Logo vertices (scaled from 445x308 SVG)
+// Circle: center (216, 114), radius 39.5
+// Main outline path (simplified to key vertices)
+static const int16_t LOGO_OUTLINE[] = {
+  238, 3, 221, 1, 161, 1, 142, 2, 106, 5, 89, 6, 73, 11, 59, 16,
+  49, 21, 36, 31, 27, 39, 20, 48, 14, 58, 7, 75, 1, 99, 1, 109,
+  1, 116, 2, 122, 5, 126, 9, 129, 22, 133, 38, 138, 59, 145, 75, 151,
+  90, 159, 102, 167, 117, 178, 131, 189, 140, 198, 149, 206, 159, 212,
+  171, 218, 186, 224, 201, 227, 216, 228, 230, 227, 242, 224, 259, 219,
+  279, 209, 292, 199, 302, 189, 312, 176, 319, 164, 323, 154, 327, 139,
+  329, 122, 329, 106, 327, 89, 322, 73, 317, 61, 311, 51, 304, 43,
+  294, 32, 281, 23, 268, 15, 256, 9, 238, 3
+};
+static const int LOGO_OUTLINE_COUNT = sizeof(LOGO_OUTLINE) / (2 * sizeof(int16_t));
+
+// Right decorative path (simplified)
+static const int16_t LOGO_RIGHT[] = {
+  385, 131, 348, 78, 343, 77, 342, 81, 344, 88, 346, 100, 346, 112,
+  345, 127, 343, 140, 339, 156, 332, 171, 323, 189, 312, 204, 298, 217,
+  286, 225, 284, 230, 285, 236, 289, 240, 302, 242, 320, 245, 339, 251,
+  355, 258, 372, 267, 405, 288, 433, 305, 440, 308, 443, 308, 444, 306,
+  444, 290, 442, 272, 434, 240, 420, 199, 405, 166, 385, 131
+};
+static const int LOGO_RIGHT_COUNT = sizeof(LOGO_RIGHT) / (2 * sizeof(int16_t));
+
+// Circle parameters
+static const float LOGO_CIRCLE_X = 216.0f;
+static const float LOGO_CIRCLE_Y = 114.0f;
+static const float LOGO_CIRCLE_R = 39.5f;
+static const float LOGO_WIDTH = 445.0f;
+static const float LOGO_HEIGHT = 308.0f;
+
+// ============================================================
 // Pixel Operations
 // ============================================================
 
@@ -255,7 +306,9 @@ static bool aa_enabled = true;
 static inline void blendPixelHUB75(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t alpha) {
   if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
   if (alpha == 0) return;
-  int idx = (y * TOTAL_WIDTH + x) * 3;
+  // Mirror X: flip left-to-right
+  int mx = (TOTAL_WIDTH - 1) - x;
+  int idx = (y * TOTAL_WIDTH + mx) * 3;
   if (alpha == 255) {
     hub75_buffer[idx + 0] = r;
     hub75_buffer[idx + 1] = g;
@@ -271,7 +324,9 @@ static inline void blendPixelHUB75(int x, int y, uint8_t r, uint8_t g, uint8_t b
 
 static inline void setPixelHUB75(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
   if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
-  int idx = (y * TOTAL_WIDTH + x) * 3;
+  // Mirror X: flip left-to-right
+  int mx = (TOTAL_WIDTH - 1) - x;
+  int idx = (y * TOTAL_WIDTH + mx) * 3;
   hub75_buffer[idx + 0] = r;
   hub75_buffer[idx + 1] = g;
   hub75_buffer[idx + 2] = b;
@@ -282,7 +337,9 @@ static inline void getPixelHUB75(int x, int y, uint8_t& r, uint8_t& g, uint8_t& 
     r = g = b = 0;
     return;
   }
-  int idx = (y * TOTAL_WIDTH + x) * 3;
+  // Mirror X: flip left-to-right (same as setPixelHUB75)
+  int mx = (TOTAL_WIDTH - 1) - x;
+  int idx = (y * TOTAL_WIDTH + mx) * 3;
   r = hub75_buffer[idx + 0];
   g = hub75_buffer[idx + 1];
   b = hub75_buffer[idx + 2];
@@ -290,8 +347,11 @@ static inline void getPixelHUB75(int x, int y, uint8_t& r, uint8_t& g, uint8_t& 
 
 static inline void setPixelOLED(int x, int y, bool on) {
   if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return;
-  int byte_idx = (y / 8) * OLED_WIDTH + x;
-  int bit = y % 8;
+  // X-mirror (flip left-right) and Y-mirror for correct orientation
+  int mx = (OLED_WIDTH - 1) - x;
+  int my = (OLED_HEIGHT - 1) - y;
+  int byte_idx = (my / 8) * OLED_WIDTH + mx;
+  int bit = my % 8;
   if (on) {
     oled_buffer[byte_idx] |= (1 << bit);
   } else {
@@ -301,8 +361,11 @@ static inline void setPixelOLED(int x, int y, bool on) {
 
 static inline bool getPixelOLED(int x, int y) {
   if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return false;
-  int byte_idx = (y / 8) * OLED_WIDTH + x;
-  int bit = y % 8;
+  // X-mirror and Y-mirror (same as setPixelOLED)
+  int mx = (OLED_WIDTH - 1) - x;
+  int my = (OLED_HEIGHT - 1) - y;
+  int byte_idx = (my / 8) * OLED_WIDTH + mx;
+  int bit = my % 8;
   return (oled_buffer[byte_idx] >> bit) & 1;
 }
 
@@ -325,6 +388,368 @@ static inline uint32_t getPixel(int x, int y) {
   } else {
     return getPixelOLED(x, y) ? 0xFFFFFF : 0x000000;
   }
+}
+
+// ============================================================
+// Boot Animation Drawing Functions
+// ============================================================
+
+// Draw a simple Bresenham line (for boot animation - no AA needed)
+static void bootDrawLine(int x0, int y0, int x1, int y1, uint8_t intensity, bool isOled) {
+  int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+  int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+  int err = dx + dy;
+  
+  while (true) {
+    if (isOled) {
+      if (intensity > 127) setPixelOLED(x0, y0, true);
+    } else {
+      setPixelHUB75(x0, y0, intensity, intensity, intensity);
+    }
+    if (x0 == x1 && y0 == y1) break;
+    int e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+}
+
+// Draw a circle outline (for boot animation)
+static void bootDrawCircle(int cx, int cy, int r, uint8_t intensity, bool isOled) {
+  int x = r, y = 0;
+  int err = 1 - r;
+  
+  while (x >= y) {
+    if (isOled) {
+      if (intensity > 127) {
+        setPixelOLED(cx + x, cy + y, true); setPixelOLED(cx - x, cy + y, true);
+        setPixelOLED(cx + x, cy - y, true); setPixelOLED(cx - x, cy - y, true);
+        setPixelOLED(cx + y, cy + x, true); setPixelOLED(cx - y, cy + x, true);
+        setPixelOLED(cx + y, cy - x, true); setPixelOLED(cx - y, cy - x, true);
+      }
+    } else {
+      setPixelHUB75(cx + x, cy + y, intensity, intensity, intensity);
+      setPixelHUB75(cx - x, cy + y, intensity, intensity, intensity);
+      setPixelHUB75(cx + x, cy - y, intensity, intensity, intensity);
+      setPixelHUB75(cx - x, cy - y, intensity, intensity, intensity);
+      setPixelHUB75(cx + y, cy + x, intensity, intensity, intensity);
+      setPixelHUB75(cx - y, cy + x, intensity, intensity, intensity);
+      setPixelHUB75(cx + y, cy - x, intensity, intensity, intensity);
+      setPixelHUB75(cx - y, cy - x, intensity, intensity, intensity);
+    }
+    y++;
+    if (err < 0) {
+      err += 2 * y + 1;
+    } else {
+      x--;
+      err += 2 * (y - x + 1);
+    }
+  }
+}
+
+// Draw the logo on a display with given scale and offset
+static void drawLogoScaled(float scale, float offsetX, float offsetY, uint8_t intensity, bool isOled) {
+  // Draw main outline
+  for (int i = 0; i < LOGO_OUTLINE_COUNT - 1; i++) {
+    int x0 = (int)(LOGO_OUTLINE[i * 2] * scale + offsetX);
+    int y0 = (int)(LOGO_OUTLINE[i * 2 + 1] * scale + offsetY);
+    int x1 = (int)(LOGO_OUTLINE[(i + 1) * 2] * scale + offsetX);
+    int y1 = (int)(LOGO_OUTLINE[(i + 1) * 2 + 1] * scale + offsetY);
+    bootDrawLine(x0, y0, x1, y1, intensity, isOled);
+  }
+  // Close the outline
+  {
+    int i = LOGO_OUTLINE_COUNT - 1;
+    int x0 = (int)(LOGO_OUTLINE[i * 2] * scale + offsetX);
+    int y0 = (int)(LOGO_OUTLINE[i * 2 + 1] * scale + offsetY);
+    int x1 = (int)(LOGO_OUTLINE[0] * scale + offsetX);
+    int y1 = (int)(LOGO_OUTLINE[1] * scale + offsetY);
+    bootDrawLine(x0, y0, x1, y1, intensity, isOled);
+  }
+  
+  // Draw right decorative path
+  for (int i = 0; i < LOGO_RIGHT_COUNT - 1; i++) {
+    int x0 = (int)(LOGO_RIGHT[i * 2] * scale + offsetX);
+    int y0 = (int)(LOGO_RIGHT[i * 2 + 1] * scale + offsetY);
+    int x1 = (int)(LOGO_RIGHT[(i + 1) * 2] * scale + offsetX);
+    int y1 = (int)(LOGO_RIGHT[(i + 1) * 2 + 1] * scale + offsetY);
+    bootDrawLine(x0, y0, x1, y1, intensity, isOled);
+  }
+  
+  // Draw inner circle
+  int cx = (int)(LOGO_CIRCLE_X * scale + offsetX);
+  int cy = (int)(LOGO_CIRCLE_Y * scale + offsetY);
+  int cr = (int)(LOGO_CIRCLE_R * scale);
+  if (cr > 0) bootDrawCircle(cx, cy, cr, intensity, isOled);
+}
+
+// Draw "NO SIGNAL" text (simplified pixel font)
+// mirrorX: if true, draw text mirrored horizontally (for right panel pre-flip)
+static void drawNoSignalText(int x, int y, uint8_t intensity, bool isOled, bool mirrorX = false) {
+  // Simplified 5x7 font for "NO SIGNAL"
+  // Each character is represented as 5 columns of 7 bits
+  static const uint8_t FONT_N[] = {0x7F, 0x04, 0x08, 0x10, 0x7F};  // N
+  static const uint8_t FONT_O[] = {0x3E, 0x41, 0x41, 0x41, 0x3E};  // O
+  static const uint8_t FONT_S[] = {0x26, 0x49, 0x49, 0x49, 0x32};  // S (fixed: was horizontally mirrored)
+  static const uint8_t FONT_I[] = {0x00, 0x41, 0x7F, 0x41, 0x00};  // I
+  static const uint8_t FONT_G[] = {0x3E, 0x41, 0x49, 0x49, 0x3A};  // G
+  static const uint8_t FONT_A[] = {0x7E, 0x09, 0x09, 0x09, 0x7E};  // A
+  static const uint8_t FONT_L[] = {0x7F, 0x40, 0x40, 0x40, 0x40};  // L
+  
+  const uint8_t* letters[] = {FONT_N, FONT_O, nullptr, FONT_S, FONT_I, FONT_G, FONT_N, FONT_A, FONT_L};
+  const int textWidth = 54;  // 9 chars * 6px spacing - 1
+  
+  int cx = x;
+  for (int li = 0; li < 9; li++) {
+    if (letters[li] == nullptr) {
+      cx += 4;  // Space
+      continue;
+    }
+    for (int col = 0; col < 5; col++) {
+      uint8_t colData = letters[li][col];
+      for (int row = 0; row < 7; row++) {
+        if (colData & (1 << row)) {
+          int drawX = cx + col;
+          // If mirroring, flip X position relative to text start
+          if (mirrorX) {
+            drawX = x + (textWidth - 1) - (cx - x + col);
+          }
+          if (isOled) {
+            if (intensity > 127) setPixelOLED(drawX, y + row, true);
+          } else {
+            setPixelHUB75(drawX, y + row, intensity, intensity, intensity);
+          }
+        }
+      }
+    }
+    cx += 6;  // Character width + spacing
+  }
+}
+
+// Present HUB75 buffer to display using correct API
+static void presentHUB75Buffer() {
+  if (!hub75_ok || !hub75) return;
+  for (int y = 0; y < TOTAL_HEIGHT; y++) {
+    for (int x = 0; x < TOTAL_WIDTH; x++) {
+      int idx = (y * TOTAL_WIDTH + x) * 3;
+      hub75->setPixel(x, y, RGB(hub75_buffer[idx], hub75_buffer[idx+1], hub75_buffer[idx+2]));
+    }
+  }
+  hub75->show();
+}
+
+// Calculate logo scale to fit within constraints:
+// - Max 50% of screen width
+// - Max 80% of screen height
+// Returns scale factor and offsets for centering
+static void calculateLogoFit(int screenW, int screenH, float& scale, float& offsetX, float& offsetY) {
+  float maxW = screenW * 0.5f;   // 50% of width
+  float maxH = screenH * 0.8f;   // 80% of height
+  
+  // Calculate scale to fit within both constraints
+  float scaleW = maxW / LOGO_WIDTH;
+  float scaleH = maxH / LOGO_HEIGHT;
+  scale = (scaleW < scaleH) ? scaleW : scaleH;  // Use smaller scale
+  
+  // Calculate centered position
+  float scaledW = LOGO_WIDTH * scale;
+  float scaledH = LOGO_HEIGHT * scale;
+  offsetX = (screenW - scaledW) / 2.0f;
+  offsetY = (screenH - scaledH) / 2.0f;
+}
+
+// Update boot animation - returns true if still in boot/no-signal state
+static bool updateBootAnimation() {
+  int64_t now = esp_timer_get_time();
+  
+  switch (bootState) {
+    case BootState::FADE_IN: {
+      // If CPU connected during fade-in, skip directly to RUNNING
+      if (cpuConnected) {
+        bootState = BootState::RUNNING;
+        ESP_LOGI(TAG, "Boot: CPU connected during fade-in, skipping to normal operation");
+        return false;
+      }
+      
+      int64_t elapsed = now - bootStartTime;
+      float progress = (float)elapsed / (float)FADE_DURATION_US;
+      if (progress >= 1.0f) progress = 1.0f;
+      
+      uint8_t intensity = (uint8_t)(progress * 255.0f);
+      
+      // Clear buffers
+      memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
+      memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      
+      // Draw logo on each HUB75 panel (2 panels, 64x32 each)
+      float hub75_scale, hub75_offsetX, hub75_offsetY;
+      calculateLogoFit(PANEL_WIDTH, PANEL_HEIGHT, hub75_scale, hub75_offsetX, hub75_offsetY);
+      // Left panel (0-63)
+      drawLogoScaled(hub75_scale, hub75_offsetX, hub75_offsetY, intensity, false);
+      // Right panel (64-127)
+      drawLogoScaled(hub75_scale, hub75_offsetX + PANEL_WIDTH, hub75_offsetY, intensity, false);
+      
+      // Draw logo on OLED (128x128) - single display
+      float oled_scale, oled_offsetX, oled_offsetY;
+      calculateLogoFit(OLED_WIDTH, OLED_HEIGHT, oled_scale, oled_offsetX, oled_offsetY);
+      drawLogoScaled(oled_scale, oled_offsetX, oled_offsetY, intensity, true);
+      
+      // Present displays
+      presentHUB75Buffer();
+      if (oled_ok) {
+        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
+        oled_update_pending = true;
+      }
+      
+      if (progress >= 1.0f) {
+        bootState = BootState::HOLD;
+        ESP_LOGI(TAG, "Boot: Fade-in complete, waiting for CPU...");
+      }
+      return true;
+    }
+    
+    case BootState::HOLD: {
+      // Check if CPU has connected - skip directly to RUNNING to avoid display conflict
+      if (cpuConnected) {
+        bootState = BootState::RUNNING;
+        ESP_LOGI(TAG, "Boot: CPU connected, skipping to normal operation");
+        return false;  // Immediately let CPU take control
+      }
+      
+      // Timeout: if CPU doesn't connect within 5 seconds of boot, show NO SIGNAL
+      int64_t holdElapsed = now - bootStartTime - FADE_DURATION_US;
+      if (!cpuConnected && holdElapsed > 5000000) {  // 5 seconds after fade-in
+        bootState = BootState::NO_SIGNAL;
+        ESP_LOGW(TAG, "Boot: CPU connection timeout, showing No Signal");
+      }
+      
+      // Keep displaying logo at full brightness
+      memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
+      memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      
+      // Draw logo on each HUB75 panel (2 panels, 64x32 each)
+      float hub75_scale, hub75_offsetX, hub75_offsetY;
+      calculateLogoFit(PANEL_WIDTH, PANEL_HEIGHT, hub75_scale, hub75_offsetX, hub75_offsetY);
+      // Left panel (0-63)
+      drawLogoScaled(hub75_scale, hub75_offsetX, hub75_offsetY, 255, false);
+      // Right panel (64-127)
+      drawLogoScaled(hub75_scale, hub75_offsetX + PANEL_WIDTH, hub75_offsetY, 255, false);
+      
+      // Draw logo on OLED (128x128) - single display
+      float oled_scale, oled_offsetX, oled_offsetY;
+      calculateLogoFit(OLED_WIDTH, OLED_HEIGHT, oled_scale, oled_offsetX, oled_offsetY);
+      drawLogoScaled(oled_scale, oled_offsetX, oled_offsetY, 255, true);
+      
+      // Present displays
+      presentHUB75Buffer();
+      if (oled_ok) {
+        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
+        oled_update_pending = true;
+      }
+      return true;
+    }
+    
+    case BootState::FADE_OUT: {
+      int64_t elapsed = now - fadeOutStartTime;
+      float progress = (float)elapsed / (float)FADE_DURATION_US;
+      if (progress >= 1.0f) progress = 1.0f;
+      
+      uint8_t intensity = (uint8_t)((1.0f - progress) * 255.0f);
+      
+      // Clear buffers
+      memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
+      memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      
+      // Draw fading logo on each HUB75 panel (2 panels, 64x32 each)
+      float hub75_scale, hub75_offsetX, hub75_offsetY;
+      calculateLogoFit(PANEL_WIDTH, PANEL_HEIGHT, hub75_scale, hub75_offsetX, hub75_offsetY);
+      // Left panel (0-63)
+      drawLogoScaled(hub75_scale, hub75_offsetX, hub75_offsetY, intensity, false);
+      // Right panel (64-127)
+      drawLogoScaled(hub75_scale, hub75_offsetX + PANEL_WIDTH, hub75_offsetY, intensity, false);
+      
+      // Draw fading logo on OLED - single display
+      float oled_scale, oled_offsetX, oled_offsetY;
+      calculateLogoFit(OLED_WIDTH, OLED_HEIGHT, oled_scale, oled_offsetX, oled_offsetY);
+      drawLogoScaled(oled_scale, oled_offsetX, oled_offsetY, intensity, true);
+      
+      // Present displays
+      presentHUB75Buffer();
+      if (oled_ok) {
+        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
+        oled_update_pending = true;
+      }
+      
+      if (progress >= 1.0f) {
+        bootState = BootState::RUNNING;
+        ESP_LOGI(TAG, "Boot: Splash complete, running normally");
+      }
+      return true;
+    }
+    
+    case BootState::RUNNING: {
+      // Check for CPU timeout
+      if (lastCpuCommandTime > 0 && (now - lastCpuCommandTime) > NO_SIGNAL_TIMEOUT_US) {
+        bootState = BootState::NO_SIGNAL;
+        cpuConnected = false;
+        ESP_LOGW(TAG, "CPU disconnected - showing No Signal");
+      }
+      return false;  // Normal operation
+    }
+    
+    case BootState::NO_SIGNAL: {
+      // Swaying "NO SIGNAL" animation to prevent burn-in
+      float t = (float)(now / 1000) / 1000.0f;  // Time in seconds
+      
+      // Clear buffers
+      memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
+      memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      
+      // "NO SIGNAL" text dimensions: 9 chars * 6px = 54px wide, 7px tall
+      const int textW = 54;
+      const int textH = 7;
+      
+      // HUB75: Sway within bounds of each panel (64x32 each)
+      int hub75_maxSwayX = (PANEL_WIDTH - textW) / 2 - 2;  // Leave 2px margin
+      int hub75_maxSwayY = (PANEL_HEIGHT - textH) / 2 - 2;
+      if (hub75_maxSwayX < 0) hub75_maxSwayX = 0;
+      if (hub75_maxSwayY < 0) hub75_maxSwayY = 0;
+      float hub75_swayX = sinf(t * 0.5f) * hub75_maxSwayX;
+      float hub75_swayY = cosf(t * 0.3f) * hub75_maxSwayY;
+      int hub75_textX = (PANEL_WIDTH - textW) / 2 + (int)hub75_swayX;
+      int hub75_textY = (PANEL_HEIGHT - textH) / 2 + (int)hub75_swayY;
+      // Left panel (0-63) - draw mirrored so it appears correct after X-flip
+      drawNoSignalText(hub75_textX, hub75_textY, 180, false, true);
+      // Right panel (64-127) - draw normal (X-flip will make it correct)
+      drawNoSignalText(hub75_textX + PANEL_WIDTH, hub75_textY, 180, false, false);
+      
+      // OLED: Single display, larger sway range since screen is bigger
+      int oled_maxSwayX = (OLED_WIDTH - textW) / 2 - 4;
+      int oled_maxSwayY = (OLED_HEIGHT - textH) / 2 - 4;
+      float oled_swayX = sinf(t * 0.5f) * oled_maxSwayX;
+      float oled_swayY = cosf(t * 0.3f) * oled_maxSwayY;
+      int oled_textX = (OLED_WIDTH - textW) / 2 + (int)oled_swayX;
+      int oled_textY = (OLED_HEIGHT - textH) / 2 + (int)oled_swayY;
+      drawNoSignalText(oled_textX, oled_textY, 255, true);
+      
+      // Present displays
+      presentHUB75Buffer();
+      if (oled_ok) {
+        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
+        oled_update_pending = true;
+      }
+      
+      // Check if CPU reconnected
+      if (cpuConnected) {
+        bootState = BootState::RUNNING;
+        ESP_LOGI(TAG, "CPU reconnected - resuming normal operation");
+        return false;
+      }
+      
+      vTaskDelay(pdMS_TO_TICKS(30));  // ~30 FPS for animation
+      return true;
+    }
+  }
+  return false;
 }
 
 // ============================================================
@@ -1123,6 +1548,13 @@ constexpr uint8_t SYNC1 = 0x55;
 static uint8_t cmd_buffer[2048];
 
 static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
+  // Track CPU connection for boot animation
+  lastCpuCommandTime = esp_timer_get_time();
+  if (!cpuConnected) {
+    cpuConnected = true;
+    ESP_LOGI(TAG, "CPU connected (received command 0x%02X)", (int)hdr->type);
+  }
+  
   switch (hdr->type) {
     case CmdType::UPLOAD_SHADER: {
       if (hdr->length < 3) break;
@@ -1797,6 +2229,12 @@ extern "C" void app_main() {
   gpu.startTime = esp_timer_get_time();
   gpu.randSeed = esp_timer_get_time();
   
+  // Initialize boot animation timing
+  bootStartTime = esp_timer_get_time();
+  bootState = BootState::FADE_IN;
+  cpuConnected = false;
+  lastCpuCommandTime = 0;
+  
   // Allocate framebuffers
   hub75_buffer = (uint8_t*)heap_caps_malloc(HUB75_BUFFER_SIZE, MALLOC_CAP_DMA);
   oled_buffer = (uint8_t*)heap_caps_malloc(OLED_BUFFER_SIZE, MALLOC_CAP_DEFAULT);
@@ -1834,10 +2272,10 @@ extern "C" void app_main() {
   ESP_LOGI(TAG, "  HUB75: %s (%dx%d)", hub75_ok ? "OK" : "FAIL", TOTAL_WIDTH, TOTAL_HEIGHT);
   ESP_LOGI(TAG, "  OLED: %s (%dx%d)", oled_ok ? "OK" : "FAIL", OLED_WIDTH, OLED_HEIGHT);
   ESP_LOGI(TAG, "");
-  ESP_LOGI(TAG, "Waiting for CPU commands...");
+  ESP_LOGI(TAG, "Starting boot animation...");
   ESP_LOGI(TAG, "");
   
-  // Main loop - just status updates
+  // Main loop - boot animation + status updates
   uint32_t lastStatus = 0;
   uint32_t lastFrameCount = 0;
   uint32_t lastOledUpdates = 0;
@@ -1845,6 +2283,12 @@ extern "C" void app_main() {
   uint32_t lastOledPresents = 0;
   
   while (true) {
+    // Run boot animation / no-signal animation if active
+    if (updateBootAnimation()) {
+      vTaskDelay(pdMS_TO_TICKS(30));  // ~30 FPS for boot animation
+      continue;
+    }
+    
     uint32_t now = esp_timer_get_time() / 1000;
     
     if (now - lastStatus >= 2000) {
