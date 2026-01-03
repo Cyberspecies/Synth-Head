@@ -1539,10 +1539,30 @@ static void uartTask(void* arg) {
   CmdHeader hdr;
   int payload_pos = 0;
   int64_t lastByteTime = esp_timer_get_time();
+  int64_t lastBufferCheck = esp_timer_get_time();
+  uint32_t overflowCount = 0;
   
   ESP_LOGI(TAG, "UART RX task started");
   
   while (true) {
+    // Periodic buffer overflow check (every 500ms)
+    int64_t now = esp_timer_get_time();
+    if (now - lastBufferCheck > 500000) {
+      lastBufferCheck = now;
+      size_t buffered = 0;
+      uart_get_buffered_data_len(UART_PORT, &buffered);
+      
+      // If buffer is getting full (>75%), flush it to recover
+      if (buffered > 6144) {  // 75% of 8KB
+        overflowCount++;
+        ESP_LOGW(TAG, "UART RX buffer overflow detected (%d bytes), flushing... (count: %lu)", 
+                 (int)buffered, overflowCount);
+        uart_flush_input(UART_PORT);
+        state = 0;  // Reset parser state
+        continue;
+      }
+    }
+    
     // Read as many bytes as available (up to buffer size)
     int len = uart_read_bytes(UART_PORT, rx_buffer, sizeof(rx_buffer), pdMS_TO_TICKS(1));
     
@@ -1665,8 +1685,8 @@ static void oledTask(void* arg) {
       oled_update_num++;
       lastUpdateTime = esp_timer_get_time();
       
-      // Log only every 10th update to reduce overhead
-      if ((oled_update_num % 10) == 0) {
+      // Log only every 30th update to reduce overhead
+      if ((oled_update_num % 30) == 0) {
         int64_t now = esp_timer_get_time();
         int64_t lastHUB75 = dbg_last_hub75_present.load(std::memory_order_acquire);
         sinceHUB75 = (now - lastHUB75) / 1000;
@@ -1674,10 +1694,10 @@ static void oledTask(void* arg) {
                  (unsigned long)oled_update_num, sinceHUB75, retries);
       }
       
-      // Give HUB75 DMA time to recover after I2C burst
-      vTaskDelay(pdMS_TO_TICKS(20));
+      // Give HUB75 DMA time to recover after I2C burst (reduced from 20ms)
+      vTaskDelay(pdMS_TO_TICKS(5));
     }
-    vTaskDelay(pdMS_TO_TICKS(50));  // Check every 50ms (~20Hz max)
+    vTaskDelay(pdMS_TO_TICKS(10));  // Check every 10ms (~30Hz potential)
   }
 }
 

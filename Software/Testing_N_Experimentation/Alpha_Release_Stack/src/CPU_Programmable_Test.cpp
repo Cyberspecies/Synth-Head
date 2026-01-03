@@ -576,13 +576,22 @@ static void animationTaskDirect(void* param) {
   uint32_t lastFps = 0;
   uint32_t fpsCounter = 0;
   int64_t fpsTime = esp_timer_get_time();
+  int64_t lastSyncTime = esp_timer_get_time();
   
   // Use float time for smooth animation (not tied to frame count)
   float t = 0.0f;
-  const float dt = 0.033f;  // ~30 FPS time step
+  const float dt = 0.04f;  // ~25 FPS time step (slightly slower to reduce load)
   
   while (true) {
     int64_t frameStart = esp_timer_get_time();
+    
+    // Periodic sync - flush UART every 2 seconds to prevent buffer buildup
+    if (frameStart - lastSyncTime > 2000000) {
+      lastSyncTime = frameStart;
+      uart_wait_tx_done(UART_PORT, pdMS_TO_TICKS(50));
+      // Small delay to let GPU catch up
+      vTaskDelay(pdMS_TO_TICKS(10));
+    }
     
     // ========================================
     // HUB75 Display (Target 0) - 128x32
@@ -659,16 +668,16 @@ static void animationTaskDirect(void* param) {
     
     // ========================================
     // OLED Display - Uses dedicated OLED commands (no target switching)
-    // Simplified animation to reduce command count
+    // Update every frame for maximum FPS (~25 FPS OLED)
     // GPU auto-clears OLED buffer after present, so no need for oledClear()
     // ========================================
-    if (frame % 3 == 0) {  // Update OLED every 3rd frame (~10 FPS)
+    {
       // Center of OLED (128x128)
       int oledCx = 64;
       int oledCy = 64;
       
-      // Draw rotating hexagon (6 lines instead of 8)
-      float hexAngle = frame * 0.03f;
+      // Draw rotating hexagon (6 lines)
+      float hexAngle = t * 1.2f;  // Use float time for smooth animation
       int hexR = 45;
       for (int i = 0; i < 6; i++) {
         float a1 = hexAngle + (i / 6.0f) * 2 * M_PI;
@@ -681,7 +690,7 @@ static void animationTaskDirect(void* param) {
       }
       
       // Inner rotating triangle (3 lines)
-      float triAngle = -frame * 0.05f;
+      float triAngle = -t * 2.0f;
       int triR = 20;
       for (int i = 0; i < 3; i++) {
         float a1 = triAngle + (i / 3.0f) * 2 * M_PI;
@@ -694,16 +703,13 @@ static void animationTaskDirect(void* param) {
       }
       
       // Orbiting circle
-      float orbitAngle = frame * 0.08f;
+      float orbitAngle = t * 3.0f;
       int orbitX = oledCx + 50 * cosf(orbitAngle);
       int orbitY = oledCy + 50 * sinf(orbitAngle);
       oledCircle(orbitX, orbitY, 6);
       
       // Present OLED
       oledPresent();
-      
-      // Small delay to let GPU process OLED commands before next HUB75 frame
-      vTaskDelay(pdMS_TO_TICKS(5));
     }
     
     t += dt;  // Increment float time for smooth animation
@@ -721,7 +727,7 @@ static void animationTaskDirect(void* param) {
     
     // Frame timing
     int64_t elapsed = esp_timer_get_time() - frameStart;
-    int64_t target = 33333;  // ~30 FPS
+    int64_t target = 40000;  // ~25 FPS (reduced from 30 to give GPU headroom)
     if (elapsed < target) {
       vTaskDelay(pdMS_TO_TICKS((target - elapsed) / 1000));
     }
