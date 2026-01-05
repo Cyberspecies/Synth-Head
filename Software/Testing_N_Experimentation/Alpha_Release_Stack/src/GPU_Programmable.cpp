@@ -1526,6 +1526,10 @@ enum class CmdType : uint8_t {
   OLED_FILL = 0x63,
   OLED_CIRCLE = 0x64,
   OLED_PRESENT = 0x65,
+  OLED_PIXEL = 0x66,
+  OLED_VLINE = 0x67,     // Vertical line (fast for text rendering)
+  OLED_HLINE = 0x68,     // Horizontal line
+  OLED_FILL_CIRCLE = 0x69,
   
   PING = 0xF0,
   RESET = 0xFF,
@@ -1934,6 +1938,86 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         dbg_last_oled_present = esp_timer_get_time();
         // Clear buffer after present to prevent stale data
         memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      }
+      break;
+    }
+    
+    case CmdType::OLED_PIXEL: {
+      if (hdr->length >= 5) {
+        int16_t x = (int16_t)(payload[0] | (payload[1] << 8));
+        int16_t y = (int16_t)(payload[2] | (payload[3] << 8));
+        bool on = payload[4] > 0;
+        if (x >= 0 && x < OLED_WIDTH && y >= 0 && y < OLED_HEIGHT) {
+          int idx = (y / 8) * OLED_WIDTH + x;
+          if (on) oled_buffer[idx] |= (1 << (y % 8));
+          else oled_buffer[idx] &= ~(1 << (y % 8));
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_VLINE: {
+      // Optimized vertical line: x, y, length, on
+      if (hdr->length >= 7) {
+        int16_t x = (int16_t)(payload[0] | (payload[1] << 8));
+        int16_t y = (int16_t)(payload[2] | (payload[3] << 8));
+        int16_t len = (int16_t)(payload[4] | (payload[5] << 8));
+        bool on = payload[6] > 0;
+        if (x >= 0 && x < OLED_WIDTH) {
+          for (int py = y; py < y + len && py < OLED_HEIGHT; py++) {
+            if (py >= 0) {
+              int idx = (py / 8) * OLED_WIDTH + x;
+              if (on) oled_buffer[idx] |= (1 << (py % 8));
+              else oled_buffer[idx] &= ~(1 << (py % 8));
+            }
+          }
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_HLINE: {
+      // Optimized horizontal line: x, y, length, on
+      if (hdr->length >= 7) {
+        int16_t x = (int16_t)(payload[0] | (payload[1] << 8));
+        int16_t y = (int16_t)(payload[2] | (payload[3] << 8));
+        int16_t len = (int16_t)(payload[4] | (payload[5] << 8));
+        bool on = payload[6] > 0;
+        if (y >= 0 && y < OLED_HEIGHT) {
+          int bit = y % 8;
+          uint8_t mask = 1 << bit;
+          for (int px = x; px < x + len && px < OLED_WIDTH; px++) {
+            if (px >= 0) {
+              int idx = (y / 8) * OLED_WIDTH + px;
+              if (on) oled_buffer[idx] |= mask;
+              else oled_buffer[idx] &= ~mask;
+            }
+          }
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_FILL_CIRCLE: {
+      if (hdr->length >= 7) {
+        int16_t cx = (int16_t)(payload[0] | (payload[1] << 8));
+        int16_t cy = (int16_t)(payload[2] | (payload[3] << 8));
+        int16_t r = (int16_t)(payload[4] | (payload[5] << 8));
+        bool on = payload[6] > 0;
+        // Filled circle using scanlines
+        for (int y = -r; y <= r; y++) {
+          int py = cy + y;
+          if (py < 0 || py >= OLED_HEIGHT) continue;
+          int dx = (int)sqrtf(r * r - y * y);
+          for (int x = -dx; x <= dx; x++) {
+            int px = cx + x;
+            if (px >= 0 && px < OLED_WIDTH) {
+              int idx = (py / 8) * OLED_WIDTH + px;
+              if (on) oled_buffer[idx] |= (1 << (py % 8));
+              else oled_buffer[idx] &= ~(1 << (py % 8));
+            }
+          }
+        }
       }
       break;
     }
