@@ -147,9 +147,10 @@ static void fillPolygonGradient(int16_t* px, int16_t* py, int n, float baseHue) 
             if (i + 1 < nodes) {
                 // Draw each pixel with gradient hue shift
                 for (int16_t x = nodeX[i]; x <= nodeX[i+1]; x++) {
-                    // Calculate hue based on X position (gradient across width)
+                    // Calculate hue based on X position (red->orange->yellow->green->blue)
+                    // Red=0°, Orange=30°, Yellow=60°, Green=120°, Blue=240°
                     float t = (float)(x - minX) / width;
-                    float hue = baseHue + t * 120.0f;  // 120 degree hue shift across width
+                    float hue = baseHue + t * 240.0f;  // 240 degree span covers red to blue
                     while (hue >= 360.0f) hue -= 360.0f;
                     
                     uint8_t r, g, b;
@@ -211,23 +212,19 @@ extern "C" void app_main() {
         rightY[i] = POLY_Y[i];
     }
     
-    float hue = 0;
-    
+    // Static gradient: Red->Orange->Yellow->Green->Blue
     while (true) {
         // Clear and draw
         setTarget(0);
         clear(0, 0, 0);
         
-        // Fill both polygons with gradient (each gets its own base hue for variety)
-        fillPolygonGradient(leftX, leftY, NUM_VERTS, hue);
-        fillPolygonGradient(rightX, rightY, NUM_VERTS, hue + 60.0f);  // Offset right eye by 60 degrees
+        // Fill both polygons with static gradient (red to blue)
+        fillPolygonGradient(leftX, leftY, NUM_VERTS, 0.0f);    // Start at red (0°)
+        fillPolygonGradient(rightX, rightY, NUM_VERTS, 0.0f);  // Also start at red
         
         uart_wait_tx_done(UART_PORT, pdMS_TO_TICKS(100));
         present();
         
-        hue += 1.5f;
-        if (hue >= 360.0f) hue -= 360.0f;
-        
-        vTaskDelay(pdMS_TO_TICKS(30));
+        vTaskDelay(pdMS_TO_TICKS(100));  // Slower refresh since it's static
     }
 }
