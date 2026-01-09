@@ -8,14 +8,25 @@
  *    Maps 4 buttons to each mode:
  *    Button A (GPIO 5)  = Boot
  *    Button B (GPIO 6)  = Running
- *    Button C (GPIO 7)  = Debug
+ *    Button C (GPIO 7)  = Debug (runtime only)
  *    Button D (GPIO 15) = System Test
+ *    
+ *    STARTUP DEBUG MODE:
+ *    Hold Button A + D during power-on to enter Debug mode.
+ *    Debug mode runs ALL system tests in an infinite loop with
+ *    a 5-second gap between each test iteration.
  *    
  *    Demonstrates registering handlers for:
  *    - onEnter:  Called when entering a mode
  *    - onExit:   Called when leaving a mode
  *    - onUpdate: Called each frame (with deltaTime)
  *    - onRender: Called each frame for rendering
+ *
+ *    System Test mode runs comprehensive HAL tests:
+ *    - Sensors: ICM20948, BME280, INMP441, Buttons, NEO-8M GPS
+ *    - LED Strips: Left Fin, Right Fin, Scale, Tongue (RGBW)
+ *    - GPU: Communication, HUB75 patterns, OLED patterns
+ *    - Fans: On/Off test
  *****************************************************************/
 
 #include <cstdio>
@@ -26,6 +37,7 @@
 #include "esp_timer.h"
 
 #include "SystemAPI/SystemMode.hpp"
+#include "SystemAPI/HalTest.hpp"
 
 static const char* TAG = "MODE_TOGGLE";
 
@@ -53,7 +65,6 @@ static ButtonState btnA, btnB, btnC, btnD;
 static float bootProgress = 0.0f;
 static float runningTime = 0.0f;
 static int debugFrameCount = 0;
-static int testStepCount = 0;
 
 // ============================================================
 // Initialize GPIO for buttons
@@ -110,6 +121,8 @@ static void printHelp(){
   printf("\n");
   printf("┌────────────────────────────────────────┐\n");
   printf("│       SYSTEM MODE TEST                 │\n");
+  printf("├────────────────────────────────────────┤\n");
+  printf("│  STARTUP: Hold A+D = Debug Loop Mode   │\n");
   printf("├────────────────────────────────────────┤\n");
   printf("│  Button A (GPIO 5)  = Boot Mode        │\n");
   printf("│  Button B (GPIO 6)  = Running Mode     │\n");
@@ -211,45 +224,79 @@ static void registerModeHandlers(SystemAPI::Mode::Manager& mm){
   };
   mm.registerHandler(SystemMode::DEBUG, debugHandler);
   
+  // Set up the debug loop runner for startup A+D combo
+  mm.setDebugLoopRunner([](uint32_t loopDelayMs){
+    printf("\n");
+    printf("╔══════════════════════════════════════════════════════════╗\n");
+    printf("║         DEBUG LOOP MODE (A+D STARTUP)                    ║\n");
+    printf("║         Running all tests in infinite loop               ║\n");
+    printf("║         Gap between iterations: %lu ms                   ║\n", (unsigned long)loopDelayMs);
+    printf("║         Reset/power-cycle to exit                        ║\n");
+    printf("╚══════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+    
+    int iteration = 0;
+    while(true){
+      iteration++;
+      printf("\n");
+      printf("════════════════════════════════════════════════════════════\n");
+      printf("  DEBUG LOOP - ITERATION #%d\n", iteration);
+      printf("════════════════════════════════════════════════════════════\n");
+      printf("\n");
+      
+      // Run comprehensive HAL tests
+      SystemAPI::HalTest::HalTestRunner testRunner;
+      testRunner.runWithConsoleOutput();
+      
+      printf("\n");
+      printf("  [DEBUG] Iteration #%d complete. Waiting %lu ms...\n", 
+             iteration, (unsigned long)loopDelayMs);
+      printf("════════════════════════════════════════════════════════════\n");
+      printf("\n");
+      
+      vTaskDelay(pdMS_TO_TICKS(loopDelayMs));
+    }
+  });
+  
   // ----- SYSTEM TEST MODE HANDLER -----
   ModeHandler testHandler;
-  testHandler.name = "SystemTest";
+  testHandler.name = "HalSystemTest";
   testHandler.onEnter = [](){
-    testStepCount = 0;
-    printf("  [TEST] ┌─────────────────────────────────┐\n");
-    printf("  [TEST] │     SYSTEM TEST SEQUENCE        │\n");
-    printf("  [TEST] └─────────────────────────────────┘\n");
-    printf("  [TEST] Starting hardware diagnostics...\n");
+    printf("  [TEST] ┌─────────────────────────────────────────────────────────┐\n");
+    printf("  [TEST] │     COMPREHENSIVE HAL SYSTEM TEST                       │\n");
+    printf("  [TEST] │     Max Duration: 5 minutes                             │\n");
+    printf("  [TEST] │     GPS Warning: 2 minutes (NEO-8M cold start)          │\n");
+    printf("  [TEST] │     Auto-return to Running in 5s after completion       │\n");
+    printf("  [TEST] └─────────────────────────────────────────────────────────┘\n");
+    printf("  [TEST] Starting hardware diagnostics...\n\n");
+    
+    // Run comprehensive HAL tests
+    SystemAPI::HalTest::HalTestRunner testRunner;
+    testRunner.runWithConsoleOutput();
+    
+    // 5 second countdown before returning to Running
+    printf("\n");
+    printf("  [TEST] ───────────────────────────────────────────────────────────\n");
+    printf("  [TEST] HAL test sequence complete.\n");
+    printf("  [TEST] Returning to Running mode in 5 seconds...\n");
+    for(int i = 5; i > 0; i--){
+      printf("  [TEST] %d...\n", i);
+      vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    printf("  [TEST] Switching to Running mode now.\n");
+    printf("  [TEST] ───────────────────────────────────────────────────────────\n");
+    
+    // Auto-transition to Running mode
+    SystemAPI::Mode::Manager::instance().exitSystemTest();
   };
   testHandler.onUpdate = [](float dt){
-    testStepCount++;
+    // Test runs once on enter, no continuous update needed
   };
   testHandler.onRender = [](){
-    // Simulate test progress
-    static const char* testItems[] = {
-      "GPU Communication",
-      "IMU Sensor",
-      "Environmental Sensor",
-      "HUB75 Display",
-      "OLED Display",
-      "LED Strips",
-      "WiFi Module",
-      "SD Card",
-      "GPS Module",
-      "Microphone"
-    };
-    
-    if(testStepCount <= 10 && testStepCount > 0){
-      if(testStepCount % 10 == 1){  // Print every ~0.5 seconds
-        int idx = (testStepCount / 10) % 10;
-        printf("  [TEST] Testing: %-20s [PASS]\n", testItems[idx]);
-      }
-    }
+    // Test runs once on enter, no continuous render needed
   };
   testHandler.onExit = [](){
-    printf("  [TEST] ───────────────────────────────────\n");
-    printf("  [TEST] All tests completed!\n");
-    printf("  [TEST] Total steps: %d\n", testStepCount);
+    // Exit message already printed in onEnter countdown
   };
   mm.registerHandler(SystemMode::SYSTEM_TEST, testHandler);
   
@@ -266,9 +313,31 @@ static void registerModeHandlers(SystemAPI::Mode::Manager& mm){
 extern "C" void app_main(){
   ESP_LOGI(TAG, "=== CPU Mode Toggle Test ===");
   
+  // Initialize buttons FIRST for startup check
+  initButtons();
+  
+  // Small delay to let GPIO stabilize
+  vTaskDelay(pdMS_TO_TICKS(100));
+  
+  // Check for Debug Loop startup (A+D held together)
+  bool btnAHeld = (gpio_get_level(BUTTON_A) == 0);  // Active LOW
+  bool btnDHeld = (gpio_get_level(BUTTON_D) == 0);  // Active LOW
+  bool debugLoopMode = (btnAHeld && btnDHeld);
+  
+  if(debugLoopMode){
+    ESP_LOGI(TAG, "*** A+D HELD AT STARTUP - ENTERING DEBUG LOOP MODE ***");
+    printf("\n");
+    printf("╔══════════════════════════════════════════════════════════╗\n");
+    printf("║     A + D DETECTED AT STARTUP                            ║\n");
+    printf("║     ENTERING DEBUG LOOP MODE...                          ║\n");
+    printf("╚══════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+  }
+  
   // Initialize mode manager
   auto& modeManager = SystemAPI::Mode::Manager::instance();
-  modeManager.initialize(SystemAPI::Mode::SystemMode::BOOT);
+  modeManager.initialize(debugLoopMode ? SystemAPI::Mode::SystemMode::DEBUG 
+                                       : SystemAPI::Mode::SystemMode::BOOT);
   
   // Register mode change callback (for banner display)
   modeManager.onModeChange([](const SystemAPI::Mode::ModeEventData& e){
@@ -280,8 +349,11 @@ extern "C" void app_main(){
   // Register mode-specific handlers
   registerModeHandlers(modeManager);
   
-  // Initialize buttons
-  initButtons();
+  // If debug loop mode, run infinite test loop (never returns)
+  if(debugLoopMode){
+    modeManager.runDebugLoop(5000);  // 5 second gap between iterations
+    // This never returns
+  }
   
   // Print help
   printHelp();

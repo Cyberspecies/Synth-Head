@@ -29,8 +29,9 @@ namespace Mode {
  * 
  * BOOT        - Initial startup, hardware initialization
  * RUNNING     - Normal operation mode
- * DEBUG       - Debug mode with verbose logging and diagnostics
- * SYSTEM_TEST - Self-test mode for hardware validation
+ * DEBUG       - Debug mode (startup only when A+D pressed)
+ *               Runs all system tests in an infinite loop with 5s gaps
+ * SYSTEM_TEST - Self-test mode for hardware validation (runs once)
  */
 enum class SystemMode : uint8_t {
   BOOT = 0,       ///< System is booting and initializing
@@ -513,6 +514,31 @@ public:
   }
   
   /**
+   * @brief Debug loop runner type - runs tests in infinite loop
+   * @param loopDelayMs Delay between test iterations in milliseconds
+   */
+  using DebugLoopRunner = std::function<void(uint32_t loopDelayMs)>;
+  
+  /**
+   * @brief Set the debug loop runner function
+   * @param runner Function that runs tests in a loop with delays
+   */
+  void setDebugLoopRunner(DebugLoopRunner runner){
+    debugLoopRunner_ = runner;
+  }
+  
+  /**
+   * @brief Run debug loop (infinite loop with 5s gaps between tests)
+   * This never returns - intended for startup debug mode
+   * @param loopDelayMs Delay between iterations (default 5000ms)
+   */
+  void runDebugLoop(uint32_t loopDelayMs = 5000){
+    if(debugLoopRunner_){
+      debugLoopRunner_(loopDelayMs);
+    }
+  }
+  
+  /**
    * @brief Run system test
    * @return Test status
    */
@@ -593,6 +619,7 @@ private:
   SystemMode previousMode_ = SystemMode::BOOT;
   TestStatus testStatus_;
   TestRunner testRunner_;
+  DebugLoopRunner debugLoopRunner_;
   
   std::vector<std::pair<int, ModeEventCallback>> callbacks_;
   int nextCallbackId_ = 1;

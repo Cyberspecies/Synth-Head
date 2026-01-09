@@ -58,6 +58,9 @@
 // Display management
 #include "DisplayManager.hpp"
 
+// Text rendering
+#include "TextRenderer.hpp"
+
 // LED management
 #include "LedManager.hpp"
 
