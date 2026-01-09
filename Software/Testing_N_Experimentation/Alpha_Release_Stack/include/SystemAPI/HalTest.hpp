@@ -367,6 +367,13 @@ public:
     printResults(results);
   }
   
+  // ============================================================
+  // Individual Test Methods (for Debug Menu)
+  // See implementations at end of class (after private helpers)
+  // They need to be after private methods to use them.
+  // Look for: testGpuHub75Pattern(), testGpuOledPattern(), testLedStrip()
+  // ============================================================
+  
 private:
   HalTestResults results_;
   ProgressCallback callback_;
@@ -374,6 +381,9 @@ private:
   
   // I2C handle for sensor tests
   bool i2cInitialized_ = false;
+  
+  // GPU UART initialization flag
+  bool gpuUartInitialized_ = false;
   
   void report(const char* stage, int percent, const char* detail) {
     if (callback_) {
@@ -1475,6 +1485,317 @@ private:
            (r.timedOut ? "TIMED OUT" : "SOME TESTS FAILED"));
     printf("╚══════════════════════════════════════════════════════════╝\n");
     printf("\n");
+  }
+
+public:
+  // ============================================================
+  // Individual Test Method Implementations (defined after private helpers)
+  // ============================================================
+  
+  void initGpuUartIfNeeded() {
+    if (gpuUartInitialized_) return;
+    
+    uart_config_t uart_config = {};
+    uart_config.baud_rate = 10000000;  // 10 Mbps
+    uart_config.data_bits = UART_DATA_8_BITS;
+    uart_config.parity = UART_PARITY_DISABLE;
+    uart_config.stop_bits = UART_STOP_BITS_1;
+    uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+    uart_config.source_clk = UART_SCLK_DEFAULT;
+    
+    esp_err_t err = uart_param_config(UART_NUM_1, &uart_config);
+    if (err != ESP_OK) return;
+    
+    err = uart_set_pin(UART_NUM_1, Pins::GPU_TX, Pins::GPU_RX,
+                       UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    if (err != ESP_OK) return;
+    
+    err = uart_driver_install(UART_NUM_1, 1024, 1024, 0, nullptr, 0);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return;
+    
+    gpuUartInitialized_ = true;
+  }
+  
+  void testGpuHub75Pattern(int patternIndex) {
+    // Initialize GPU communication if needed
+    initGpuUartIfNeeded();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Set target to HUB75 (target 0)
+    uint8_t target = 0;
+    sendGpuCommand(0x50, &target, 1);  // SET_TARGET
+    
+    // Clear display
+    uint8_t clearPayload[] = {0, 0, 0};
+    sendGpuCommand(0x47, clearPayload, 3);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    
+    switch(patternIndex) {
+      case 0:  // HSL + Grayscale
+        // Left half: HSL rainbow
+        for (int x = 0; x < 64; x++) {
+          float hue = (float)x * 360.0f / 64.0f;
+          uint8_t r, g, b;
+          hslToRgb(hue, 1.0f, 0.5f, r, g, b);
+          uint8_t line[11];
+          encodeI16(line, 0, (int16_t)x);
+          encodeI16(line, 2, 0);
+          encodeI16(line, 4, (int16_t)x);
+          encodeI16(line, 6, 31);
+          line[8] = r; line[9] = g; line[10] = b;
+          sendGpuCommand(0x41, line, 11);
+        }
+        // Right half: Grayscale
+        for (int x = 64; x < 128; x++) {
+          uint8_t gray = (uint8_t)((x - 64) * 255 / 63);
+          uint8_t line[11];
+          encodeI16(line, 0, (int16_t)x);
+          encodeI16(line, 2, 0);
+          encodeI16(line, 4, (int16_t)x);
+          encodeI16(line, 6, 31);
+          line[8] = gray; line[9] = gray; line[10] = gray;
+          sendGpuCommand(0x41, line, 11);
+        }
+        break;
+        
+      case 1:  // Grayscale only (full width)
+        for (int x = 0; x < 128; x++) {
+          uint8_t gray = (uint8_t)(x * 255 / 127);
+          uint8_t line[11];
+          encodeI16(line, 0, (int16_t)x);
+          encodeI16(line, 2, 0);
+          encodeI16(line, 4, (int16_t)x);
+          encodeI16(line, 6, 31);
+          line[8] = gray; line[9] = gray; line[10] = gray;
+          sendGpuCommand(0x41, line, 11);
+        }
+        break;
+        
+      case 2:  // Orientation arrows
+        // Origin marker
+        for (int i = 0; i < 5; i++) {
+          uint8_t pix[7];
+          encodeI16(pix, 0, (int16_t)i);
+          encodeI16(pix, 2, 0);
+          pix[4] = 255; pix[5] = 255; pix[6] = 255;
+          sendGpuCommand(0x40, pix, 7);
+          encodeI16(pix, 0, 0);
+          encodeI16(pix, 2, (int16_t)i);
+          sendGpuCommand(0x40, pix, 7);
+        }
+        // X arrow
+        {
+          uint8_t line[11];
+          encodeI16(line, 0, 5); encodeI16(line, 2, 2);
+          encodeI16(line, 4, 120); encodeI16(line, 6, 2);
+          line[8] = 255; line[9] = 0; line[10] = 0;
+          sendGpuCommand(0x41, line, 11);
+        }
+        // Y arrow
+        {
+          uint8_t line[11];
+          encodeI16(line, 0, 2); encodeI16(line, 2, 5);
+          encodeI16(line, 4, 2); encodeI16(line, 6, 28);
+          line[8] = 0; line[9] = 255; line[10] = 0;
+          sendGpuCommand(0x41, line, 11);
+        }
+        break;
+    }
+    
+    sendGpuCommand(0x51, nullptr, 0);  // Present
+    vTaskDelay(pdMS_TO_TICKS(5000));  // Display for 5 seconds
+  }
+  
+  void testGpuOledPattern(int patternIndex) {
+    // Initialize GPU communication if needed
+    initGpuUartIfNeeded();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Clear OLED
+    sendGpuCommand(0x60, nullptr, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    
+    switch(patternIndex) {
+      case 0:  // Checkerboard + stripes
+        // Checkerboard top-left
+        for (int y = 0; y < 64; y += 4) {
+          for (int x = (y/4) % 2 == 0 ? 0 : 4; x < 64; x += 8) {
+            uint8_t fillRect[9];
+            encodeI16(fillRect, 0, (int16_t)x);
+            encodeI16(fillRect, 2, (int16_t)y);
+            encodeI16(fillRect, 4, 4);
+            encodeI16(fillRect, 6, 4);
+            fillRect[8] = 1;
+            sendGpuCommand(0x63, fillRect, 9);
+          }
+        }
+        // Horizontal stripes top-right
+        for (int y = 0; y < 64; y += 4) {
+          uint8_t hline[9];
+          encodeI16(hline, 0, 64);
+          encodeI16(hline, 2, (int16_t)y);
+          encodeI16(hline, 4, 127);
+          encodeI16(hline, 6, (int16_t)y);
+          hline[8] = 1;
+          sendGpuCommand(0x61, hline, 9);
+        }
+        break;
+        
+      case 1:  // Vertical + diagonal stripes
+        // Vertical stripes bottom-left
+        for (int x = 0; x < 64; x += 4) {
+          uint8_t vline[9];
+          encodeI16(vline, 0, (int16_t)x);
+          encodeI16(vline, 2, 64);
+          encodeI16(vline, 4, (int16_t)x);
+          encodeI16(vline, 6, 127);
+          vline[8] = 1;
+          sendGpuCommand(0x61, vline, 9);
+        }
+        // Diagonal stripes bottom-right
+        for (int i = 0; i < 128; i += 8) {
+          uint8_t diag[9];
+          int x1 = 64 + i, y1 = 64, x2 = 64, y2 = 64 + i;
+          if (x1 > 127) { y1 += (x1 - 127); x1 = 127; }
+          if (y2 > 127) { x2 += (y2 - 127); y2 = 127; }
+          if (x1 >= 64 && y1 <= 127 && x2 >= 64 && y2 <= 127) {
+            encodeI16(diag, 0, (int16_t)x1);
+            encodeI16(diag, 2, (int16_t)y1);
+            encodeI16(diag, 4, (int16_t)x2);
+            encodeI16(diag, 6, (int16_t)y2);
+            diag[8] = 1;
+            sendGpuCommand(0x61, diag, 9);
+          }
+        }
+        break;
+        
+      case 2:  // Orientation arrows
+        {
+          // Origin L
+          uint8_t originH[9], originV[9];
+          encodeI16(originH, 0, 0); encodeI16(originH, 2, 0);
+          encodeI16(originH, 4, 10); encodeI16(originH, 6, 0);
+          originH[8] = 1;
+          sendGpuCommand(0x61, originH, 9);
+          encodeI16(originV, 0, 0); encodeI16(originV, 2, 0);
+          encodeI16(originV, 4, 0); encodeI16(originV, 6, 10);
+          originV[8] = 1;
+          sendGpuCommand(0x61, originV, 9);
+          
+          // X arrow
+          uint8_t arrowX[9];
+          encodeI16(arrowX, 0, 10); encodeI16(arrowX, 2, 5);
+          encodeI16(arrowX, 4, 118); encodeI16(arrowX, 6, 5);
+          arrowX[8] = 1;
+          sendGpuCommand(0x61, arrowX, 9);
+          
+          // Y arrow
+          uint8_t arrowY[9];
+          encodeI16(arrowY, 0, 5); encodeI16(arrowY, 2, 10);
+          encodeI16(arrowY, 4, 5); encodeI16(arrowY, 6, 118);
+          arrowY[8] = 1;
+          sendGpuCommand(0x61, arrowY, 9);
+          
+          // Border
+          uint8_t border[9];
+          encodeI16(border, 0, 0); encodeI16(border, 2, 0);
+          encodeI16(border, 4, 127); encodeI16(border, 6, 127);
+          border[8] = 1;
+          sendGpuCommand(0x62, border, 9);
+        }
+        break;
+    }
+    
+    sendGpuCommand(0x65, nullptr, 0);  // Present
+    vTaskDelay(pdMS_TO_TICKS(5000));  // Display for 5 seconds
+  }
+  
+  void testLedStrip(int stripIndex) {
+    // LED strip pins from Pins namespace
+    static const gpio_num_t stripPins[] = {
+      static_cast<gpio_num_t>(Pins::LED_STRIP_1_LEFT_FIN),
+      static_cast<gpio_num_t>(Pins::LED_STRIP_4_RIGHT_FIN),
+      static_cast<gpio_num_t>(Pins::LED_STRIP_5_SCALE),
+      static_cast<gpio_num_t>(Pins::LED_STRIP_2_TONGUE)
+    };
+    static const int stripCounts[] = {
+      LedConfig::LEFT_FIN_COUNT, 
+      LedConfig::RIGHT_FIN_COUNT, 
+      LedConfig::SCALE_COUNT, 
+      LedConfig::TONGUE_COUNT
+    };
+    static const char* stripNames[] = {"Left Fin", "Right Fin", "Scale", "Tongue"};
+    
+    if (stripIndex < 0 || stripIndex > 3) return;
+    
+    gpio_num_t pin = stripPins[stripIndex];
+    int count = stripCounts[stripIndex];
+    printf("  Testing %s LEDs (count=%d, pin=%d)...\n", stripNames[stripIndex], count, pin);
+    
+    // Setup RMT
+    rmt_channel_handle_t channel = nullptr;
+    rmt_tx_channel_config_t tx_config = {};
+    tx_config.clk_src = RMT_CLK_SRC_DEFAULT;
+    tx_config.gpio_num = pin;
+    tx_config.mem_block_symbols = 64;
+    tx_config.resolution_hz = 10000000;  // 10MHz
+    tx_config.trans_queue_depth = 4;
+    
+    if (rmt_new_tx_channel(&tx_config, &channel) != ESP_OK) {
+      printf("  ERROR: Failed to create RMT channel\n");
+      return;
+    }
+    
+    rmt_bytes_encoder_config_t encoder_config = {};
+    encoder_config.bit0.level0 = 1; encoder_config.bit0.duration0 = 3;  // 300ns
+    encoder_config.bit0.level1 = 0; encoder_config.bit0.duration1 = 9;  // 900ns
+    encoder_config.bit1.level0 = 1; encoder_config.bit1.duration0 = 6;  // 600ns
+    encoder_config.bit1.level1 = 0; encoder_config.bit1.duration1 = 6;  // 600ns
+    encoder_config.flags.msb_first = 1;
+    
+    rmt_encoder_handle_t encoder = nullptr;
+    rmt_new_bytes_encoder(&encoder_config, &encoder);
+    rmt_enable(channel);
+    
+    uint8_t* buffer = new uint8_t[count * 4];  // GRBW format
+    
+    // Color cycle: Red, Green, Blue, White
+    uint8_t colors[][4] = {
+      {0, 255, 0, 0},    // Red (G,R,B,W)
+      {255, 0, 0, 0},    // Green
+      {0, 0, 255, 0},    // Blue
+      {0, 0, 0, 255}     // White
+    };
+    const char* colorNames[] = {"Red", "Green", "Blue", "White"};
+    
+    for (int c = 0; c < 4; c++) {
+      printf("    %s...\n", colorNames[c]);
+      for (int i = 0; i < count; i++) {
+        buffer[i*4 + 0] = colors[c][0];
+        buffer[i*4 + 1] = colors[c][1];
+        buffer[i*4 + 2] = colors[c][2];
+        buffer[i*4 + 3] = colors[c][3];
+      }
+      
+      rmt_transmit_config_t tx_cfg = {};
+      tx_cfg.loop_count = 0;
+      rmt_transmit(channel, encoder, buffer, count * 4, &tx_cfg);
+      rmt_tx_wait_all_done(channel, 1000);
+      vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    
+    // Turn off
+    memset(buffer, 0, count * 4);
+    rmt_transmit_config_t tx_cfg = {};
+    rmt_transmit(channel, encoder, buffer, count * 4, &tx_cfg);
+    rmt_tx_wait_all_done(channel, 1000);
+    
+    delete[] buffer;
+    rmt_disable(channel);
+    rmt_del_encoder(encoder);
+    rmt_del_channel(channel);
+    
+    printf("  %s complete.\n", stripNames[stripIndex]);
   }
 };
 
