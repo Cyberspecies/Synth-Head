@@ -69,6 +69,7 @@
 #include "InputManager.hpp"
 #include "VisualComposer.hpp"
 #include "Physics2D.hpp"
+#include "TextDriver.hpp"
 
 // Optional: Base layer access (forward declare if not available)
 #if __has_include("BaseAPI/BaseSystemAPI.hpp")

@@ -378,6 +378,62 @@ public:
     }
     
     // ============================================================
+    // HUB75 Text Rendering (CPU-side using pixels)
+    // ============================================================
+    
+    /**
+     * Draw text on HUB75 using 5x7 font
+     * @param x Starting X position
+     * @param y Starting Y position  
+     * @param text String to draw (null-terminated)
+     * @param r Red component
+     * @param g Green component
+     * @param b Blue component
+     * @param scale Font scale (1 = 5x7, 2 = 10x14, etc.)
+     */
+    void hub75Text(int16_t x, int16_t y, const char* text, 
+                   uint8_t r, uint8_t g, uint8_t b, int scale = 1){
+        if(!text) return;
+        
+        setTarget(0);
+        int cursorX = x;
+        while(*text){
+            char c = *text++;
+            
+            // Map character to font index
+            if(c < 32 || c > 126) c = '?';
+            int idx = c - 32;
+            
+            // Draw character pixel by pixel
+            for(int col = 0; col < 5; col++){
+                uint8_t colData = FONT_5X7[idx][col];
+                for(int row = 0; row < 7; row++){
+                    if(colData & (1 << row)){
+                        if(scale == 1){
+                            hub75Pixel(cursorX + col, y + row, r, g, b);
+                        }else{
+                            hub75Fill(cursorX + col * scale, y + row * scale, 
+                                      scale, scale, r, g, b);
+                        }
+                    }
+                }
+            }
+            
+            cursorX += 6 * scale;  // 5 pixels + 1 space
+        }
+    }
+    
+    /**
+     * Draw text centered on HUB75
+     */
+    void hub75TextCentered(int16_t y, const char* text, 
+                           uint8_t r, uint8_t g, uint8_t b, int scale = 1){
+        int w = textWidth(text, scale);
+        int x = (HUB75_WIDTH - w) / 2;
+        hub75Text(x, y, text, r, g, b, scale);
+    }
+    
+    // ============================================================
     // OLED Commands (128x128 monochrome)
     // ============================================================
     

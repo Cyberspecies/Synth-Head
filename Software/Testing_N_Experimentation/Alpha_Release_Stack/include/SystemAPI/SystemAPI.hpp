@@ -40,6 +40,7 @@
 
 // Core System Components
 #include "Lifecycle.hpp"
+#include "SystemMode.hpp"
 #include "HealthMonitor.hpp"
 #include "ConfigManager.hpp"
 #include "WebServer.hpp"
