@@ -5,6 +5,14 @@
 if(CPU_PROGRAMMABLE_TEST_MODE)
     set(SOURCE_FILE "CPU_Programmable_Test.cpp")
     message(STATUS "Building CPU Programmable Test")
+elseif(CPU_MAIN_MODE)
+    set(SOURCE_FILES 
+        "CPU_Main.cpp"
+        "Lifecycle/LifecycleController.cpp"
+        "Modes/BootMode.cpp"
+        "Modes/CurrentMode.cpp"
+    )
+    message(STATUS "Building CPU Main (Lifecycle Architecture)")
 elseif(CPU_MODE_TOGGLE_MODE)
     set(SOURCE_FILE "CPU_ModeToggle.cpp")
     message(STATUS "Building CPU Mode Toggle Test")
@@ -62,8 +70,15 @@ else()
     message(STATUS "Building GPU Main Application")
 endif()
 
+# Handle both single file and multi-file builds
+if(DEFINED SOURCE_FILES)
+    set(SRCS_TO_BUILD ${SOURCE_FILES})
+else()
+    set(SRCS_TO_BUILD ${SOURCE_FILE})
+endif()
+
 idf_component_register(
-    SRCS "${SOURCE_FILE}"
+    SRCS ${SRCS_TO_BUILD}
     INCLUDE_DIRS 
         "." 
         "../include"

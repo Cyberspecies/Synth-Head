@@ -79,7 +79,8 @@
   #define FRAMEWORK_HAS_BASE_API 0
 #endif
 
-#if __has_include("GpuDriver/GpuDriver.hpp")
+// GpuDriver requires Arduino - only include if available
+#if defined(ARDUINO) && __has_include("GpuDriver/GpuDriver.hpp")
   #include "GpuDriver/GpuDriver.hpp"
   #define FRAMEWORK_HAS_GPU_DRIVER 1
 #else
