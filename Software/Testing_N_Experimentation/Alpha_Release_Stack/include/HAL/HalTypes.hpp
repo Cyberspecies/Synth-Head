@@ -32,7 +32,7 @@ enum class HalResult : uint8_t{
   NOT_SUPPORTED,       // Feature not supported
   BUFFER_FULL,         // Buffer is full
   BUFFER_EMPTY,        // Buffer is empty
-  NO_DATA,             // No data available
+  KEY_NOT_FOUND,       // Key/data not found in storage
   HARDWARE_FAULT,      // Hardware fault detected
   ALREADY_INITIALIZED, // Already initialized
   INVALID_STATE,       // Invalid state for operation

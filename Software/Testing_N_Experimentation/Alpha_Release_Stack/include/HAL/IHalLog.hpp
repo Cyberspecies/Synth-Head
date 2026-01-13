@@ -195,7 +195,7 @@ inline const char* halResultToString(HalResult result){
     case HalResult::NOT_SUPPORTED:   return "NOT_SUPPORTED";
     case HalResult::BUFFER_FULL:     return "BUFFER_FULL";
     case HalResult::BUFFER_EMPTY:    return "BUFFER_EMPTY";
-    case HalResult::NO_DATA:         return "NO_DATA";
+    case HalResult::KEY_NOT_FOUND:  return "KEY_NOT_FOUND";
     case HalResult::HARDWARE_FAULT:  return "HARDWARE_FAULT";
     default:                         return "UNKNOWN";
   }

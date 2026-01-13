@@ -52,8 +52,25 @@ struct SyncState {
   float latitude = 0.0f;
   float longitude = 0.0f;
   float altitude = 0.0f;
+  float gpsSpeed = 0.0f;       // Speed in km/h
+  float gpsHeading = 0.0f;     // Course over ground (degrees)
+  float gpsHdop = 99.9f;       // Horizontal dilution of precision
   uint8_t satellites = 0;
   bool gpsValid = false;
+  uint8_t gpsHour = 0;
+  uint8_t gpsMinute = 0;
+  uint8_t gpsSecond = 0;
+  uint8_t gpsDay = 0;
+  uint8_t gpsMonth = 0;
+  uint16_t gpsYear = 0;
+  
+  // Connection status
+  bool gpuConnected = false;
+  
+  // Microphone
+  bool micConnected = false;
+  uint8_t micLevel = 0;
+  float micDb = -60.0f;  // dB level (-60 to 0)
   
   // User controls (bidirectional)
   bool ledEnabled = false;
@@ -85,6 +102,21 @@ struct SyncState {
   char ssid[32] = "SynthHead-AP";
   char ipAddress[16] = "192.168.4.1";
   uint8_t wifiClients = 0;
+  
+  // External WiFi (Station Mode) Settings
+  bool extWifiEnabled = false;       // System is enabled (persisted)
+  bool extWifiConnected = false;     // Kill switch - actually connect
+  bool extWifiIsConnected = false;   // Connection status
+  char extWifiSSID[32] = "";         // Target network SSID
+  char extWifiPassword[64] = "";     // Target network password
+  char extWifiIP[16] = "";           // IP assigned when connected
+  int8_t extWifiRSSI = -100;         // Signal strength
+  
+  // Authentication for external WiFi mode
+  bool authEnabled = false;          // Require login when on external WiFi
+  char authUsername[32] = "admin";   // Site-wide username
+  char authPassword[32] = "";        // Site-wide password (hashed in practice)
+  char authSessionToken[65] = "";    // Current valid session token
   
   // Stats
   uint32_t uptime = 0;
@@ -235,12 +267,24 @@ public:
     notifyChange(SyncState::FLAG_SENSORS);
   }
   
-  void updateGPS(float lat, float lon, float alt, uint8_t sats, bool valid) {
+  void updateGPS(float lat, float lon, float alt, uint8_t sats, bool valid,
+                 float speed = 0.0f, float heading = 0.0f, float hdop = 99.9f,
+                 uint8_t hour = 0, uint8_t minute = 0, uint8_t second = 0,
+                 uint8_t day = 0, uint8_t month = 0, uint16_t year = 0) {
     state_.latitude = lat;
     state_.longitude = lon;
     state_.altitude = alt;
     state_.satellites = sats;
     state_.gpsValid = valid;
+    state_.gpsSpeed = speed;
+    state_.gpsHeading = heading;
+    state_.gpsHdop = hdop;
+    state_.gpsHour = hour;
+    state_.gpsMinute = minute;
+    state_.gpsSecond = second;
+    state_.gpsDay = day;
+    state_.gpsMonth = month;
+    state_.gpsYear = year;
     notifyChange(SyncState::FLAG_GPS);
   }
   

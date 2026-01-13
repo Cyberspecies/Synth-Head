@@ -37,7 +37,10 @@ This document describes the pin assignments and connected peripherals for the CP
 - **CS:** GPIO 48
 
 ### UART Connections
-- **NEO M8 (GPS):** TX: GPIO 43, RX: GPIO 44
+- **NEO M8 (GPS):** 
+  - ESP RX: GPIO 44 (receives from GPS TX)
+  - ESP TX: GPIO 43 (sends to GPS RX)
+  - Baud Rate: 9600
 - **ESP-to-ESP Connection:** RX: GPIO 11, TX: GPIO 12
   - **Baud Rate:** 1,000,000 (1M) by default
 

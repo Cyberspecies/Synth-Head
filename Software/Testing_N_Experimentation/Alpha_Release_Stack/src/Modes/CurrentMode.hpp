@@ -69,6 +69,7 @@ public:
 private:
     uint32_t m_updateCount = 0;
     uint32_t m_totalTime = 0;
+    uint32_t m_credentialPrintTime = 0;
 };
 
 } // namespace Modes

@@ -1,0 +1,298 @@
+/*****************************************************************
+ * @file PageSystem.hpp
+ * @brief System tab page content - sensor and system status
+ *****************************************************************/
+
+#pragma once
+
+namespace SystemAPI {
+namespace Web {
+namespace Content {
+
+inline const char PAGE_SYSTEM[] = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Lucidius - System</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-content">
+        <div class="logo-section">
+          <div class="logo-icon">&#x25C8;</div>
+          <div class="logo-text">
+            <h1>Lucidius</h1>
+            <span class="model-tag" id="device-model">DX.3</span>
+          </div>
+        </div>
+      </div>
+    </header>
+    
+    <nav class="tabs">
+      <a href="/" class="tab">Basic</a>
+      <a href="/advanced" class="tab">Advanced</a>
+      <a href="/system" class="tab active">System</a>
+      <a href="/settings" class="tab">Settings</a>
+    </nav>
+    
+    <section class="tab-content active">
+      <div class="card-grid">
+      <div class="card">
+        <div class="card-header"><h2>System</h2></div>
+        <div class="card-body compact">
+          <div class="sys-row"><span>Mode</span><span id="sys-mode">Idle</span></div>
+          <div class="sys-row"><span>Status</span><span id="sys-status-text">Ready</span></div>
+          <div class="sys-row"><span>Uptime</span><span id="sys-uptime">00:00:00</span></div>
+          <div class="sys-row"><span>Memory</span><span id="sys-heap">--</span></div>
+          <div class="sys-row"><span>CPU</span><span id="sys-cpu-usage">--</span></div>
+          <div class="sys-row"><span>FPS</span><span id="sys-fps">--</span></div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header"><h2>Connections</h2></div>
+        <div class="card-body compact">
+          <div class="sys-row"><span>CPU</span><span class="status-dot connected"></span><span id="conn-cpu">Connected</span></div>
+          <div class="sys-row"><span>GPU</span><span class="status-dot" id="conn-gpu-dot"></span><span id="conn-gpu">N/C</span></div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header"><h2>Environment</h2></div>
+        <div class="card-body compact">
+          <div class="sys-row"><span>Temp</span><span id="sens-temp">N/C</span></div>
+          <div class="sys-row"><span>Humidity</span><span id="sens-humidity">N/C</span></div>
+          <div class="sys-row"><span>Pressure</span><span id="sens-pressure">N/C</span></div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header"><h2>IMU</h2></div>
+        <div class="card-body compact">
+          <div class="imu-section">
+            <span class="imu-section-label">Accelerometer</span>
+            <div class="imu-bar-row">
+              <span class="axis-label">X</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="accel-x-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="imu-ax">0</span>
+            </div>
+            <div class="imu-bar-row">
+              <span class="axis-label">Y</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="accel-y-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="imu-ay">0</span>
+            </div>
+            <div class="imu-bar-row">
+              <span class="axis-label">Z</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="accel-z-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="imu-az">0</span>
+            </div>
+          </div>
+          <div class="imu-section">
+            <span class="imu-section-label">Gyroscope</span>
+            <div class="imu-bar-row">
+              <span class="axis-label">X</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="gyro-x-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="imu-gx">0</span>
+            </div>
+            <div class="imu-bar-row">
+              <span class="axis-label">Y</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="gyro-y-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="imu-gy">0</span>
+            </div>
+            <div class="imu-bar-row">
+              <span class="axis-label">Z</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="gyro-z-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="imu-gz">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header"><h2>GPS</h2></div>
+        <div class="card-body compact">
+          <div class="sys-row"><span>Status</span><span id="gps-status-text">N/C</span></div>
+          <div class="sys-row"><span>Satellites</span><span id="gps-sats">0</span></div>
+          <div class="sys-row"><span>HDOP</span><span id="gps-hdop">--</span></div>
+          <div class="sys-row"><span>Lat</span><span id="gps-lat">--</span></div>
+          <div class="sys-row"><span>Lon</span><span id="gps-lon">--</span></div>
+          <div class="sys-row"><span>Alt</span><span id="gps-alt">--</span></div>
+          <div class="sys-row"><span>Speed</span><span id="gps-speed">--</span></div>
+          <div class="sys-row"><span>Heading</span><span id="gps-heading">--</span></div>
+          <div class="sys-row"><span>Time (UTC)</span><span id="gps-time">--</span></div>
+          <div class="sys-row"><span>Date</span><span id="gps-date">--</span></div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header"><h2>Microphone</h2></div>
+        <div class="card-body compact">
+          <div class="sys-row"><span>Status</span><span id="mic-status">N/C</span></div>
+          <div class="mic-level-container">
+            <div class="mic-level-bar">
+              <div class="mic-level-fill" id="mic-level-fill"></div>
+            </div>
+            <span class="mic-db" id="mic-db">-- dB</span>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+    
+    <footer>
+      <p>Lucidius - ARCOS Framework</p>
+    </footer>
+  </div>
+  
+  <div id="toast" class="toast"></div>
+  
+  <style>
+  .mic-level-container { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+  .mic-level-bar { flex: 1; height: 16px; background: #1a1a1a; border-radius: 8px; overflow: hidden; border: 1px solid #2a2a2a; }
+  .mic-level-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00cc66 0%, #ffaa00 60%, #ff3333 90%); transition: width 0.1s ease-out; border-radius: 8px; }
+  .mic-db { min-width: 60px; text-align: right; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem; color: #fff; }
+  
+  /* IMU Bar Styles */
+  .imu-section { margin-bottom: 12px; }
+  .imu-section:last-child { margin-bottom: 0; }
+  .imu-section-label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .imu-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .axis-label { width: 16px; font-size: 0.85rem; color: #aaa; font-weight: 500; }
+  .imu-bar { flex: 1; height: 12px; background: #1a1a1a; border-radius: 6px; position: relative; overflow: hidden; border: 1px solid #2a2a2a; }
+  .imu-bar-fill { position: absolute; height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%); transition: left 0.1s ease-out, width 0.1s ease-out; border-radius: 6px; }
+  .imu-bar-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #444; transform: translateX(-50%); }
+  .imu-value { min-width: 50px; text-align: right; font-family: 'SF Mono', Monaco, monospace; font-size: 0.8rem; color: #fff; }
+  </style>
+  
+  <script>
+  function formatUptime(seconds) {
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = Math.floor(seconds % 60);
+    return h.toString().padStart(2,'0') + ':' + m.toString().padStart(2,'0') + ':' + s.toString().padStart(2,'0');
+  }
+
+  // Update IMU bar - centered at 0, grows left for negative, right for positive
+  // Uses square root scale - gentler than log, still shows small and large changes
+  function updateImuBar(barId, valueId, value, maxVal) {
+    var bar = document.getElementById(barId);
+    var valueEl = document.getElementById(valueId);
+    if (!bar || !valueEl) return;
+    
+    valueEl.textContent = Math.round(value);
+    
+    // Square root scale: gentler compression than log
+    // pct = sqrt(|value|) / sqrt(maxVal) * 50
+    var absVal = Math.abs(value);
+    var pct = Math.sqrt(absVal) / Math.sqrt(maxVal) * 50;
+    pct = Math.min(pct, 50); // Cap at 50%
+    
+    if (value >= 0) {
+      // Positive: bar starts at center (50%), grows right
+      bar.style.left = '50%';
+      bar.style.width = pct + '%';
+      bar.style.background = 'linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%)';
+    } else {
+      // Negative: bar ends at center, grows left
+      bar.style.left = (50 - pct) + '%';
+      bar.style.width = pct + '%';
+      bar.style.background = 'linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%)';
+    }
+  }
+  
+  var pollDelay = 200;
+  function fetchState() {
+    fetch('/api/state')
+      .then(r => r.json())
+      .then(data => {
+        // System
+        if (data.mode) document.getElementById('sys-mode').textContent = data.mode.charAt(0).toUpperCase() + data.mode.slice(1);
+        if (data.statusText) document.getElementById('sys-status-text').textContent = data.statusText;
+        if (data.uptime !== undefined) document.getElementById('sys-uptime').textContent = formatUptime(data.uptime);
+        if (data.freeHeap !== undefined) document.getElementById('sys-heap').textContent = Math.round(data.freeHeap / 1024) + ' KB';
+        if (data.cpuUsage !== undefined) document.getElementById('sys-cpu-usage').textContent = data.cpuUsage.toFixed(1) + '%';
+        if (data.fps !== undefined) document.getElementById('sys-fps').textContent = data.fps.toFixed(1);
+        
+        // GPU
+        if (data.gpuConnected !== undefined) {
+          var gpuDot = document.getElementById('conn-gpu-dot');
+          var gpuText = document.getElementById('conn-gpu');
+          gpuDot.className = data.gpuConnected ? 'status-dot connected' : 'status-dot';
+          gpuText.textContent = data.gpuConnected ? 'Connected' : 'N/C';
+        }
+        
+        // Environment
+        if (data.sensors) {
+          var s = data.sensors;
+          document.getElementById('sens-temp').textContent = s.temperature !== 0 ? s.temperature.toFixed(1) + ' C' : 'N/C';
+          document.getElementById('sens-humidity').textContent = s.humidity !== 0 ? s.humidity.toFixed(1) + '%' : 'N/C';
+          document.getElementById('sens-pressure').textContent = s.pressure !== 0 ? s.pressure.toFixed(0) + ' hPa' : 'N/C';
+        }
+        
+        // IMU with visual bars (raw values)
+        if (data.imu) {
+          var ACCEL_MAX = 2000;  // Max accelerometer range
+          var GYRO_MAX = 250;    // Max gyroscope range
+          
+          // Update accelerometer with raw values
+          updateImuBar('accel-x-bar', 'imu-ax', data.imu.accelX, ACCEL_MAX);
+          updateImuBar('accel-y-bar', 'imu-ay', data.imu.accelY, ACCEL_MAX);
+          updateImuBar('accel-z-bar', 'imu-az', data.imu.accelZ, ACCEL_MAX);
+          
+          // Update gyroscope with raw values
+          updateImuBar('gyro-x-bar', 'imu-gx', data.imu.gyroX, GYRO_MAX);
+          updateImuBar('gyro-y-bar', 'imu-gy', data.imu.gyroY, GYRO_MAX);
+          updateImuBar('gyro-z-bar', 'imu-gz', data.imu.gyroZ, GYRO_MAX);
+        }
+        
+        // GPS
+        if (data.gps) {
+          var g = data.gps;
+          var gpsStatus = 'N/C';
+          if (g.valid) gpsStatus = 'Lock';
+          else if (g.satellites > 0) gpsStatus = 'Searching (' + g.satellites + ')';
+          document.getElementById('gps-status-text').textContent = gpsStatus;
+          document.getElementById('gps-sats').textContent = g.satellites;
+          document.getElementById('gps-hdop').textContent = g.valid ? g.hdop.toFixed(1) : '--';
+          document.getElementById('gps-lat').textContent = g.valid ? g.latitude.toFixed(6) : '--';
+          document.getElementById('gps-lon').textContent = g.valid ? g.longitude.toFixed(6) : '--';
+          document.getElementById('gps-alt').textContent = g.valid ? g.altitude.toFixed(1) + ' m' : '--';
+          document.getElementById('gps-speed').textContent = g.valid ? g.speed.toFixed(1) + ' km/h' : '--';
+          document.getElementById('gps-heading').textContent = g.valid ? g.heading.toFixed(0) + '\u00B0' : '--';
+          document.getElementById('gps-time').textContent = (g.valid && g.time !== '00:00:00') ? g.time : '--';
+          document.getElementById('gps-date').textContent = (g.valid && g.date !== '0000-00-00') ? g.date : '--';
+        }
+        
+        // Mic with level bar
+        if (data.micConnected !== undefined) {
+          document.getElementById('mic-status').textContent = data.micConnected ? 'OK' : 'N/C';
+          if (data.micConnected && data.micDb !== undefined) {
+            var db = data.micDb;
+            var pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100)); // -60dB to 0dB range
+            document.getElementById('mic-level-fill').style.width = pct + '%';
+            document.getElementById('mic-db').textContent = db.toFixed(1) + ' dB';
+          } else {
+            document.getElementById('mic-level-fill').style.width = '0%';
+            document.getElementById('mic-db').textContent = '-- dB';
+          }
+        }
+        setTimeout(fetchState, pollDelay);
+      })
+      .catch(err => {
+        console.error('Fetch error:', err);
+        setTimeout(fetchState, pollDelay * 2);
+      });
+  }
+  fetchState();
+  </script>
+</body>
+</html>
+)rawliteral";
+
+} // namespace Content
+} // namespace Web
+} // namespace SystemAPI

@@ -5,16 +5,18 @@
  * 
  * Purpose:
  *    ESP32 implementation of HAL logging interface using
- *    Arduino Serial for output.
+ *    ESP-IDF for output.
  *****************************************************************/
 
 #ifndef ARCOS_SRC_HAL_ESP32_HAL_LOG_HPP_
 #define ARCOS_SRC_HAL_ESP32_HAL_LOG_HPP_
 
 #include "HAL/IHalLog.hpp"
-#include <Arduino.h>
+#include "esp_log.h"
+#include "esp_timer.h"
 #include <stdarg.h>
 #include <stdio.h>
+#include <cstring>
 
 namespace arcos::hal::esp32{
 
@@ -30,15 +32,15 @@ private:
   void printLog(LogLevel lvl, const char* tag, const char* format, va_list args){
     if(lvl > level_ || !initialized_) return;
     
-    unsigned long ms = millis();
+    uint32_t ms = (uint32_t)(esp_timer_get_time() / 1000);  // Convert microseconds to milliseconds
     int len = snprintf(buffer_, LOG_BUFFER_SIZE, "[%c][%lu][%s] ", 
-                       logLevelChar(lvl), ms, tag);
+                       logLevelChar(lvl), (unsigned long)ms, tag);
     
     if(len > 0 && len < (int)LOG_BUFFER_SIZE - 1){
       vsnprintf(buffer_ + len, LOG_BUFFER_SIZE - len, format, args);
     }
     
-    Serial.println(buffer_);
+    printf("%s\n", buffer_);
   }
 
 public:
@@ -109,7 +111,7 @@ public:
   }
   
   void flush() override{
-    Serial.flush();
+    fflush(stdout);
   }
 };
 

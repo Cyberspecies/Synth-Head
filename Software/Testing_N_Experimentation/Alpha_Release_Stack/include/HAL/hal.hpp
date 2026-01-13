@@ -71,6 +71,7 @@
 // Storage Interfaces
 // ============================================================
 #include "IHalStorage.hpp"   // SD card, flash storage
+#include "IHalDataStore.hpp" // NVS key-value storage
 
 // ============================================================
 // Pin Mapping Constants

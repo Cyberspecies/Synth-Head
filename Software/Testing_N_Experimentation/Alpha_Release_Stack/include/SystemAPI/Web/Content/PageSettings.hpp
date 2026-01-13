@@ -1,0 +1,578 @@
+/*****************************************************************
+ * @file PageSettings.hpp
+ * @brief Settings tab page content
+ *****************************************************************/
+
+#pragma once
+
+namespace SystemAPI {
+namespace Web {
+namespace Content {
+
+inline const char PAGE_SETTINGS[] = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Lucidius - Settings</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-content">
+        <div class="logo-section">
+          <div class="logo-icon">&#x25C8;</div>
+          <div class="logo-text">
+            <h1>Lucidius</h1>
+            <span class="model-tag" id="device-model">DX.3</span>
+          </div>
+        </div>
+      </div>
+    </header>
+    
+    <nav class="tabs">
+      <a href="/" class="tab">Basic</a>
+      <a href="/advanced" class="tab">Advanced</a>
+      <a href="/system" class="tab">System</a>
+      <a href="/settings" class="tab active">Settings</a>
+    </nav>
+    
+    <section class="tab-content active">
+      <div class="card-grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>WiFi Configuration</h2>
+        </div>
+        <div class="card-body">
+          <div class="current-wifi">
+            <span class="wifi-label">Current Network:</span>
+            <span class="wifi-value" id="current-ssid">Loading...</span>
+            <span class="wifi-badge" id="wifi-mode-badge">Auto</span>
+          </div>
+          
+          <div class="form-group">
+            <label for="custom-ssid">Network Name (SSID)</label>
+            <input type="text" id="custom-ssid" class="input" placeholder="Enter custom SSID" maxlength="32">
+          </div>
+          
+          <div class="form-group">
+            <label for="custom-password">Password</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="custom-password" class="input" placeholder="Enter password (8-12 chars)" minlength="8" maxlength="12">
+              <button type="button" class="password-toggle" id="toggle-password">Show</button>
+            </div>
+            <span class="input-hint">Password must be 8-12 characters</span>
+          </div>
+          
+          <div class="button-group">
+            <button id="save-wifi-btn" class="btn btn-primary">Save Changes</button>
+            <button id="reset-wifi-btn" class="btn btn-secondary">Reset to Auto</button>
+          </div>
+          
+          <div class="warning-box" id="restart-warning" style="display: none;">
+            <span class="warning-icon"></span>
+            <span class="warning-text">Restart required to apply WiFi changes</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header">
+          <h2>Device Info</h2>
+        </div>
+        <div class="card-body">
+          <div class="info-list">
+            <div class="info-row">
+              <span class="info-label">Firmware</span>
+              <span class="info-value">v1.0.0</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Uptime</span>
+              <span class="info-value" id="device-uptime">00:00:00</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Free Memory</span>
+              <span class="info-value" id="device-heap">-- KB</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card warning-card">
+        <div class="card-header">
+          <h2>External Network Connection</h2>
+        </div>
+        <div class="card-body">
+          <div class="warning-box critical">
+            <span class="warning-icon"></span>
+            <div class="warning-content">
+              <strong>Security Warning</strong>
+              <p>Enabling this exposes your device to everyone on the external network.</p>
+            </div>
+          </div>
+          
+          <div class="toggle-row master-toggle">
+            <div class="toggle-info">
+              <span class="toggle-label">Enable External Network Mode</span>
+              <span class="toggle-hint">Connect to external WiFi with authentication</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ext-mode-enable">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          
+          <!-- Expandable Setup Steps -->
+          <div class="setup-wizard" id="setup-wizard" style="display:none;">
+            
+            <!-- Step 1: Authentication -->
+            <div class="wizard-step" id="step-1">
+              <div class="step-header">
+                <span class="step-number">1</span>
+                <span class="step-title">Set Up Authentication</span>
+                <span class="step-status" id="step-1-status"></span>
+              </div>
+              <div class="step-content" id="step-1-content">
+                <p class="step-desc">Create login credentials to protect your device.</p>
+                <div class="form-group">
+                  <label for="auth-username">Username</label>
+                  <input type="text" id="auth-username" class="input" placeholder="Username" maxlength="32" value="admin">
+                </div>
+                <div class="form-group">
+                  <label for="auth-password">Password</label>
+                  <div class="password-input-wrapper">
+                    <input type="password" id="auth-password" class="input" placeholder="Min 6 characters" maxlength="32">
+                    <button type="button" class="password-toggle" id="toggle-auth-password">Show</button>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="auth-password-confirm">Confirm Password</label>
+                  <input type="password" id="auth-password-confirm" class="input" placeholder="Confirm password" maxlength="32">
+                </div>
+                <button class="btn btn-primary btn-sm" id="save-auth-btn">Save Credentials</button>
+              </div>
+            </div>
+            
+            <!-- Step 2: Network Selection -->
+            <div class="wizard-step" id="step-2">
+              <div class="step-header">
+                <span class="step-number">2</span>
+                <span class="step-title">Select Network</span>
+                <span class="step-status" id="step-2-status"></span>
+              </div>
+              <div class="step-content" id="step-2-content" style="display:none;">
+                <p class="step-desc">Choose the WiFi network to connect to.</p>
+                <div class="scan-controls">
+                  <button id="scan-networks-btn" class="btn btn-secondary btn-sm">Scan Networks</button>
+                </div>
+                <div class="network-list" id="network-list">
+                  <div class="network-empty">Click scan to find networks</div>
+                </div>
+                <div class="form-group" style="margin-top:12px;">
+                  <label for="ext-ssid">Or enter manually</label>
+                  <input type="text" id="ext-ssid" class="input" placeholder="Network SSID" maxlength="32">
+                </div>
+                <div class="form-group">
+                  <label for="ext-password">Network Password</label>
+                  <div class="password-input-wrapper">
+                    <input type="password" id="ext-password" class="input" placeholder="WiFi password" maxlength="64">
+                    <button type="button" class="password-toggle" id="toggle-ext-password">Show</button>
+                  </div>
+                </div>
+                <button class="btn btn-primary btn-sm" id="save-network-btn">Save Network</button>
+              </div>
+            </div>
+            
+            <!-- Step 3: Connect -->
+            <div class="wizard-step" id="step-3">
+              <div class="step-header">
+                <span class="step-number">3</span>
+                <span class="step-title">Connect</span>
+                <span class="step-status" id="step-3-status"></span>
+              </div>
+              <div class="step-content" id="step-3-content" style="display:none;">
+                <p class="step-desc">Ready to connect to external network.</p>
+                <div class="connection-summary" id="connection-summary">
+                  <div class="summary-row"><span>Network:</span><span id="summary-ssid">--</span></div>
+                  <div class="summary-row"><span>Auth:</span><span id="summary-auth">Not configured</span></div>
+                </div>
+                <div class="toggle-row" style="margin-top:16px;">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Connect Now</span>
+                    <span class="toggle-hint">Toggle to connect/disconnect instantly</span>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="ext-wifi-connect">
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="ext-wifi-status" id="ext-wifi-status" style="display:none;margin-top:12px;">
+                  <div class="status-row"><span>Status:</span><span id="ext-status-text">Disconnected</span></div>
+                  <div class="status-row"><span>IP:</span><span id="ext-ip-addr">--</span></div>
+                  <div class="status-row"><span>Signal:</span><span id="ext-rssi">--</span></div>
+                </div>
+              </div>
+            </div>
+            
+          </div>
+        </div>
+      </div>
+      
+      <div class="card danger-card">
+        <div class="card-header">
+          <h2>Danger Zone</h2>
+        </div>
+        <div class="card-body">
+          <button id="kick-clients-btn" class="btn btn-warning">Kick All Other Clients</button>
+          <button id="restart-btn" class="btn btn-danger">Restart Device</button>
+        </div>
+      </div>
+      </div>
+    </section>
+    
+    <footer>
+      <p>Lucidius - ARCOS Framework</p>
+    </footer>
+  </div>
+  
+  <div id="toast" class="toast"></div>
+  
+  <script>
+  function formatUptime(seconds) {
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = Math.floor(seconds % 60);
+    return h.toString().padStart(2,'0') + ':' + m.toString().padStart(2,'0') + ':' + s.toString().padStart(2,'0');
+  }
+  
+  function showToast(message, type) {
+    type = type || 'info';
+    var toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast ' + type + ' show';
+    setTimeout(function() { toast.className = 'toast'; }, 3000);
+  }
+  
+  function sendCommand(cmd, data) {
+    data = data || {};
+    data.cmd = cmd;
+    fetch('/api/command', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(res => { if (res.success) showToast('Command sent', 'success'); })
+    .catch(err => showToast('Error: ' + err, 'error'));
+  }
+  
+  function fetchState() {
+    fetch('/api/state')
+      .then(r => r.json())
+      .then(data => {
+        if (data.ssid) document.getElementById('current-ssid').textContent = data.ssid;
+        if (data.uptime !== undefined) document.getElementById('device-uptime').textContent = formatUptime(data.uptime);
+        if (data.freeHeap !== undefined) document.getElementById('device-heap').textContent = Math.round(data.freeHeap / 1024) + ' KB';
+      })
+      .catch(err => console.error('Fetch error:', err));
+  }
+  
+  // Password toggle
+  document.getElementById('toggle-password').addEventListener('click', function() {
+    var input = document.getElementById('custom-password');
+    var btn = document.getElementById('toggle-password');
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.innerHTML = 'Hide';
+    } else {
+      input.type = 'password';
+      btn.innerHTML = 'Show';
+    }
+  });
+  
+  // Save WiFi
+  document.getElementById('save-wifi-btn').addEventListener('click', function() {
+    var ssid = document.getElementById('custom-ssid').value.trim();
+    var password = document.getElementById('custom-password').value;
+    if (!ssid) { showToast('Please enter an SSID', 'error'); return; }
+    if (password.length < 8 || password.length > 12) { showToast('Password must be 8-12 characters', 'error'); return; }
+    sendCommand('setWifiCredentials', { ssid: ssid, password: password });
+    document.getElementById('restart-warning').style.display = 'flex';
+  });
+  
+  // Reset WiFi
+  document.getElementById('reset-wifi-btn').addEventListener('click', function() {
+    if (confirm('Reset to auto-generated WiFi credentials?')) {
+      sendCommand('resetWifiToAuto');
+      document.getElementById('custom-ssid').value = '';
+      document.getElementById('custom-password').value = '';
+      document.getElementById('restart-warning').style.display = 'flex';
+    }
+  });
+  
+  // Restart
+  document.getElementById('restart-btn').addEventListener('click', function() {
+    if (confirm('Are you sure you want to restart the device?')) {
+      sendCommand('restart');
+      showToast('Restarting device...', 'warning');
+    }
+  });
+  
+  // Kick clients
+  document.getElementById('kick-clients-btn').addEventListener('click', function() {
+    if (confirm('Disconnect all other devices from this network?')) {
+      sendCommand('kickOtherClients');
+      showToast('Kicking other clients...', 'warning');
+    }
+  });
+  
+  // ===== External Network Wizard Logic =====
+  var wizardState = {
+    authConfigured: false,
+    networkConfigured: false,
+    username: 'admin',
+    password: '',
+    ssid: '',
+    netPassword: ''
+  };
+  
+  // Master toggle - expand/collapse wizard
+  document.getElementById('ext-mode-enable').addEventListener('change', function() {
+    var wizard = document.getElementById('setup-wizard');
+    if (this.checked) {
+      wizard.style.display = 'block';
+      updateWizardState();
+    } else {
+      wizard.style.display = 'none';
+      // Disconnect if connected
+      var connectToggle = document.getElementById('ext-wifi-connect');
+      if (connectToggle.checked) {
+        connectToggle.checked = false;
+        sendCommand('extWifiConnect', { connect: false });
+      }
+      sendCommand('setExtWifi', { enabled: false });
+    }
+  });
+  
+  // Step header clicks to expand/collapse
+  document.querySelectorAll('.step-header').forEach(function(header) {
+    header.addEventListener('click', function() {
+      var step = this.parentElement;
+      var content = step.querySelector('.step-content');
+      var isVisible = content.style.display !== 'none';
+      content.style.display = isVisible ? 'none' : 'block';
+    });
+  });
+  
+  // Step 1: Save Auth
+  document.getElementById('save-auth-btn').addEventListener('click', function() {
+    var username = document.getElementById('auth-username').value.trim();
+    var password = document.getElementById('auth-password').value;
+    var confirm = document.getElementById('auth-password-confirm').value;
+    
+    if (!username) { showToast('Please enter a username', 'error'); return; }
+    if (!password || password.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
+    if (password !== confirm) { showToast('Passwords do not match', 'error'); return; }
+    
+    wizardState.authConfigured = true;
+    wizardState.username = username;
+    wizardState.password = password;
+    
+    sendCommand('setAuth', { enabled: true, username: username, password: password });
+    showToast('Credentials saved!', 'success');
+    
+    updateWizardState();
+    // Auto-expand next step
+    document.getElementById('step-1-content').style.display = 'none';
+    document.getElementById('step-2-content').style.display = 'block';
+  });
+  
+  // Step 1: Password toggle
+  document.getElementById('toggle-auth-password').addEventListener('click', function() {
+    var p1 = document.getElementById('auth-password');
+    var p2 = document.getElementById('auth-password-confirm');
+    var show = p1.type === 'password';
+    p1.type = show ? 'text' : 'password';
+    p2.type = show ? 'text' : 'password';
+    this.innerHTML = show ? 'Hide' : 'Show';
+  });
+  
+  // Step 2: Scan networks
+  document.getElementById('scan-networks-btn').addEventListener('click', function() {
+    var listEl = document.getElementById('network-list');
+    listEl.innerHTML = '<div class="scanning"><div class="scan-spinner"></div><div>Scanning...</div></div>';
+    
+    fetch('/api/scan')
+      .then(r => r.json())
+      .then(data => {
+        if (!data.networks || data.networks.length === 0) {
+          listEl.innerHTML = '<div class="network-empty">No networks found</div>';
+          return;
+        }
+        var html = '';
+        data.networks.forEach(function(net) {
+          var signalBars = getSignalBars(net.rssi);
+          html += '<div class="network-item" data-ssid="' + escapeHtml(net.ssid) + '">';
+          html += '<div class="network-info"><span class="network-ssid">' + escapeHtml(net.ssid) + '</span>';
+          html += '<span class="network-security">' + (net.secure ? 'Secure' : 'Open') + ' ' + net.rssi + 'dB</span></div>';
+          html += '<div class="network-signal">' + signalBars + '</div></div>';
+        });
+        listEl.innerHTML = html;
+        
+        listEl.querySelectorAll('.network-item').forEach(function(item) {
+          item.addEventListener('click', function() {
+            listEl.querySelectorAll('.network-item').forEach(el => el.classList.remove('selected'));
+            item.classList.add('selected');
+            document.getElementById('ext-ssid').value = item.getAttribute('data-ssid');
+          });
+        });
+      })
+      .catch(function(err) {
+        listEl.innerHTML = '<div class="network-empty">Scan failed</div>';
+      });
+  });
+  
+  function getSignalBars(rssi) {
+    var bars = '<div class="signal-bars">';
+    bars += '<div class="signal-bar' + (rssi > -90 ? ' active' : '') + '"></div>';
+    bars += '<div class="signal-bar' + (rssi > -75 ? ' active' : '') + '"></div>';
+    bars += '<div class="signal-bar' + (rssi > -60 ? ' active' : '') + '"></div>';
+    bars += '<div class="signal-bar' + (rssi > -45 ? ' active' : '') + '"></div>';
+    bars += '</div>';
+    return bars;
+  }
+  
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  
+  // Step 2: Save Network
+  document.getElementById('save-network-btn').addEventListener('click', function() {
+    var ssid = document.getElementById('ext-ssid').value.trim();
+    var password = document.getElementById('ext-password').value;
+    
+    if (!ssid) { showToast('Please enter or select a network', 'error'); return; }
+    
+    wizardState.networkConfigured = true;
+    wizardState.ssid = ssid;
+    wizardState.netPassword = password;
+    
+    sendCommand('setExtWifi', { enabled: true, ssid: ssid, password: password });
+    showToast('Network saved!', 'success');
+    
+    updateWizardState();
+    // Auto-expand next step
+    document.getElementById('step-2-content').style.display = 'none';
+    document.getElementById('step-3-content').style.display = 'block';
+  });
+  
+  // Step 2: Password toggle
+  document.getElementById('toggle-ext-password').addEventListener('click', function() {
+    var input = document.getElementById('ext-password');
+    var show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    this.innerHTML = show ? 'Hide' : 'Show';
+  });
+  
+  // Step 3: Connect toggle
+  document.getElementById('ext-wifi-connect').addEventListener('change', function() {
+    var shouldConnect = this.checked;
+    sendCommand('extWifiConnect', { connect: shouldConnect });
+    
+    var statusEl = document.getElementById('ext-wifi-status');
+    var textEl = document.getElementById('ext-status-text');
+    
+    if (shouldConnect) {
+      statusEl.style.display = 'block';
+      textEl.textContent = 'Connecting...';
+      textEl.className = 'status-value';
+    } else {
+      textEl.textContent = 'Disconnected';
+      textEl.className = 'status-value disconnected';
+    }
+  });
+  
+  function updateWizardState() {
+    // Update step indicators
+    var s1 = document.getElementById('step-1-status');
+    var s2 = document.getElementById('step-2-status');
+    var s3 = document.getElementById('step-3-status');
+    
+    s1.className = 'step-status' + (wizardState.authConfigured ? ' done' : '');
+    
+    s2.className = 'step-status' + (wizardState.networkConfigured ? ' done' : '');
+    
+    var ready = wizardState.authConfigured && wizardState.networkConfigured;
+    s3.className = 'step-status' + (ready ? '' : ' locked');
+    
+    // Update summary
+    document.getElementById('summary-ssid').textContent = wizardState.ssid || '--';
+    document.getElementById('summary-auth').textContent = wizardState.authConfigured ? 
+      wizardState.username + ' (configured)' : 'Not configured';
+    
+    // Enable/disable connect toggle
+    document.getElementById('ext-wifi-connect').disabled = !ready;
+  }
+  
+  // Update from server state
+  function updateExtWifiState(data) {
+    if (data.extWifiEnabled !== undefined && data.extWifiEnabled) {
+      document.getElementById('ext-mode-enable').checked = true;
+      document.getElementById('setup-wizard').style.display = 'block';
+    }
+    if (data.extWifiSSID && data.extWifiSSID.length > 0) {
+      wizardState.networkConfigured = true;
+      wizardState.ssid = data.extWifiSSID;
+      document.getElementById('ext-ssid').value = data.extWifiSSID;
+    }
+    if (data.authEnabled && data.authUsername) {
+      wizardState.authConfigured = true;
+      wizardState.username = data.authUsername;
+      document.getElementById('auth-username').value = data.authUsername;
+    }
+    if (data.extWifiConnected !== undefined) {
+      document.getElementById('ext-wifi-connect').checked = data.extWifiConnected;
+    }
+    if (data.extWifiIsConnected !== undefined && data.extWifiConnected) {
+      var statusEl = document.getElementById('ext-wifi-status');
+      var textEl = document.getElementById('ext-status-text');
+      statusEl.style.display = 'block';
+      if (data.extWifiIsConnected) {
+        textEl.textContent = 'Connected';
+        textEl.className = 'status-value connected';
+        document.getElementById('ext-ip-addr').textContent = data.extWifiIP || '--';
+        document.getElementById('ext-rssi').textContent = data.extWifiRSSI ? data.extWifiRSSI + ' dB' : '--';
+      } else {
+        textEl.textContent = 'Connecting...';
+      }
+    }
+    updateWizardState();
+  }
+  
+  // Extend fetchState
+  fetchState = function() {
+    fetch('/api/state')
+      .then(r => r.json())
+      .then(data => {
+        if (data.ssid) document.getElementById('current-ssid').textContent = data.ssid;
+        if (data.uptime !== undefined) document.getElementById('device-uptime').textContent = formatUptime(data.uptime);
+        if (data.freeHeap !== undefined) document.getElementById('device-heap').textContent = Math.round(data.freeHeap / 1024) + ' KB';
+        updateExtWifiState(data);
+      })
+      .catch(err => console.error('Fetch error:', err));
+  };
+  
+  fetchState();
+  setInterval(fetchState, 1000);
+  </script>
+</body>
+</html>
+)rawliteral";
+
+} // namespace Content
+} // namespace Web
+} // namespace SystemAPI
