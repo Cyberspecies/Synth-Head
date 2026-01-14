@@ -6,14 +6,16 @@
  * Each tab has its own subpage at a unique URL.
  * 
  * Routes:
- *   /           -> Basic page (PageBasic.hpp)
- *   /system     -> System page (PageSystem.hpp)
- *   /advanced   -> Advanced page (PageAdvanced.hpp)
- *   /settings   -> Settings page (PageSettings.hpp)
- *   /style.css  -> Shared stylesheet
+ *   /                  -> Basic page (PageBasic.hpp)
+ *   /system            -> System page (PageSystem.hpp)
+ *   /advanced          -> Advanced menu (PageAdvancedMenu.hpp)
+ *   /advanced/sprites  -> Sprite manager (PageSprite.hpp)
+ *   /advanced/configs  -> Config editor (PageAdvanced.hpp)
+ *   /settings          -> Settings page (PageSettings.hpp)
+ *   /style.css         -> Shared stylesheet
  * 
  * @author ARCOS
- * @version 2.0
+ * @version 2.1
  *****************************************************************/
 
 #pragma once
@@ -21,7 +23,9 @@
 // Include all page content
 #include "PageBasic.hpp"
 #include "PageSystem.hpp"
+#include "PageAdvancedMenu.hpp"
 #include "PageAdvanced.hpp"
+#include "PageSprite.hpp"
 #include "PageSettings.hpp"
 
 namespace SystemAPI {

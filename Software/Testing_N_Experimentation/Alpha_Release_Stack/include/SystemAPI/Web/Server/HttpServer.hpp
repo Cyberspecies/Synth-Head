@@ -15,11 +15,13 @@
 #include "SystemAPI/Web/Content/WebContent.hpp"
 #include "SystemAPI/Misc/SyncState.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
+#include "SystemAPI/Animation/AnimationConfig.hpp"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_random.h"
+#include "esp_spiffs.h"
 #include "cJSON.h"
 
 // Socket includes for getpeername
@@ -29,11 +31,33 @@
 #include <cstring>
 #include <vector>
 #include <functional>
+#include <string>
+#include <sys/stat.h>
 
 namespace SystemAPI {
 namespace Web {
 
 static const char* HTTP_TAG = "HttpServer";
+
+/**
+ * @brief Saved sprite metadata (pixel data stored separately)
+ */
+struct SavedSprite {
+    int id = 0;
+    std::string name;
+    int width = 64;
+    int height = 32;
+    int scale = 100;
+    std::string preview;  // base64 PNG thumbnail
+    // Note: Actual pixel data stored in NVS/SPIFFS for persistence
+};
+
+// Sprite storage (persisted to SPIFFS)
+static std::vector<SavedSprite> savedSprites_;
+static int nextSpriteId_ = 1;
+static bool spiffs_initialized_ = false;
+static const char* SPRITE_DIR = "/spiffs/sprites";
+static const char* SPRITE_INDEX_FILE = "/spiffs/sprites/index.json";
 
 /**
  * @brief HTTP Server for Web Portal
@@ -59,6 +83,12 @@ public:
      */
     bool start() {
         if (server_) return true;
+        
+        // Initialize SPIFFS for sprite storage
+        initSpiffs();
+        
+        // Load saved sprites from SPIFFS
+        loadSpritesFromStorage();
         
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.max_uri_handlers = 30;
@@ -125,7 +155,10 @@ private:
         // Page routes - each tab is a separate page
         registerHandler("/", HTTP_GET, handlePageBasic);
         registerHandler("/system", HTTP_GET, handlePageSystem);
-        registerHandler("/advanced", HTTP_GET, handlePageAdvanced);
+        registerHandler("/advanced", HTTP_GET, handlePageAdvancedMenu);
+        registerHandler("/advanced/sprites", HTTP_GET, handlePageSprite);
+        registerHandler("/advanced/configs", HTTP_GET, handlePageAdvancedConfigs);
+        registerHandler("/sprites", HTTP_GET, handlePageSprite);  // Legacy redirect
         registerHandler("/settings", HTTP_GET, handlePageSettings);
         
         // Static content handlers
@@ -136,26 +169,59 @@ private:
         registerHandler("/api/command", HTTP_POST, handleApiCommand);
         registerHandler("/api/scan", HTTP_GET, handleApiScan);
         
-        // Captive portal detection endpoints
+        // Sprite API endpoints
+        registerHandler("/api/sprites", HTTP_GET, handleApiSprites);
+        registerHandler("/api/sprite/save", HTTP_POST, handleApiSpriteSave);
+        registerHandler("/api/sprite/rename", HTTP_POST, handleApiSpriteRename);
+        registerHandler("/api/sprite/delete", HTTP_POST, handleApiSpriteDelete);
+        registerHandler("/api/sprite/apply", HTTP_POST, handleApiSpriteApply);
+        registerHandler("/api/storage", HTTP_GET, handleApiStorage);
+        
+        // Configuration API endpoints
+        registerHandler("/api/configs", HTTP_GET, handleApiConfigs);
+        registerHandler("/api/config/apply", HTTP_POST, handleApiConfigApply);
+        registerHandler("/api/config/save", HTTP_POST, handleApiConfigSave);
+        registerHandler("/api/config/create", HTTP_POST, handleApiConfigCreate);
+        registerHandler("/api/config/rename", HTTP_POST, handleApiConfigRename);
+        registerHandler("/api/config/duplicate", HTTP_POST, handleApiConfigDuplicate);
+        registerHandler("/api/config/delete", HTTP_POST, handleApiConfigDelete);
+        
+        // Captive portal detection endpoints (comprehensive list for all devices)
         const char* redirect_paths[] = {
-            // Android
+            // Android (various versions & OEMs)
             "/generate_204", "/gen_204",
             "/connectivitycheck.gstatic.com",
+            "/mobile/status.php",
+            "/wifi/test.html",
+            "/check_network_status.txt",
+            "/connectivitycheck.android.com",
+            // Samsung
+            "/generate_204_samsung",
+            // Huawei/Honor
+            "/generate_204_huawei", 
+            // Xiaomi
+            "/generate_204_xiaomi",
             // Windows
             "/connecttest.txt", "/fwlink", "/redirect",
             "/ncsi.txt", "/connecttest.html",
-            // Apple iOS/macOS
+            "/msftconnecttest.com",
+            "/msftncsi.com",
+            // Apple iOS/macOS (multiple variants)
             "/library/test/success.html",
             "/hotspot-detect.html",
             "/captive.apple.com",
-            // Amazon Kindle
+            "/library/test/success",
+            "/hotspot-detect",
+            // Amazon Kindle/Fire
             "/kindle-wifi/wifistub.html",
+            "/kindle-wifi/test",
             // Firefox
             "/success.txt", "/canonical.html",
             "/detectportal.firefox.com",
-            // Generic
-            "/check_network_status.txt",
-            "/chat", "/favicon.ico"
+            // Generic/Other
+            "/chat", "/favicon.ico",
+            "/portal.html", "/portal",
+            "/login", "/login.html"
         };
         
         for (const char* path : redirect_paths) {
@@ -181,6 +247,157 @@ private:
             .user_ctx = this
         };
         httpd_register_uri_handler(server_, &uri_handler);
+    }
+    
+    // ========== SPIFFS Storage for Sprites ==========
+    
+    /**
+     * @brief Initialize SPIFFS filesystem
+     */
+    static void initSpiffs() {
+        if (spiffs_initialized_) return;
+        
+        esp_vfs_spiffs_conf_t conf = {
+            .base_path = "/spiffs",
+            .partition_label = NULL,
+            .max_files = 10,
+            .format_if_mount_failed = true
+        };
+        
+        esp_err_t ret = esp_vfs_spiffs_register(&conf);
+        if (ret != ESP_OK) {
+            if (ret == ESP_FAIL) {
+                ESP_LOGE(HTTP_TAG, "Failed to mount SPIFFS");
+            } else if (ret == ESP_ERR_NOT_FOUND) {
+                ESP_LOGE(HTTP_TAG, "SPIFFS partition not found");
+            } else {
+                ESP_LOGE(HTTP_TAG, "SPIFFS init failed: %s", esp_err_to_name(ret));
+            }
+            return;
+        }
+        
+        // Create sprites directory if it doesn't exist
+        struct stat st;
+        if (stat(SPRITE_DIR, &st) != 0) {
+            mkdir(SPRITE_DIR, 0755);
+            ESP_LOGI(HTTP_TAG, "Created sprites directory");
+        }
+        
+        spiffs_initialized_ = true;
+        
+        size_t total = 0, used = 0;
+        esp_spiffs_info(NULL, &total, &used);
+        ESP_LOGI(HTTP_TAG, "SPIFFS initialized. Total: %d KB, Used: %d KB", total/1024, used/1024);
+    }
+    
+    /**
+     * @brief Save sprite index to SPIFFS
+     */
+    static void saveSpritesToStorage() {
+        if (!spiffs_initialized_) return;
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "nextId", nextSpriteId_);
+        
+        cJSON* sprites = cJSON_CreateArray();
+        for (const auto& sprite : savedSprites_) {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "id", sprite.id);
+            cJSON_AddStringToObject(item, "name", sprite.name.c_str());
+            cJSON_AddNumberToObject(item, "width", sprite.width);
+            cJSON_AddNumberToObject(item, "height", sprite.height);
+            cJSON_AddNumberToObject(item, "scale", sprite.scale);
+            cJSON_AddStringToObject(item, "preview", sprite.preview.c_str());
+            cJSON_AddItemToArray(sprites, item);
+        }
+        cJSON_AddItemToObject(root, "sprites", sprites);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        if (json) {
+            FILE* f = fopen(SPRITE_INDEX_FILE, "w");
+            if (f) {
+                fprintf(f, "%s", json);
+                fclose(f);
+                ESP_LOGI(HTTP_TAG, "Saved %d sprites to storage", savedSprites_.size());
+            } else {
+                ESP_LOGE(HTTP_TAG, "Failed to open sprite index for writing");
+            }
+            free(json);
+        }
+    }
+    
+    /**
+     * @brief Load sprite index from SPIFFS
+     */
+    static void loadSpritesFromStorage() {
+        if (!spiffs_initialized_) return;
+        
+        struct stat st;
+        if (stat(SPRITE_INDEX_FILE, &st) != 0) {
+            ESP_LOGI(HTTP_TAG, "No sprite index found, starting fresh");
+            return;
+        }
+        
+        FILE* f = fopen(SPRITE_INDEX_FILE, "r");
+        if (!f) {
+            ESP_LOGE(HTTP_TAG, "Failed to open sprite index for reading");
+            return;
+        }
+        
+        char* buf = (char*)malloc(st.st_size + 1);
+        if (!buf) {
+            fclose(f);
+            return;
+        }
+        
+        size_t read = fread(buf, 1, st.st_size, f);
+        buf[read] = '\0';
+        fclose(f);
+        
+        cJSON* root = cJSON_Parse(buf);
+        free(buf);
+        
+        if (!root) {
+            ESP_LOGE(HTTP_TAG, "Failed to parse sprite index JSON");
+            return;
+        }
+        
+        cJSON* nextId = cJSON_GetObjectItem(root, "nextId");
+        if (nextId && cJSON_IsNumber(nextId)) {
+            nextSpriteId_ = nextId->valueint;
+        }
+        
+        cJSON* sprites = cJSON_GetObjectItem(root, "sprites");
+        if (sprites && cJSON_IsArray(sprites)) {
+            savedSprites_.clear();
+            
+            cJSON* item = NULL;
+            cJSON_ArrayForEach(item, sprites) {
+                SavedSprite sprite;
+                
+                cJSON* id = cJSON_GetObjectItem(item, "id");
+                cJSON* name = cJSON_GetObjectItem(item, "name");
+                cJSON* width = cJSON_GetObjectItem(item, "width");
+                cJSON* height = cJSON_GetObjectItem(item, "height");
+                cJSON* scale = cJSON_GetObjectItem(item, "scale");
+                cJSON* preview = cJSON_GetObjectItem(item, "preview");
+                
+                if (id && cJSON_IsNumber(id)) sprite.id = id->valueint;
+                if (name && cJSON_IsString(name)) sprite.name = name->valuestring;
+                if (width && cJSON_IsNumber(width)) sprite.width = width->valueint;
+                if (height && cJSON_IsNumber(height)) sprite.height = height->valueint;
+                if (scale && cJSON_IsNumber(scale)) sprite.scale = scale->valueint;
+                if (preview && cJSON_IsString(preview)) sprite.preview = preview->valuestring;
+                
+                savedSprites_.push_back(sprite);
+            }
+            
+            ESP_LOGI(HTTP_TAG, "Loaded %d sprites from storage", savedSprites_.size());
+        }
+        
+        cJSON_Delete(root);
     }
     
     // ========== Authentication Helpers ==========
@@ -496,13 +713,33 @@ private:
         return ESP_OK;
     }
     
-    static esp_err_t handlePageAdvanced(httpd_req_t* req) {
+    static esp_err_t handlePageAdvancedMenu(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return redirectToLogin(req);
         
-        ESP_LOGI(HTTP_TAG, "Serving Advanced page");
+        ESP_LOGI(HTTP_TAG, "Serving Advanced Menu page");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_send(req, Content::PAGE_ADVANCED_MENU, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    static esp_err_t handlePageAdvancedConfigs(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return redirectToLogin(req);
+        
+        ESP_LOGI(HTTP_TAG, "Serving Advanced Configs page");
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
         httpd_resp_send(req, Content::PAGE_ADVANCED, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    static esp_err_t handlePageSprite(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return redirectToLogin(req);
+        
+        ESP_LOGI(HTTP_TAG, "Serving Sprite page");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_send(req, Content::PAGE_SPRITE, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     
@@ -522,6 +759,78 @@ private:
         httpd_resp_set_type(req, "text/css");
         httpd_resp_send(req, Content::STYLE_CSS, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
+    }
+    
+    // ========== Utility Functions ==========
+    
+    /**
+     * @brief Decode base64 string to binary data
+     * @param input Base64 encoded string
+     * @param output Output buffer
+     * @param maxOutputLen Maximum output buffer size
+     * @param outputLen Actual decoded length
+     * @return true on success
+     */
+    static bool decodeBase64(const char* input, uint8_t* output, size_t maxOutputLen, size_t* outputLen) {
+        static const uint8_t b64table[256] = {
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 62, 64, 64, 64, 63,
+            52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 64, 64, 64, 64, 64, 64,
+            64,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+            15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 64, 64, 64, 64, 64,
+            64, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+            41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64
+        };
+        
+        size_t inputLen = strlen(input);
+        if (inputLen == 0) {
+            *outputLen = 0;
+            return true;
+        }
+        
+        // Remove padding from length calculation
+        size_t padding = 0;
+        if (inputLen >= 1 && input[inputLen - 1] == '=') padding++;
+        if (inputLen >= 2 && input[inputLen - 2] == '=') padding++;
+        
+        size_t expectedLen = (inputLen * 3) / 4 - padding;
+        if (expectedLen > maxOutputLen) {
+            return false;
+        }
+        
+        size_t outIdx = 0;
+        uint32_t buf = 0;
+        int bits = 0;
+        
+        for (size_t i = 0; i < inputLen; i++) {
+            uint8_t c = (uint8_t)input[i];
+            if (c == '=') break;
+            
+            uint8_t v = b64table[c];
+            if (v == 64) continue; // Skip invalid chars
+            
+            buf = (buf << 6) | v;
+            bits += 6;
+            
+            if (bits >= 8) {
+                bits -= 8;
+                if (outIdx < maxOutputLen) {
+                    output[outIdx++] = (buf >> bits) & 0xFF;
+                }
+            }
+        }
+        
+        *outputLen = outIdx;
+        return true;
     }
     
     // ========== API Handlers ==========
@@ -805,9 +1114,796 @@ private:
         return ESP_OK;
     }
     
+    // ========== Configuration API Handlers ==========
+    
+    /**
+     * @brief Get all animation configurations
+     */
+    static esp_err_t handleApiConfigs(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        auto& mgr = self->animConfigManager_;
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON* configs = cJSON_CreateArray();
+        
+        for (int i = 0; i < mgr.getConfigCount(); i++) {
+            const Animation::AnimationConfiguration* cfg = mgr.getConfig(i);
+            if (!cfg) continue;
+            
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddStringToObject(item, "name", cfg->name);
+            cJSON_AddNumberToObject(item, "index", i);
+            cJSON_AddNumberToObject(item, "target", static_cast<int>(cfg->target));
+            
+            // Display config
+            cJSON* display = cJSON_CreateObject();
+            cJSON_AddNumberToObject(display, "animation", static_cast<int>(cfg->display.animation));
+            cJSON_AddNumberToObject(display, "speed", cfg->display.speed);
+            cJSON_AddNumberToObject(display, "brightness", cfg->display.brightness);
+            cJSON* color1d = cJSON_CreateObject();
+            cJSON_AddNumberToObject(color1d, "r", cfg->display.color1_r);
+            cJSON_AddNumberToObject(color1d, "g", cfg->display.color1_g);
+            cJSON_AddNumberToObject(color1d, "b", cfg->display.color1_b);
+            cJSON_AddItemToObject(display, "color1", color1d);
+            cJSON* color2d = cJSON_CreateObject();
+            cJSON_AddNumberToObject(color2d, "r", cfg->display.color2_r);
+            cJSON_AddNumberToObject(color2d, "g", cfg->display.color2_g);
+            cJSON_AddNumberToObject(color2d, "b", cfg->display.color2_b);
+            cJSON_AddItemToObject(display, "color2", color2d);
+            cJSON_AddItemToObject(item, "display", display);
+            
+            // LED config
+            cJSON* leds = cJSON_CreateObject();
+            cJSON_AddNumberToObject(leds, "animation", static_cast<int>(cfg->leds.animation));
+            cJSON_AddNumberToObject(leds, "speed", cfg->leds.speed);
+            cJSON_AddNumberToObject(leds, "brightness", cfg->leds.brightness);
+            cJSON* color1l = cJSON_CreateObject();
+            cJSON_AddNumberToObject(color1l, "r", cfg->leds.color1_r);
+            cJSON_AddNumberToObject(color1l, "g", cfg->leds.color1_g);
+            cJSON_AddNumberToObject(color1l, "b", cfg->leds.color1_b);
+            cJSON_AddItemToObject(leds, "color1", color1l);
+            cJSON* color2l = cJSON_CreateObject();
+            cJSON_AddNumberToObject(color2l, "r", cfg->leds.color2_r);
+            cJSON_AddNumberToObject(color2l, "g", cfg->leds.color2_g);
+            cJSON_AddNumberToObject(color2l, "b", cfg->leds.color2_b);
+            cJSON_AddItemToObject(leds, "color2", color2l);
+            cJSON_AddItemToObject(item, "leds", leds);
+            
+            cJSON_AddItemToArray(configs, item);
+        }
+        
+        cJSON_AddItemToObject(root, "configs", configs);
+        cJSON_AddNumberToObject(root, "activeDisplay", mgr.getActiveDisplayConfig());
+        cJSON_AddNumberToObject(root, "activeLeds", mgr.getActiveLedConfig());
+        
+        char* json = cJSON_PrintUnformatted(root);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, strlen(json));
+        
+        free(json);
+        cJSON_Delete(root);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Apply a configuration
+     */
+    static esp_err_t handleApiConfigApply(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* index = cJSON_GetObjectItem(root, "index");
+        if (!index || !cJSON_IsNumber(index)) {
+            cJSON_Delete(root);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Missing index\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        int applied = self->animConfigManager_.applyConfig(index->valueint);
+        cJSON_Delete(root);
+        
+        char response[64];
+        snprintf(response, sizeof(response), "{\"success\":true,\"applied\":%d}", applied);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+        
+        ESP_LOGI(HTTP_TAG, "Applied config %d, result: %d", index->valueint, applied);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Save configuration changes
+     */
+    static esp_err_t handleApiConfigSave(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        
+        char buf[1024];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* index = cJSON_GetObjectItem(root, "index");
+        if (!index || !cJSON_IsNumber(index)) {
+            cJSON_Delete(root);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Missing index\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        Animation::AnimationConfiguration* cfg = self->animConfigManager_.getConfig(index->valueint);
+        if (!cfg) {
+            cJSON_Delete(root);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Config not found\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Update name
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        if (name && name->valuestring) {
+            cfg->setName(name->valuestring);
+        }
+        
+        // Update target
+        cJSON* target = cJSON_GetObjectItem(root, "target");
+        if (target && cJSON_IsNumber(target)) {
+            cfg->target = static_cast<Animation::ConfigTarget>(target->valueint);
+        }
+        
+        // Update display config
+        cJSON* display = cJSON_GetObjectItem(root, "display");
+        if (display) {
+            cJSON* anim = cJSON_GetObjectItem(display, "animation");
+            if (anim) cfg->display.animation = static_cast<Animation::DisplayAnimation>(anim->valueint);
+            
+            cJSON* speed = cJSON_GetObjectItem(display, "speed");
+            if (speed) cfg->display.speed = speed->valueint;
+            
+            cJSON* brightness = cJSON_GetObjectItem(display, "brightness");
+            if (brightness) cfg->display.brightness = brightness->valueint;
+            
+            cJSON* color1 = cJSON_GetObjectItem(display, "color1");
+            if (color1) {
+                cJSON* r = cJSON_GetObjectItem(color1, "r");
+                cJSON* g = cJSON_GetObjectItem(color1, "g");
+                cJSON* b = cJSON_GetObjectItem(color1, "b");
+                if (r) cfg->display.color1_r = r->valueint;
+                if (g) cfg->display.color1_g = g->valueint;
+                if (b) cfg->display.color1_b = b->valueint;
+            }
+            
+            cJSON* color2 = cJSON_GetObjectItem(display, "color2");
+            if (color2) {
+                cJSON* r = cJSON_GetObjectItem(color2, "r");
+                cJSON* g = cJSON_GetObjectItem(color2, "g");
+                cJSON* b = cJSON_GetObjectItem(color2, "b");
+                if (r) cfg->display.color2_r = r->valueint;
+                if (g) cfg->display.color2_g = g->valueint;
+                if (b) cfg->display.color2_b = b->valueint;
+            }
+        }
+        
+        // Update LED config
+        cJSON* leds = cJSON_GetObjectItem(root, "leds");
+        if (leds) {
+            cJSON* anim = cJSON_GetObjectItem(leds, "animation");
+            if (anim) cfg->leds.animation = static_cast<Animation::LedAnimation>(anim->valueint);
+            
+            cJSON* speed = cJSON_GetObjectItem(leds, "speed");
+            if (speed) cfg->leds.speed = speed->valueint;
+            
+            cJSON* brightness = cJSON_GetObjectItem(leds, "brightness");
+            if (brightness) cfg->leds.brightness = brightness->valueint;
+            
+            cJSON* color1 = cJSON_GetObjectItem(leds, "color1");
+            if (color1) {
+                cJSON* r = cJSON_GetObjectItem(color1, "r");
+                cJSON* g = cJSON_GetObjectItem(color1, "g");
+                cJSON* b = cJSON_GetObjectItem(color1, "b");
+                if (r) cfg->leds.color1_r = r->valueint;
+                if (g) cfg->leds.color1_g = g->valueint;
+                if (b) cfg->leds.color1_b = b->valueint;
+            }
+            
+            cJSON* color2 = cJSON_GetObjectItem(leds, "color2");
+            if (color2) {
+                cJSON* r = cJSON_GetObjectItem(color2, "r");
+                cJSON* g = cJSON_GetObjectItem(color2, "g");
+                cJSON* b = cJSON_GetObjectItem(color2, "b");
+                if (r) cfg->leds.color2_r = r->valueint;
+                if (g) cfg->leds.color2_g = g->valueint;
+                if (b) cfg->leds.color2_b = b->valueint;
+            }
+        }
+        
+        // Check if we should also apply
+        cJSON* apply = cJSON_GetObjectItem(root, "apply");
+        int applied = 0;
+        if (apply && cJSON_IsTrue(apply)) {
+            applied = self->animConfigManager_.applyConfig(index->valueint);
+        }
+        
+        cJSON_Delete(root);
+        
+        char response[64];
+        snprintf(response, sizeof(response), "{\"success\":true,\"applied\":%d}", applied);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+        
+        ESP_LOGI(HTTP_TAG, "Saved config %d", index->valueint);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Create a new configuration
+     */
+    static esp_err_t handleApiConfigCreate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        const char* configName = (name && name->valuestring) ? name->valuestring : "New Configuration";
+        
+        int newIndex = self->animConfigManager_.createConfig(configName, Animation::ConfigTarget::BOTH);
+        cJSON_Delete(root);
+        
+        if (newIndex < 0) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Max configs reached\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        char response[64];
+        snprintf(response, sizeof(response), "{\"success\":true,\"index\":%d}", newIndex);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+        
+        ESP_LOGI(HTTP_TAG, "Created config '%s' at index %d", configName, newIndex);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Rename a configuration
+     */
+    static esp_err_t handleApiConfigRename(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* index = cJSON_GetObjectItem(root, "index");
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        
+        bool success = false;
+        if (index && cJSON_IsNumber(index) && name && name->valuestring) {
+            success = self->animConfigManager_.renameConfig(index->valueint, name->valuestring);
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Duplicate a configuration
+     */
+    static esp_err_t handleApiConfigDuplicate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* index = cJSON_GetObjectItem(root, "index");
+        int newIndex = -1;
+        
+        if (index && cJSON_IsNumber(index)) {
+            newIndex = self->animConfigManager_.duplicateConfig(index->valueint);
+        }
+        
+        cJSON_Delete(root);
+        
+        if (newIndex < 0) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Failed to duplicate\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        char response[64];
+        snprintf(response, sizeof(response), "{\"success\":true,\"index\":%d}", newIndex);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Delete a configuration
+     */
+    static esp_err_t handleApiConfigDelete(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* index = cJSON_GetObjectItem(root, "index");
+        bool success = false;
+        
+        if (index && cJSON_IsNumber(index)) {
+            success = self->animConfigManager_.deleteConfig(index->valueint);
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    // ========== Sprite API Handlers ==========
+    
+    /**
+     * @brief Get list of saved sprites
+     */
+    static esp_err_t handleApiSprites(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON* sprites = cJSON_CreateArray();
+        
+        for (const auto& sprite : savedSprites_) {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "id", sprite.id);
+            cJSON_AddStringToObject(item, "name", sprite.name.c_str());
+            cJSON_AddNumberToObject(item, "width", sprite.width);
+            cJSON_AddNumberToObject(item, "height", sprite.height);
+            cJSON_AddNumberToObject(item, "scale", sprite.scale);
+            // Calculate size in bytes (RGB888)
+            int sizeBytes = sprite.width * sprite.height * 3;
+            cJSON_AddNumberToObject(item, "sizeBytes", sizeBytes);
+            cJSON_AddStringToObject(item, "preview", sprite.preview.c_str());
+            cJSON_AddItemToArray(sprites, item);
+        }
+        
+        cJSON_AddItemToObject(root, "sprites", sprites);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Save a new sprite
+     */
+    static esp_err_t handleApiSpriteSave(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        ESP_LOGI(HTTP_TAG, "Sprite save request, content length: %d", req->content_len);
+        
+        if (req->content_len > 128 * 1024) {
+            httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "Payload too large");
+            return ESP_FAIL;
+        }
+        
+        char* buf = (char*)malloc(req->content_len + 1);
+        if (!buf) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+            return ESP_FAIL;
+        }
+        
+        int total = 0, remaining = req->content_len;
+        while (remaining > 0) {
+            int ret = httpd_req_recv(req, buf + total, remaining);
+            if (ret <= 0) { free(buf); return ESP_FAIL; }
+            total += ret;
+            remaining -= ret;
+        }
+        buf[total] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        free(buf);
+        
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        cJSON* width = cJSON_GetObjectItem(root, "width");
+        cJSON* height = cJSON_GetObjectItem(root, "height");
+        cJSON* scale = cJSON_GetObjectItem(root, "scale");
+        cJSON* preview = cJSON_GetObjectItem(root, "preview");
+        
+        bool success = false;
+        
+        if (name && cJSON_IsString(name)) {
+            SavedSprite sprite;
+            sprite.id = nextSpriteId_++;
+            sprite.name = name->valuestring;
+            sprite.width = width ? width->valueint : 64;
+            sprite.height = height ? height->valueint : 32;
+            sprite.scale = scale ? scale->valueint : 100;
+            sprite.preview = preview && cJSON_IsString(preview) ? preview->valuestring : "";
+            
+            savedSprites_.push_back(sprite);
+            ESP_LOGI(HTTP_TAG, "Saved sprite '%s' with id %d", sprite.name.c_str(), sprite.id);
+            saveSpritesToStorage();  // Persist to flash
+            success = true;
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Rename a sprite
+     */
+    static esp_err_t handleApiSpriteRename(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[512];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* id = cJSON_GetObjectItem(root, "id");
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        
+        bool success = false;
+        
+        if (id && cJSON_IsNumber(id) && name && cJSON_IsString(name)) {
+            int spriteId = id->valueint;
+            for (auto& sprite : savedSprites_) {
+                if (sprite.id == spriteId) {
+                    sprite.name = name->valuestring;
+                    ESP_LOGI(HTTP_TAG, "Renamed sprite %d to '%s'", spriteId, sprite.name.c_str());
+                    saveSpritesToStorage();  // Persist to flash
+                    success = true;
+                    break;
+                }
+            }
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Delete a sprite
+     */
+    static esp_err_t handleApiSpriteDelete(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* id = cJSON_GetObjectItem(root, "id");
+        bool success = false;
+        
+        if (id && cJSON_IsNumber(id)) {
+            int spriteId = id->valueint;
+            for (auto it = savedSprites_.begin(); it != savedSprites_.end(); ++it) {
+                if (it->id == spriteId) {
+                    ESP_LOGI(HTTP_TAG, "Deleted sprite %d ('%s')", spriteId, it->name.c_str());
+                    savedSprites_.erase(it);
+                    saveSpritesToStorage();  // Persist to flash
+                    success = true;
+                    break;
+                }
+            }
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Handle sprite upload and apply
+     * Receives RGB888 pixel data for both panels
+     */
+    static esp_err_t handleApiSpriteApply(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        ESP_LOGI(HTTP_TAG, "Sprite apply request, content length: %d", req->content_len);
+        
+        // Sprite data can be large (64*32*3*2 = 12KB), allocate buffer
+        if (req->content_len > 64 * 1024) {
+            httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "Payload too large");
+            return ESP_FAIL;
+        }
+        
+        char* buf = (char*)malloc(req->content_len + 1);
+        if (!buf) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+            return ESP_FAIL;
+        }
+        
+        int total_received = 0;
+        int remaining = req->content_len;
+        
+        while (remaining > 0) {
+            int ret = httpd_req_recv(req, buf + total_received, remaining);
+            if (ret <= 0) {
+                free(buf);
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to receive data");
+                return ESP_FAIL;
+            }
+            total_received += ret;
+            remaining -= ret;
+        }
+        buf[total_received] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        free(buf);
+        
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        // Extract parameters
+        cJSON* width = cJSON_GetObjectItem(root, "width");
+        cJSON* height = cJSON_GetObjectItem(root, "height");
+        cJSON* offsetX = cJSON_GetObjectItem(root, "offsetX");
+        cJSON* offsetY = cJSON_GetObjectItem(root, "offsetY");
+        cJSON* scale = cJSON_GetObjectItem(root, "scale");
+        cJSON* mirror = cJSON_GetObjectItem(root, "mirror");
+        cJSON* leftPanel = cJSON_GetObjectItem(root, "leftPanel");
+        cJSON* rightPanel = cJSON_GetObjectItem(root, "rightPanel");
+        
+        bool success = false;
+        
+        if (width && height && leftPanel && rightPanel && 
+            cJSON_IsString(leftPanel) && cJSON_IsString(rightPanel)) {
+            
+            int w = width->valueint;
+            int h = height->valueint;
+            int expectedSize = w * h * 3;  // RGB888
+            
+            const char* leftB64 = leftPanel->valuestring;
+            const char* rightB64 = rightPanel->valuestring;
+            
+            ESP_LOGI(HTTP_TAG, "Sprite: %dx%d, decoding base64...", w, h);
+            
+            // Decode base64 pixel data
+            uint8_t* leftPixels = (uint8_t*)malloc(expectedSize);
+            uint8_t* rightPixels = (uint8_t*)malloc(expectedSize);
+            
+            if (leftPixels && rightPixels) {
+                size_t leftDecoded = 0, rightDecoded = 0;
+                
+                if (decodeBase64(leftB64, leftPixels, expectedSize, &leftDecoded) &&
+                    decodeBase64(rightB64, rightPixels, expectedSize, &rightDecoded) &&
+                    leftDecoded == expectedSize && rightDecoded == expectedSize) {
+                    
+                    // TODO: Send sprite data to GPU via command system
+                    ESP_LOGI(HTTP_TAG, "Sprite data received successfully");
+                    ESP_LOGI(HTTP_TAG, "  Offset: (%d, %d), Scale: %d%%, Mirror: %s",
+                             offsetX ? offsetX->valueint : 0,
+                             offsetY ? offsetY->valueint : 0,
+                             scale ? scale->valueint : 100,
+                             mirror && mirror->type == cJSON_True ? "yes" : "no");
+                    
+                    success = true;
+                } else {
+                    ESP_LOGE(HTTP_TAG, "Base64 decode failed or size mismatch: expected %d, got left=%d right=%d",
+                             expectedSize, (int)leftDecoded, (int)rightDecoded);
+                }
+                
+                free(leftPixels);
+                free(rightPixels);
+            } else {
+                if (leftPixels) free(leftPixels);
+                if (rightPixels) free(rightPixels);
+                ESP_LOGE(HTTP_TAG, "Failed to allocate pixel buffers");
+            }
+        } else {
+            ESP_LOGE(HTTP_TAG, "Missing required sprite fields or wrong type");
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false,\"error\":\"Invalid data\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get storage information for sprite storage
+     */
+    static esp_err_t handleApiStorage(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        // Get actual SPIFFS stats
+        size_t totalBytes = 0, usedBytes = 0;
+        if (spiffs_initialized_) {
+            esp_spiffs_info(NULL, &totalBytes, &usedBytes);
+        } else {
+            // Fallback estimate if SPIFFS not initialized
+            totalBytes = 4 * 1024 * 1024;  // 4MB
+        }
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "total", totalBytes);
+        cJSON_AddNumberToObject(root, "used", usedBytes);
+        cJSON_AddNumberToObject(root, "free", totalBytes > usedBytes ? totalBytes - usedBytes : 0);
+        cJSON_AddNumberToObject(root, "spriteCount", savedSprites_.size());
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
     // ========== Captive Portal Handlers ==========
     
+    /**
+     * @brief Handle captive portal detection endpoints
+     * 
+     * Different OS have different captive portal detection:
+     * - Android: Expects 204 from connectivity check, anything else = captive
+     * - iOS: Expects specific "Success" response, anything else = captive
+     * - Windows: Expects specific content from ncsi.txt
+     * 
+     * We return HTML that triggers the captive portal popup
+     */
     static esp_err_t handleRedirect(httpd_req_t* req) {
+        const char* uri = req->uri;
+        
+        // Android connectivity checks - return non-204 to trigger captive portal
+        if (strstr(uri, "generate_204") || strstr(uri, "gen_204") || 
+            strstr(uri, "connectivitycheck")) {
+            // Return a redirect instead of 204 to trigger Android captive portal
+            httpd_resp_set_status(req, "302 Found");
+            httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+            httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+            httpd_resp_send(req, nullptr, 0);
+            return ESP_OK;
+        }
+        
+        // iOS/Apple captive portal - return non-Success to trigger popup
+        if (strstr(uri, "hotspot-detect") || strstr(uri, "captive.apple") || 
+            strstr(uri, "library/test/success")) {
+            // Return HTML that will show in iOS captive portal popup
+            static const char* ios_response = 
+                "<!DOCTYPE html><html><head>"
+                "<meta http-equiv=\"refresh\" content=\"0;url=http://192.168.4.1/\">"
+                "</head><body><a href=\"http://192.168.4.1/\">Click here</a></body></html>";
+            httpd_resp_set_type(req, "text/html");
+            httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+            httpd_resp_send(req, ios_response, HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Windows NCSI check
+        if (strstr(uri, "ncsi.txt") || strstr(uri, "connecttest") || strstr(uri, "msft")) {
+            httpd_resp_set_status(req, "302 Found");
+            httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+            httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+            httpd_resp_send(req, nullptr, 0);
+            return ESP_OK;
+        }
+        
+        // Default: redirect to portal
         httpd_resp_set_status(req, "302 Found");
         httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
@@ -817,8 +1913,56 @@ private:
     
     static esp_err_t handleCatchAll(httpd_req_t* req) {
         char host_header[MAX_HOST_HEADER_LENGTH] = {0};
+        char user_agent[128] = {0};
         httpd_req_get_hdr_value_str(req, "Host", host_header, sizeof(host_header));
-        ESP_LOGI(HTTP_TAG, "Catch-all request: Host=%s URI=%s Method=%d", host_header, req->uri, req->method);
+        httpd_req_get_hdr_value_str(req, "User-Agent", user_agent, sizeof(user_agent));
+        const char* uri = req->uri;
+        
+        ESP_LOGI(HTTP_TAG, "Catch-all: Host=%s URI=%s UA=%s", host_header, uri, user_agent);
+        
+        // Check for captive portal detection user agents
+        bool isCaptiveCheck = (
+            strstr(user_agent, "CaptiveNetworkSupport") ||  // iOS
+            strstr(user_agent, "Microsoft NCSI") ||          // Windows
+            strstr(user_agent, "Dalvik") ||                  // Android apps checking connectivity
+            strstr(user_agent, "captive") ||
+            strstr(user_agent, "NetWorkProbe")               // Various Android OEMs
+        );
+        
+        // Check for captive portal URIs we might have missed
+        bool isCaptiveUri = (
+            strstr(uri, "generate") ||
+            strstr(uri, "connectivity") ||
+            strstr(uri, "hotspot") ||
+            strstr(uri, "captive") ||
+            strstr(uri, "success") ||
+            strstr(uri, "ncsi") ||
+            strstr(uri, "connect")
+        );
+        
+        // Check if this is a request to an external domain (DNS hijacked)
+        bool isExternalHost = (
+            strlen(host_header) > 0 && 
+            strstr(host_header, "192.168.4.1") == nullptr &&
+            strstr(host_header, "lucidius") == nullptr
+        );
+        
+        // If any captive portal indicators, redirect
+        if (isCaptiveCheck || isCaptiveUri || isExternalHost) {
+            // Request to external domain - redirect to captive portal
+            static const char* captive_response = 
+                "<!DOCTYPE html><html><head>"
+                "<meta http-equiv=\"refresh\" content=\"0;url=http://192.168.4.1/\">"
+                "<title>Redirecting...</title>"
+                "</head><body>"
+                "<h1>Redirecting to Lucidius...</h1>"
+                "<p><a href=\"http://192.168.4.1/\">Click here if not redirected</a></p>"
+                "</body></html>";
+            httpd_resp_set_type(req, "text/html");
+            httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+            httpd_resp_send(req, captive_response, HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
         
         // For non-GET requests, respond with redirect
         if (req->method != HTTP_GET) {
@@ -1030,6 +2174,13 @@ private:
     // State
     httpd_handle_t server_ = nullptr;
     CommandCallback command_callback_ = nullptr;
+    Animation::AnimationConfigManager animConfigManager_;
+    
+public:
+    /**
+     * @brief Get the animation configuration manager
+     */
+    Animation::AnimationConfigManager& getConfigManager() { return animConfigManager_; }
 };
 
 // Convenience macro

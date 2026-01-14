@@ -17,6 +17,81 @@ inline const char PAGE_BASIC[] = R"rawliteral(
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Lucidius - Basic</title>
   <link rel="stylesheet" href="/style.css">
+  <style>
+    .preset-list { display: flex; flex-direction: column; gap: 6px; }
+    .preset-item { 
+      display: flex; 
+      align-items: center; 
+      padding: 14px 16px; 
+      background: var(--bg-tertiary); 
+      border-radius: 10px; 
+      border: 2px solid transparent;
+      transition: all 0.2s; 
+    }
+    .preset-item:hover { background: var(--bg-secondary); }
+    .preset-item.active-display { background: rgba(0, 204, 102, 0.08); border-color: rgba(0, 204, 102, 0.3); }
+    .preset-item.active-leds { background: rgba(255, 0, 255, 0.08); border-color: rgba(255, 0, 255, 0.3); }
+    .preset-item.active-both { position: relative; background: linear-gradient(135deg, rgba(0, 204, 102, 0.08), rgba(255, 0, 255, 0.08)); border-color: transparent; }
+    .preset-item.active-both::before { content: ''; position: absolute; inset: -2px; border-radius: 12px; padding: 2px; background: linear-gradient(135deg, rgba(0, 204, 102, 0.5), rgba(255, 0, 255, 0.5)); -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+    .preset-name { 
+      flex: 1;
+      font-weight: 600; 
+      font-size: 1.1rem; 
+      color: var(--text-primary);
+    }
+    .preset-indicators {
+      display: flex;
+      gap: 8px;
+      margin-right: 16px;
+    }
+    .indicator {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      transition: all 0.2s;
+    }
+    .indicator.display { color: var(--success); background: rgba(0, 204, 102, 0.15); }
+    .indicator.display.off { color: var(--text-muted); background: rgba(128, 128, 128, 0.1); opacity: 0.5; }
+    .indicator.leds { color: #ff00ff; background: rgba(255, 0, 255, 0.15); }
+    .indicator.leds.off { color: var(--text-muted); background: rgba(128, 128, 128, 0.1); opacity: 0.5; }
+    .indicator.hidden { display: none; }
+    .apply-btn { 
+      padding: 8px 16px; 
+      background: var(--accent); 
+      color: var(--bg-primary); 
+      border: none; 
+      border-radius: 6px; 
+      font-size: 0.8rem; 
+      font-weight: 600; 
+      cursor: pointer; 
+      transition: all 0.2s; 
+      min-width: 70px;
+    }
+    .apply-btn:hover { background: var(--accent-hover); transform: scale(1.02); }
+    .apply-btn:active { transform: scale(0.98); }
+    .legend { 
+      display: flex; 
+      gap: 20px; 
+      margin-bottom: 16px; 
+      padding: 12px 16px; 
+      background: var(--bg-tertiary); 
+      border-radius: 8px; 
+      font-size: 0.75rem; 
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .legend-dot.display { background: var(--success); }
+    .legend-dot.leds { background: #ff00ff; }
+    @media (max-width: 600px) {
+      .preset-item { padding: 12px; flex-wrap: wrap; }
+      .preset-name { font-size: 1rem; width: 100%; margin-bottom: 8px; }
+      .preset-indicators { margin-right: 10px; }
+      .apply-btn { min-width: 60px; padding: 8px 12px; }
+    }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -40,34 +115,27 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     </nav>
     
     <section class="tab-content active">
-      <div class="card-grid">
-      <div class="card">
+      <div class="card" style="max-width: 100%;">
         <div class="card-header">
-          <h2>Welcome</h2>
+          <h2>Animation Presets</h2>
         </div>
         <div class="card-body">
-          <p class="welcome-text">
-            Connected to <strong id="welcome-ssid">Lucidius (DX.3)</strong>
-          </p>
-          <div class="info-grid">
-            <div class="info-item">
-              <span class="info-label">IP Address</span>
-              <span class="info-value" id="info-ip">192.168.4.1</span>
+          <div class="legend">
+            <div class="legend-item">
+              <div class="legend-dot display"></div>
+              <span>Display Active</span>
             </div>
-            <div class="info-item">
-              <span class="info-label">Clients</span>
-              <span class="info-value" id="info-clients">0</span>
+            <div class="legend-item">
+              <div class="legend-dot leds"></div>
+              <span>LEDs Active</span>
+            </div>
+          </div>
+          <div class="preset-list" id="preset-list">
+            <div class="preset-item">
+              <span class="preset-name">Loading...</span>
             </div>
           </div>
         </div>
-      </div>
-      
-      <div class="card placeholder-card">
-        <div class="card-body center">
-          <div class="placeholder-icon">&#127899;</div>
-          <p class="placeholder-text">Basic controls coming soon</p>
-        </div>
-      </div>
       </div>
     </section>
     
@@ -79,22 +147,132 @@ inline const char PAGE_BASIC[] = R"rawliteral(
   <div id="toast" class="toast"></div>
   
   <script>
-  var pollDelay = 200;
-  function fetchState() {
-    fetch('/api/state')
-      .then(r => r.json())
-      .then(data => {
-        if (data.ssid) document.getElementById('welcome-ssid').textContent = data.ssid;
-        if (data.ip) document.getElementById('info-ip').textContent = data.ip;
-        document.getElementById('info-clients').textContent = data.clients || 0;
-        setTimeout(fetchState, pollDelay);
+  var configs = [];
+  var activeDisplay = -1;
+  var activeLeds = -1;
+  
+  function fetchConfigs() {
+    fetch('/api/configs')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        configs = data.configs || [];
+        activeDisplay = data.activeDisplay !== undefined ? data.activeDisplay : -1;
+        activeLeds = data.activeLeds !== undefined ? data.activeLeds : -1;
+        renderPresets();
       })
-      .catch(err => {
-        console.error('Fetch error:', err);
-        setTimeout(fetchState, pollDelay * 2);
+      .catch(function(err) {
+        console.error('Config fetch error:', err);
+        // Fallback demo data
+        configs = [
+          {name: 'Rainbow', target: 1, index: 0},
+          {name: 'Solid Red', target: 1, index: 1},
+          {name: 'LED Rainbow', target: 2, index: 2},
+          {name: 'LED Breathing', target: 2, index: 3},
+          {name: 'Fire Effect', target: 3, index: 4},
+          {name: 'Wave Sync', target: 3, index: 5}
+        ];
+        renderPresets();
       });
   }
-  fetchState();
+  
+  function renderPresets() {
+    var list = document.getElementById('preset-list');
+    list.innerHTML = '';
+    
+    configs.forEach(function(cfg) {
+      // Determine if this config's display/led is currently active
+      var thisDisplayActive = (activeDisplay === cfg.index);
+      var thisLedsActive = (activeLeds === cfg.index);
+      
+      // This config supports: 1=display, 2=leds, 3=both
+      var supportsDisplay = (cfg.target === 1 || cfg.target === 3);
+      var supportsLeds = (cfg.target === 2 || cfg.target === 3);
+      
+      // Highlight class based on what's active FROM this config
+      var activeClass = '';
+      if (thisDisplayActive && thisLedsActive) {
+        activeClass = 'active-both';
+      } else if (thisDisplayActive) {
+        activeClass = 'active-display';
+      } else if (thisLedsActive) {
+        activeClass = 'active-leds';
+      }
+      
+      // Build indicator HTML
+      var indicatorsHtml = '';
+      
+      // Display indicator
+      if (supportsDisplay) {
+        var dispClass = thisDisplayActive ? 'indicator display' : 'indicator display off';
+        indicatorsHtml += '<span class="' + dispClass + '">Display</span>';
+      }
+      
+      // LEDs indicator  
+      if (supportsLeds) {
+        var ledClass = thisLedsActive ? 'indicator leds' : 'indicator leds off';
+        indicatorsHtml += '<span class="' + ledClass + '">LEDs</span>';
+      }
+      
+      var html = '<div class="preset-item ' + activeClass + '" data-index="' + cfg.index + '">' +
+        '<span class="preset-name">' + escapeHtml(cfg.name) + '</span>' +
+        '<div class="preset-indicators">' + indicatorsHtml + '</div>' +
+        '<button class="apply-btn" onclick="applyConfig(' + cfg.index + ')">Apply</button>' +
+      '</div>';
+      
+      list.innerHTML += html;
+    });
+  }
+  
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  
+  function applyConfig(index) {
+    fetch('/api/config/apply', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({index: index})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        showToast('Configuration applied', 'success');
+        // Update active states based on what was applied
+        var cfg = configs.find(function(c) { return c.index === index; });
+        if (cfg) {
+          // If config targets display (1 or 3), this becomes active display
+          if (cfg.target === 1 || cfg.target === 3) {
+            activeDisplay = index;
+          }
+          // If config targets leds (2 or 3), this becomes active leds
+          if (cfg.target === 2 || cfg.target === 3) {
+            activeLeds = index;
+          }
+        }
+        renderPresets();
+        // Re-fetch to ensure sync with server
+        setTimeout(fetchConfigs, 500);
+      } else {
+        showToast('Failed to apply', 'error');
+      }
+    })
+    .catch(function(err) {
+      showToast('Error: ' + err, 'error');
+    });
+  }
+  
+  function showToast(message, type) {
+    var toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast ' + type + ' show';
+    setTimeout(function() {
+      toast.className = 'toast';
+    }, 3000);
+  }
+  
+  fetchConfigs();
   </script>
 </body>
 </html>
