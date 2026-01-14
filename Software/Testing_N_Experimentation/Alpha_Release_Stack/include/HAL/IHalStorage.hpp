@@ -156,6 +156,21 @@ public:
    * @return File size in bytes, or 0 if not found
    */
   virtual uint64_t getFileSize(const char* path) = 0;
+  
+  /** Format storage (erase all data)
+   * @return HalResult::OK on success
+   */
+  virtual HalResult format() = 0;
+  
+  /** Get card name/label
+   * @return Card name string or "N/A"
+   */
+  virtual const char* getCardName() const = 0;
+  
+  /** Get mount point path
+   * @return Mount point string
+   */
+  virtual const char* getMountPoint() const = 0;
 };
 
 // ============================================================

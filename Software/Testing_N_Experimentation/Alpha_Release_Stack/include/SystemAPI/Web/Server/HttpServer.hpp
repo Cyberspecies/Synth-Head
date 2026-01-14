@@ -16,6 +16,8 @@
 #include "SystemAPI/Misc/SyncState.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
 #include "SystemAPI/Animation/AnimationConfig.hpp"
+#include "SystemAPI/Utils/FileSystemService.hpp"
+#include "SystemAPI/Storage/StorageManager.hpp"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -73,18 +75,27 @@ struct SavedEquation {
     std::vector<EquationVariable> variables;
 };
 
-// Sprite storage (persisted to SPIFFS)
+// Sprite storage (persisted to SD card)
 static std::vector<SavedSprite> savedSprites_;
 static int nextSpriteId_ = 1;
 
-// Equation storage (persisted to SPIFFS)
+// Equation storage (persisted to SD card)
 static std::vector<SavedEquation> savedEquations_;
 static int nextEquationId_ = 1;
 
-static bool spiffs_initialized_ = false;
-static const char* SPRITE_DIR = "/spiffs/sprites";
-static const char* SPRITE_INDEX_FILE = "/spiffs/sprites/index.json";
-static const char* EQUATION_INDEX_FILE = "/spiffs/equations.json";
+static bool spiffs_initialized_ = false;  // Still used for legacy SPIFFS
+static bool sdcard_storage_ready_ = false;
+
+// SD Card paths (primary storage)
+static const char* SPRITE_DIR = "/sdcard/sprites";
+static const char* SPRITE_INDEX_FILE = "/sdcard/sprites/index.json";
+static const char* EQUATION_DIR = "/sdcard/equations";
+static const char* EQUATION_INDEX_FILE = "/sdcard/equations/index.json";
+
+// Legacy SPIFFS paths (fallback)
+static const char* SPRITE_DIR_SPIFFS = "/spiffs/sprites";
+static const char* SPRITE_INDEX_FILE_SPIFFS = "/spiffs/sprites/index.json";
+static const char* EQUATION_INDEX_FILE_SPIFFS = "/spiffs/equations.json";
 
 /**
  * @brief HTTP Server for Web Portal
@@ -111,13 +122,16 @@ public:
     bool start() {
         if (server_) return true;
         
-        // Initialize SPIFFS for sprite storage
-        initSpiffs();
+        // Initialize SD card storage (primary storage for sprites/equations)
+        initSdCardStorage();
         
-        // Load saved sprites from SPIFFS
+        // Initialize SPIFFS as fallback only if SD card not ready
+        if (!sdcard_storage_ready_) {
+            initSpiffs();
+        }
+        
+        // Load saved sprites and equations from SD card (or SPIFFS fallback)
         loadSpritesFromStorage();
-        
-        // Load saved equations from SPIFFS
         loadEquationsFromStorage();
         
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -228,6 +242,12 @@ private:
         registerHandler("/api/imu/status", HTTP_GET, handleApiImuStatus);
         registerHandler("/api/imu/clear", HTTP_POST, handleApiImuClear);
         
+        // SD Card API endpoints
+        registerHandler("/api/sdcard/status", HTTP_GET, handleApiSdCardStatus);
+        registerHandler("/api/sdcard/format", HTTP_POST, handleApiSdCardFormat);
+        registerHandler("/api/sdcard/clear", HTTP_POST, handleApiSdCardClear);
+        registerHandler("/api/sdcard/list", HTTP_GET, handleApiSdCardList);
+        
         // Captive portal detection endpoints (comprehensive list for all devices)
         const char* redirect_paths[] = {
             // Android (various versions & OEMs)
@@ -291,10 +311,42 @@ private:
         httpd_register_uri_handler(server_, &uri_handler);
     }
     
-    // ========== SPIFFS Storage for Sprites ==========
+    // ========== SD Card / SPIFFS Storage for Sprites ==========
     
     /**
-     * @brief Initialize SPIFFS filesystem
+     * @brief Initialize SD card storage for sprites and equations
+     * Primary storage - uses FileSystemService
+     */
+    static void initSdCardStorage() {
+        if (sdcard_storage_ready_) return;
+        
+        auto& fs = Utils::FileSystemService::instance();
+        
+        // Check if SD card is ready
+        if (!fs.isReady() || !fs.isMounted()) {
+            ESP_LOGW(HTTP_TAG, "SD card not available, will use SPIFFS fallback");
+            return;
+        }
+        
+        // Create directory structure using StorageManager paths
+        struct stat st;
+        if (stat(SPRITE_DIR, &st) != 0) {
+            fs.createDir(SPRITE_DIR);
+            ESP_LOGI(HTTP_TAG, "Created SD card sprites directory");
+        }
+        if (stat(EQUATION_DIR, &st) != 0) {
+            fs.createDir(EQUATION_DIR);
+            ESP_LOGI(HTTP_TAG, "Created SD card equations directory");
+        }
+        
+        sdcard_storage_ready_ = true;
+        ESP_LOGI(HTTP_TAG, "SD card storage initialized. Total: %llu MB, Free: %llu MB",
+            fs.getTotalBytes() / (1024 * 1024),
+            fs.getFreeBytes() / (1024 * 1024));
+    }
+    
+    /**
+     * @brief Initialize SPIFFS filesystem (fallback storage)
      */
     static void initSpiffs() {
         if (spiffs_initialized_) return;
@@ -318,28 +370,47 @@ private:
             return;
         }
         
-        // Create sprites directory if it doesn't exist
+        // Create sprites directory if it doesn't exist (only for SPIFFS fallback)
         struct stat st;
-        if (stat(SPRITE_DIR, &st) != 0) {
-            mkdir(SPRITE_DIR, 0755);
-            ESP_LOGI(HTTP_TAG, "Created sprites directory");
+        if (stat(SPRITE_DIR_SPIFFS, &st) != 0) {
+            mkdir(SPRITE_DIR_SPIFFS, 0755);
+            ESP_LOGI(HTTP_TAG, "Created SPIFFS sprites directory");
         }
         
         spiffs_initialized_ = true;
         
         size_t total = 0, used = 0;
         esp_spiffs_info(NULL, &total, &used);
-        ESP_LOGI(HTTP_TAG, "SPIFFS initialized. Total: %d KB, Used: %d KB", total/1024, used/1024);
+        ESP_LOGI(HTTP_TAG, "SPIFFS initialized as fallback. Total: %d KB, Used: %d KB", total/1024, used/1024);
     }
     
     /**
-     * @brief Save sprite index to SPIFFS
+     * @brief Get the active sprite index file path
+     * Prefers SD card, falls back to SPIFFS
+     */
+    static const char* getSpriteIndexPath() {
+        return sdcard_storage_ready_ ? SPRITE_INDEX_FILE : SPRITE_INDEX_FILE_SPIFFS;
+    }
+    
+    /**
+     * @brief Get the active equation index file path
+     * Prefers SD card, falls back to SPIFFS
+     */
+    static const char* getEquationIndexPath() {
+        return sdcard_storage_ready_ ? EQUATION_INDEX_FILE : EQUATION_INDEX_FILE_SPIFFS;
+    }
+    
+    /**
+     * @brief Save sprite index to storage (SD card preferred)
      */
     static void saveSpritesToStorage() {
-        if (!spiffs_initialized_) return;
+        if (!sdcard_storage_ready_ && !spiffs_initialized_) return;
+        
+        const char* indexPath = getSpriteIndexPath();
         
         cJSON* root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "nextId", nextSpriteId_);
+        cJSON_AddStringToObject(root, "storage", sdcard_storage_ready_ ? "sdcard" : "spiffs");
         
         cJSON* sprites = cJSON_CreateArray();
         for (const auto& sprite : savedSprites_) {
@@ -358,33 +429,50 @@ private:
         cJSON_Delete(root);
         
         if (json) {
-            FILE* f = fopen(SPRITE_INDEX_FILE, "w");
+            FILE* f = fopen(indexPath, "w");
             if (f) {
                 fprintf(f, "%s", json);
                 fclose(f);
-                ESP_LOGI(HTTP_TAG, "Saved %d sprites to storage", savedSprites_.size());
+                ESP_LOGI(HTTP_TAG, "Saved %d sprites to %s", savedSprites_.size(),
+                    sdcard_storage_ready_ ? "SD card" : "SPIFFS");
             } else {
-                ESP_LOGE(HTTP_TAG, "Failed to open sprite index for writing");
+                ESP_LOGE(HTTP_TAG, "Failed to open sprite index for writing: %s", indexPath);
             }
             free(json);
         }
     }
     
     /**
-     * @brief Load sprite index from SPIFFS
+     * @brief Load sprite index from storage (SD card or SPIFFS)
      */
     static void loadSpritesFromStorage() {
-        if (!spiffs_initialized_) return;
+        if (!sdcard_storage_ready_ && !spiffs_initialized_) return;
+        
+        const char* indexPath = getSpriteIndexPath();
+        
+        // Also try to migrate from SPIFFS to SD card if we have SD but data is in SPIFFS
+        if (sdcard_storage_ready_) {
+            struct stat sdStat, spiffsStat;
+            bool hasSpiffsData = (stat(SPRITE_INDEX_FILE_SPIFFS, &spiffsStat) == 0);
+            bool hasSDData = (stat(SPRITE_INDEX_FILE, &sdStat) == 0);
+            
+            // If we have SPIFFS data but no SD data, migrate it
+            if (hasSpiffsData && !hasSDData) {
+                ESP_LOGI(HTTP_TAG, "Migrating sprites from SPIFFS to SD card...");
+                indexPath = SPRITE_INDEX_FILE_SPIFFS;  // Load from SPIFFS
+                // After loading we'll save to SD automatically since SD is ready
+            }
+        }
         
         struct stat st;
-        if (stat(SPRITE_INDEX_FILE, &st) != 0) {
-            ESP_LOGI(HTTP_TAG, "No sprite index found, starting fresh");
+        if (stat(indexPath, &st) != 0) {
+            ESP_LOGI(HTTP_TAG, "No sprite index found at %s, starting fresh", indexPath);
             return;
         }
         
-        FILE* f = fopen(SPRITE_INDEX_FILE, "r");
+        FILE* f = fopen(indexPath, "r");
         if (!f) {
-            ESP_LOGE(HTTP_TAG, "Failed to open sprite index for reading");
+            ESP_LOGE(HTTP_TAG, "Failed to open sprite index for reading: %s", indexPath);
             return;
         }
         
@@ -394,8 +482,8 @@ private:
             return;
         }
         
-        size_t read = fread(buf, 1, st.st_size, f);
-        buf[read] = '\0';
+        size_t bytesRead = fread(buf, 1, st.st_size, f);
+        buf[bytesRead] = '\0';
         fclose(f);
         
         cJSON* root = cJSON_Parse(buf);
@@ -436,20 +524,30 @@ private:
                 savedSprites_.push_back(sprite);
             }
             
-            ESP_LOGI(HTTP_TAG, "Loaded %d sprites from storage", savedSprites_.size());
+            ESP_LOGI(HTTP_TAG, "Loaded %d sprites from %s", savedSprites_.size(),
+                sdcard_storage_ready_ ? "SD card" : "SPIFFS");
+                
+            // If we loaded from SPIFFS but SD is now ready, migrate to SD
+            if (sdcard_storage_ready_ && strcmp(indexPath, SPRITE_INDEX_FILE_SPIFFS) == 0) {
+                ESP_LOGI(HTTP_TAG, "Saving sprites to SD card after migration");
+                saveSpritesToStorage();
+            }
         }
         
         cJSON_Delete(root);
     }
     
     /**
-     * @brief Save equations to SPIFFS
+     * @brief Save equations to storage (SD card preferred)
      */
     static void saveEquationsToStorage() {
-        if (!spiffs_initialized_) return;
+        if (!sdcard_storage_ready_ && !spiffs_initialized_) return;
+        
+        const char* indexPath = getEquationIndexPath();
         
         cJSON* root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "nextId", nextEquationId_);
+        cJSON_AddStringToObject(root, "storage", sdcard_storage_ready_ ? "sdcard" : "spiffs");
         
         cJSON* equations = cJSON_CreateArray();
         for (const auto& eq : savedEquations_) {
@@ -476,33 +574,49 @@ private:
         cJSON_Delete(root);
         
         if (json) {
-            FILE* f = fopen(EQUATION_INDEX_FILE, "w");
+            FILE* f = fopen(indexPath, "w");
             if (f) {
                 fprintf(f, "%s", json);
                 fclose(f);
-                ESP_LOGI(HTTP_TAG, "Saved %d equations to storage", savedEquations_.size());
+                ESP_LOGI(HTTP_TAG, "Saved %d equations to %s", savedEquations_.size(),
+                    sdcard_storage_ready_ ? "SD card" : "SPIFFS");
             } else {
-                ESP_LOGE(HTTP_TAG, "Failed to open equation index for writing");
+                ESP_LOGE(HTTP_TAG, "Failed to open equation index for writing: %s", indexPath);
             }
             free(json);
         }
     }
     
     /**
-     * @brief Load equations from SPIFFS
+     * @brief Load equations from storage (SD card or SPIFFS)
      */
     static void loadEquationsFromStorage() {
-        if (!spiffs_initialized_) return;
+        if (!sdcard_storage_ready_ && !spiffs_initialized_) return;
+        
+        const char* indexPath = getEquationIndexPath();
+        
+        // Also try to migrate from SPIFFS to SD card if we have SD but data is in SPIFFS
+        if (sdcard_storage_ready_) {
+            struct stat sdStat, spiffsStat;
+            bool hasSpiffsData = (stat(EQUATION_INDEX_FILE_SPIFFS, &spiffsStat) == 0);
+            bool hasSDData = (stat(EQUATION_INDEX_FILE, &sdStat) == 0);
+            
+            // If we have SPIFFS data but no SD data, migrate it
+            if (hasSpiffsData && !hasSDData) {
+                ESP_LOGI(HTTP_TAG, "Migrating equations from SPIFFS to SD card...");
+                indexPath = EQUATION_INDEX_FILE_SPIFFS;  // Load from SPIFFS
+            }
+        }
         
         struct stat st;
-        if (stat(EQUATION_INDEX_FILE, &st) != 0) {
-            ESP_LOGI(HTTP_TAG, "No equation index found, starting fresh");
+        if (stat(indexPath, &st) != 0) {
+            ESP_LOGI(HTTP_TAG, "No equation index found at %s, starting fresh", indexPath);
             return;
         }
         
-        FILE* f = fopen(EQUATION_INDEX_FILE, "r");
+        FILE* f = fopen(indexPath, "r");
         if (!f) {
-            ESP_LOGE(HTTP_TAG, "Failed to open equation index for reading");
+            ESP_LOGE(HTTP_TAG, "Failed to open equation index for reading: %s", indexPath);
             return;
         }
         
@@ -512,8 +626,8 @@ private:
             return;
         }
         
-        size_t read = fread(buf, 1, st.st_size, f);
-        buf[read] = '\0';
+        size_t bytesRead = fread(buf, 1, st.st_size, f);
+        buf[bytesRead] = '\0';
         fclose(f);
         
         cJSON* root = cJSON_Parse(buf);
@@ -565,7 +679,14 @@ private:
                 savedEquations_.push_back(eq);
             }
             
-            ESP_LOGI(HTTP_TAG, "Loaded %d equations from storage", savedEquations_.size());
+            ESP_LOGI(HTTP_TAG, "Loaded %d equations from %s", savedEquations_.size(),
+                sdcard_storage_ready_ ? "SD card" : "SPIFFS");
+            
+            // If we loaded from SPIFFS but SD is now ready, migrate to SD
+            if (sdcard_storage_ready_ && strcmp(indexPath, EQUATION_INDEX_FILE_SPIFFS) == 0) {
+                ESP_LOGI(HTTP_TAG, "Saving equations to SD card after migration");
+                saveEquationsToStorage();
+            }
         }
         
         cJSON_Delete(root);
@@ -2357,13 +2478,19 @@ private:
         state.imuCalibMatrix[6] = 0; state.imuCalibMatrix[7] = 0; state.imuCalibMatrix[8] = 1;
         state.imuCalibrated = false;
         
-        // Clear from NVS
+        // Clear from SD card via StorageManager
+        auto& storageManager = Storage::StorageManager::instance();
+        storageManager.clearImuCalibration();
+        
+        // Also clear from NVS (for migration cleanup)
         nvs_handle_t nvs;
         if (nvs_open("imu_calib", NVS_READWRITE, &nvs) == ESP_OK) {
             nvs_erase_all(nvs);
             nvs_commit(nvs);
             nvs_close(nvs);
         }
+        
+        ESP_LOGI(HTTP_TAG, "IMU calibration cleared from all storage");
         
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, "{\"success\":true,\"message\":\"Calibration cleared\"}", HTTPD_RESP_USE_STRLEN);
@@ -2466,14 +2593,25 @@ public:
             
             state.imuCalibrated = true;
             
-            // Save to NVS
-            nvs_handle_t nvs;
-            if (nvs_open("imu_calib", NVS_READWRITE, &nvs) == ESP_OK) {
-                nvs_set_blob(nvs, "matrix", state.imuCalibMatrix, sizeof(state.imuCalibMatrix));
-                nvs_set_u8(nvs, "valid", 1);
-                nvs_commit(nvs);
-                nvs_close(nvs);
-                ESP_LOGI(HTTP_TAG, "IMU calibration saved to NVS");
+            // Save to SD card (primary) via StorageManager
+            auto& storageManager = Storage::StorageManager::instance();
+            Storage::ImuCalibrationData calibData;
+            calibData.valid = true;
+            memcpy(calibData.matrix, state.imuCalibMatrix, sizeof(calibData.matrix));
+            calibData.timestamp = (uint32_t)(esp_timer_get_time() / 1000000);  // seconds
+            
+            if (storageManager.saveImuCalibration(calibData)) {
+                ESP_LOGI(HTTP_TAG, "IMU calibration saved to SD card");
+            } else {
+                // Fallback to NVS if SD card save fails
+                nvs_handle_t nvs;
+                if (nvs_open("imu_calib", NVS_READWRITE, &nvs) == ESP_OK) {
+                    nvs_set_blob(nvs, "matrix", state.imuCalibMatrix, sizeof(state.imuCalibMatrix));
+                    nvs_set_u8(nvs, "valid", 1);
+                    nvs_commit(nvs);
+                    nvs_close(nvs);
+                    ESP_LOGI(HTTP_TAG, "IMU calibration saved to NVS (SD card unavailable)");
+                }
             }
             
             ESP_LOGI(HTTP_TAG, "IMU calibration complete. Gravity: (%.2f, %.2f, %.2f)", gx, gy, gz);
@@ -2513,11 +2651,23 @@ public:
     }
     
     /**
-     * @brief Load IMU calibration from NVS
+     * @brief Load IMU calibration from storage (SD card preferred, NVS fallback)
      */
     static void loadImuCalibration() {
         auto& state = SYNC_STATE.state();
         
+        // Try SD card first via StorageManager
+        auto& storageManager = Storage::StorageManager::instance();
+        Storage::ImuCalibrationData calibData;
+        
+        if (storageManager.loadImuCalibration(calibData) && calibData.valid) {
+            memcpy(state.imuCalibMatrix, calibData.matrix, sizeof(state.imuCalibMatrix));
+            state.imuCalibrated = true;
+            ESP_LOGI(HTTP_TAG, "IMU calibration loaded from SD card (timestamp: %u)", calibData.timestamp);
+            return;
+        }
+        
+        // Fallback to NVS
         nvs_handle_t nvs;
         if (nvs_open("imu_calib", NVS_READONLY, &nvs) == ESP_OK) {
             uint8_t valid = 0;
@@ -2526,10 +2676,172 @@ public:
                 if (nvs_get_blob(nvs, "matrix", state.imuCalibMatrix, &len) == ESP_OK) {
                     state.imuCalibrated = true;
                     ESP_LOGI(HTTP_TAG, "IMU calibration loaded from NVS");
+                    
+                    // Migrate to SD card if available
+                    Storage::ImuCalibrationData migrateData;
+                    migrateData.valid = true;
+                    memcpy(migrateData.matrix, state.imuCalibMatrix, sizeof(migrateData.matrix));
+                    migrateData.timestamp = 0;  // Unknown timestamp for migrated data
+                    
+                    if (storageManager.saveImuCalibration(migrateData)) {
+                        ESP_LOGI(HTTP_TAG, "Migrated IMU calibration from NVS to SD card");
+                    }
                 }
             }
             nvs_close(nvs);
         }
+    }
+    
+    // ========== SD Card API Handlers ==========
+    
+    /**
+     * @brief Get SD card status
+     */
+    static esp_err_t handleApiSdCardStatus(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "initialized", sdCard.isReady());
+        cJSON_AddBoolToObject(root, "mounted", sdCard.isMounted());
+        
+        if (sdCard.isMounted()) {
+            cJSON_AddStringToObject(root, "name", sdCard.getCardName());
+            cJSON_AddNumberToObject(root, "total_mb", sdCard.getTotalBytes() / (1024 * 1024));
+            cJSON_AddNumberToObject(root, "free_mb", sdCard.getFreeBytes() / (1024 * 1024));
+            cJSON_AddNumberToObject(root, "used_mb", sdCard.getUsedBytes() / (1024 * 1024));
+        }
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Format SD card (erase and create new filesystem)
+     */
+    static esp_err_t handleApiSdCardFormat(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isReady()) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"SD card not initialized\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        ESP_LOGW(HTTP_TAG, "Formatting SD card...");
+        
+        bool success = sdCard.format();
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", success);
+        if (success) {
+            cJSON_AddStringToObject(root, "message", "SD card formatted successfully");
+            cJSON_AddNumberToObject(root, "total_mb", sdCard.getTotalBytes() / (1024 * 1024));
+            cJSON_AddNumberToObject(root, "free_mb", sdCard.getFreeBytes() / (1024 * 1024));
+        } else {
+            cJSON_AddStringToObject(root, "error", "Failed to format SD card");
+        }
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Clear all files from SD card (keep filesystem)
+     */
+    static esp_err_t handleApiSdCardClear(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isMounted()) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"SD card not mounted\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        ESP_LOGW(HTTP_TAG, "Clearing all files from SD card...");
+        
+        bool success = sdCard.clearAll();
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", success);
+        if (success) {
+            cJSON_AddStringToObject(root, "message", "All files cleared");
+            cJSON_AddNumberToObject(root, "free_mb", sdCard.getFreeBytes() / (1024 * 1024));
+        } else {
+            cJSON_AddStringToObject(root, "error", "Failed to clear some files");
+        }
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief List directory contents
+     */
+    static esp_err_t handleApiSdCardList(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isMounted()) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"SD card not mounted\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Get path from query string
+        char path[128] = "/";
+        char query[256];
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+            char value[128];
+            if (httpd_query_key_value(query, "path", value, sizeof(value)) == ESP_OK) {
+                strncpy(path, value, sizeof(path) - 1);
+            }
+        }
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", true);
+        cJSON_AddStringToObject(root, "path", path);
+        
+        cJSON* files = cJSON_AddArrayToObject(root, "files");
+        
+        sdCard.listDir(path, [&](const Utils::FileInfo& info) -> bool {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddStringToObject(item, "name", info.name);
+            cJSON_AddStringToObject(item, "path", info.path);
+            cJSON_AddBoolToObject(item, "isDir", info.isDirectory);
+            cJSON_AddNumberToObject(item, "size", info.size);
+            cJSON_AddItemToArray(files, item);
+            return true;
+        });
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
     }
     
     // ========== Captive Portal Handlers ==========

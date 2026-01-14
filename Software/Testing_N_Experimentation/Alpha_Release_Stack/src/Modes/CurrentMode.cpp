@@ -11,6 +11,7 @@
 #include "SystemAPI/Web/CaptivePortal.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
 #include "SystemAPI/Misc/SyncState.hpp"
+#include "SystemAPI/Utils/FileSystemService.hpp"
 #include "esp_timer.h"
 #include "driver/uart.h"
 #include "driver/i2s_std.h"
@@ -731,6 +732,22 @@ void CurrentMode::onStart() {
         printf("  GPU: UART Ready - waiting for connection\n");
     } else {
         printf("  GPU: UART init failed - will show N/C\n");
+    }
+    
+    // Initialize SD Card
+    auto& sdCard = SystemAPI::Utils::FileSystemService::instance();
+    SystemAPI::Utils::SdCardPins sdPins = {
+        .miso = 14,
+        .mosi = 47,
+        .clk = 21,
+        .cs = 48
+    };
+    if (sdCard.init(sdPins)) {
+        printf("  SD Card: Ready (%llu MB total, %llu MB free)\n", 
+               sdCard.getTotalBytes() / (1024 * 1024),
+               sdCard.getFreeBytes() / (1024 * 1024));
+    } else {
+        printf("  SD Card: Not available\n");
     }
     
     // Print initial credentials

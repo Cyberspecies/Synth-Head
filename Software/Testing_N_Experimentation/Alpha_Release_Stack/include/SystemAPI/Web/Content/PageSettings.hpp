@@ -264,6 +264,65 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
         </div>
       </div>
       
+      <!-- SD Card Management -->
+      <div class="card">
+        <div class="card-header">
+          <h2>SD Card Storage</h2>
+        </div>
+        <div class="card-body">
+          <div class="info-list" style="margin-bottom: 16px;">
+            <div class="info-row">
+              <span class="info-label">Status</span>
+              <span class="info-value" id="sd-status">Checking...</span>
+            </div>
+            <div class="info-row" id="sd-name-row" style="display: none;">
+              <span class="info-label">Card Name</span>
+              <span class="info-value" id="sd-name">-</span>
+            </div>
+            <div class="info-row" id="sd-size-row" style="display: none;">
+              <span class="info-label">Total Size</span>
+              <span class="info-value" id="sd-total">0 MB</span>
+            </div>
+            <div class="info-row" id="sd-usage-row" style="display: none;">
+              <span class="info-label">Usage</span>
+              <span class="info-value" id="sd-usage">0 / 0 MB</span>
+            </div>
+          </div>
+          
+          <!-- SD Progress bar (for operations) -->
+          <div id="sd-progress" style="display: none; margin-bottom: 16px;">
+            <div style="height: 8px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden;">
+              <div id="sd-progress-bar" style="height: 100%; background: var(--accent); width: 0%; transition: width 0.3s;"></div>
+            </div>
+            <div style="text-align: center; font-size: 0.75rem; margin-top: 4px;" id="sd-progress-text">Working...</div>
+          </div>
+          
+          <div class="button-group" id="sd-buttons" style="display: none;">
+            <button id="sd-clear-btn" class="btn btn-warning">Clear All Files</button>
+            <button id="sd-format-btn" class="btn btn-danger">Reformat Card</button>
+          </div>
+          
+          <!-- Confirmation dialogs -->
+          <div id="sd-confirm-clear" class="danger-confirm" style="display: none; margin-top: 16px; padding: 16px; background: var(--warning-bg, rgba(251, 191, 36, 0.1)); border: 1px solid var(--warning, #fbbf24); border-radius: 8px;">
+            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--warning, #fbbf24);">⚠️ Warning: This will delete ALL files!</p>
+            <p style="margin: 0 0 12px 0; font-size: 0.875rem;">This action cannot be undone. All data will be lost.</p>
+            <div class="button-group">
+              <button id="sd-confirm-clear-btn" class="btn btn-warning">Yes, Clear Everything</button>
+              <button id="sd-cancel-clear-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+          
+          <div id="sd-confirm-format" class="danger-confirm" style="display: none; margin-top: 16px; padding: 16px; background: var(--danger-bg, rgba(239, 68, 68, 0.1)); border: 1px solid var(--danger, #ef4444); border-radius: 8px;">
+            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--danger, #ef4444);">🚨 DANGER: Complete Format!</p>
+            <p style="margin: 0 0 12px 0; font-size: 0.875rem;">This will completely erase the SD card and create a new filesystem. ALL data will be permanently destroyed.</p>
+            <div class="button-group">
+              <button id="sd-confirm-format-btn" class="btn btn-danger">Yes, Format Card</button>
+              <button id="sd-cancel-format-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
       <div class="card danger-card">
         <div class="card-header">
           <h2>Danger Zone</h2>
@@ -702,6 +761,150 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
   // Initial IMU status check
   updateImuStatus();
   setInterval(updateImuLiveValues, 500);
+  
+  // ========== SD Card Management ==========
+  var sdOperationInProgress = false;
+  
+  function updateSdCardStatus() {
+    fetch('/api/sdcard/status')
+      .then(r => r.json())
+      .then(data => {
+        var statusEl = document.getElementById('sd-status');
+        var nameRow = document.getElementById('sd-name-row');
+        var sizeRow = document.getElementById('sd-size-row');
+        var usageRow = document.getElementById('sd-usage-row');
+        var buttons = document.getElementById('sd-buttons');
+        
+        if (!data.initialized) {
+          statusEl.textContent = 'Not initialized';
+          statusEl.style.color = 'var(--danger)';
+          nameRow.style.display = 'none';
+          sizeRow.style.display = 'none';
+          usageRow.style.display = 'none';
+          buttons.style.display = 'none';
+        } else if (!data.mounted) {
+          statusEl.textContent = 'Not mounted';
+          statusEl.style.color = 'var(--warning)';
+          nameRow.style.display = 'none';
+          sizeRow.style.display = 'none';
+          usageRow.style.display = 'none';
+          buttons.style.display = 'none';
+        } else {
+          statusEl.textContent = 'Ready ✓';
+          statusEl.style.color = 'var(--success)';
+          nameRow.style.display = 'flex';
+          sizeRow.style.display = 'flex';
+          usageRow.style.display = 'flex';
+          buttons.style.display = 'flex';
+          
+          document.getElementById('sd-name').textContent = data.name || 'Unknown';
+          document.getElementById('sd-total').textContent = data.total_mb + ' MB';
+          document.getElementById('sd-usage').textContent = data.used_mb + ' / ' + data.total_mb + ' MB (' + Math.round(data.used_mb / data.total_mb * 100) + '%)';
+        }
+      })
+      .catch(err => {
+        document.getElementById('sd-status').textContent = 'Error';
+        document.getElementById('sd-status').style.color = 'var(--danger)';
+      });
+  }
+  
+  function showSdProgress(text) {
+    sdOperationInProgress = true;
+    document.getElementById('sd-progress').style.display = 'block';
+    document.getElementById('sd-progress-text').textContent = text;
+    document.getElementById('sd-progress-bar').style.width = '0%';
+    document.getElementById('sd-buttons').style.display = 'none';
+    
+    // Animate progress bar
+    var progress = 0;
+    var interval = setInterval(function() {
+      if (!sdOperationInProgress) {
+        clearInterval(interval);
+        return;
+      }
+      progress += Math.random() * 15;
+      if (progress > 90) progress = 90;
+      document.getElementById('sd-progress-bar').style.width = progress + '%';
+    }, 200);
+  }
+  
+  function hideSdProgress() {
+    sdOperationInProgress = false;
+    document.getElementById('sd-progress-bar').style.width = '100%';
+    setTimeout(function() {
+      document.getElementById('sd-progress').style.display = 'none';
+      document.getElementById('sd-buttons').style.display = 'flex';
+    }, 500);
+  }
+  
+  // Clear button click - show confirmation
+  document.getElementById('sd-clear-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-clear').style.display = 'block';
+    document.getElementById('sd-confirm-format').style.display = 'none';
+  });
+  
+  // Cancel clear
+  document.getElementById('sd-cancel-clear-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-clear').style.display = 'none';
+  });
+  
+  // Confirm clear
+  document.getElementById('sd-confirm-clear-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-clear').style.display = 'none';
+    showSdProgress('Clearing all files...');
+    
+    fetch('/api/sdcard/clear', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        hideSdProgress();
+        if (data.success) {
+          showToast('All files cleared', 'success');
+        } else {
+          showToast(data.error || 'Failed to clear files', 'error');
+        }
+        updateSdCardStatus();
+      })
+      .catch(err => {
+        hideSdProgress();
+        showToast('Error: ' + err, 'error');
+      });
+  });
+  
+  // Format button click - show confirmation
+  document.getElementById('sd-format-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-format').style.display = 'block';
+    document.getElementById('sd-confirm-clear').style.display = 'none';
+  });
+  
+  // Cancel format
+  document.getElementById('sd-cancel-format-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-format').style.display = 'none';
+  });
+  
+  // Confirm format
+  document.getElementById('sd-confirm-format-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-format').style.display = 'none';
+    showSdProgress('Formatting SD card...');
+    
+    fetch('/api/sdcard/format', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        hideSdProgress();
+        if (data.success) {
+          showToast('SD card formatted', 'success');
+        } else {
+          showToast(data.error || 'Failed to format', 'error');
+        }
+        updateSdCardStatus();
+      })
+      .catch(err => {
+        hideSdProgress();
+        showToast('Error: ' + err, 'error');
+      });
+  });
+  
+  // Initial SD card status check
+  updateSdCardStatus();
   
   // Extend fetchState
   fetchState = function() {
