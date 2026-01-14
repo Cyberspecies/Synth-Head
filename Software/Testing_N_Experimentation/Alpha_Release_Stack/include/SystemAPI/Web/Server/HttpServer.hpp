@@ -23,6 +23,7 @@
 #include "esp_random.h"
 #include "esp_spiffs.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"
 #include "cJSON.h"
 
 // Socket includes for getpeername
@@ -221,6 +222,11 @@ private:
         registerHandler("/api/equation/save", HTTP_POST, handleApiEquationSave);
         registerHandler("/api/equation/delete", HTTP_POST, handleApiEquationDelete);
         registerHandler("/api/sensors", HTTP_GET, handleApiSensors);
+        
+        // IMU Calibration API endpoints
+        registerHandler("/api/imu/calibrate", HTTP_POST, handleApiImuCalibrate);
+        registerHandler("/api/imu/status", HTTP_GET, handleApiImuStatus);
+        registerHandler("/api/imu/clear", HTTP_POST, handleApiImuClear);
         
         // Captive portal detection endpoints (comprehensive list for all devices)
         const char* redirect_paths[] = {
@@ -2251,6 +2257,19 @@ private:
         // Microphone
         cJSON_AddNumberToObject(root, "mic_db", state.micDb);
         
+        // Utility - random value between -1 and 1
+        float randomVal = ((float)(esp_random() % 20001) - 10000.0f) / 10000.0f;
+        cJSON_AddNumberToObject(root, "random", randomVal);
+        
+        // Device-corrected IMU (after calibration applied)
+        cJSON_AddNumberToObject(root, "device_accel_x", state.deviceAccelX);
+        cJSON_AddNumberToObject(root, "device_accel_y", state.deviceAccelY);
+        cJSON_AddNumberToObject(root, "device_accel_z", state.deviceAccelZ);
+        cJSON_AddNumberToObject(root, "device_gyro_x", state.deviceGyroX);
+        cJSON_AddNumberToObject(root, "device_gyro_y", state.deviceGyroY);
+        cJSON_AddNumberToObject(root, "device_gyro_z", state.deviceGyroZ);
+        cJSON_AddBoolToObject(root, "imu_calibrated", state.imuCalibrated);
+        
         char* json = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
         
@@ -2258,6 +2277,259 @@ private:
         httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
         free(json);
         return ESP_OK;
+    }
+    
+    // ========== IMU Calibration Handlers ==========
+    
+    // Static calibration state
+    static inline bool imuCalibrationInProgress_ = false;
+    static inline uint32_t imuCalibrationStartTime_ = 0;
+    static inline float imuCalibAccumX_ = 0, imuCalibAccumY_ = 0, imuCalibAccumZ_ = 0;
+    static inline uint32_t imuCalibSampleCount_ = 0;
+    static constexpr uint32_t IMU_CALIB_DURATION_MS = 3000;
+    static constexpr float GRAVITY = 9.81f;
+    
+    /**
+     * @brief Start IMU calibration - record for 3 seconds
+     */
+    static esp_err_t handleApiImuCalibrate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        // Start calibration
+        imuCalibrationInProgress_ = true;
+        imuCalibrationStartTime_ = (uint32_t)(esp_timer_get_time() / 1000);
+        imuCalibAccumX_ = 0;
+        imuCalibAccumY_ = 0;
+        imuCalibAccumZ_ = 0;
+        imuCalibSampleCount_ = 0;
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true,\"message\":\"Calibration started. Keep device still for 3 seconds.\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get IMU calibration status
+     */
+    static esp_err_t handleApiImuStatus(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& state = SYNC_STATE.state();
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "calibrating", imuCalibrationInProgress_);
+        cJSON_AddBoolToObject(root, "calibrated", state.imuCalibrated);
+        
+        if (imuCalibrationInProgress_) {
+            uint32_t elapsed = (uint32_t)(esp_timer_get_time() / 1000) - imuCalibrationStartTime_;
+            uint32_t remaining = elapsed < IMU_CALIB_DURATION_MS ? IMU_CALIB_DURATION_MS - elapsed : 0;
+            cJSON_AddNumberToObject(root, "remainingMs", remaining);
+            cJSON_AddNumberToObject(root, "progress", (float)elapsed / IMU_CALIB_DURATION_MS * 100.0f);
+        }
+        
+        // Add current calibration matrix
+        cJSON* matrix = cJSON_CreateArray();
+        for (int i = 0; i < 9; i++) {
+            cJSON_AddItemToArray(matrix, cJSON_CreateNumber(state.imuCalibMatrix[i]));
+        }
+        cJSON_AddItemToObject(root, "matrix", matrix);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Clear IMU calibration
+     */
+    static esp_err_t handleApiImuClear(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& state = SYNC_STATE.state();
+        
+        // Reset to identity matrix
+        state.imuCalibMatrix[0] = 1; state.imuCalibMatrix[1] = 0; state.imuCalibMatrix[2] = 0;
+        state.imuCalibMatrix[3] = 0; state.imuCalibMatrix[4] = 1; state.imuCalibMatrix[5] = 0;
+        state.imuCalibMatrix[6] = 0; state.imuCalibMatrix[7] = 0; state.imuCalibMatrix[8] = 1;
+        state.imuCalibrated = false;
+        
+        // Clear from NVS
+        nvs_handle_t nvs;
+        if (nvs_open("imu_calib", NVS_READWRITE, &nvs) == ESP_OK) {
+            nvs_erase_all(nvs);
+            nvs_commit(nvs);
+            nvs_close(nvs);
+        }
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true,\"message\":\"Calibration cleared\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+public:
+    /**
+     * @brief Process IMU calibration - call this in the main loop
+     * 
+     * This should be called periodically to accumulate samples and
+     * compute the calibration matrix when complete.
+     */
+    static void processImuCalibration() {
+        if (!imuCalibrationInProgress_) return;
+        
+        auto& state = SYNC_STATE.state();
+        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+        uint32_t elapsed = now - imuCalibrationStartTime_;
+        
+        // Accumulate samples
+        imuCalibAccumX_ += state.accelX;
+        imuCalibAccumY_ += state.accelY;
+        imuCalibAccumZ_ += state.accelZ;
+        imuCalibSampleCount_++;
+        
+        // Check if calibration is complete
+        if (elapsed >= IMU_CALIB_DURATION_MS && imuCalibSampleCount_ > 0) {
+            imuCalibrationInProgress_ = false;
+            
+            // Average the accumulated values
+            float avgX = imuCalibAccumX_ / imuCalibSampleCount_;
+            float avgY = imuCalibAccumY_ / imuCalibSampleCount_;
+            float avgZ = imuCalibAccumZ_ / imuCalibSampleCount_;
+            
+            // Normalize to get gravity direction in IMU frame
+            float mag = sqrtf(avgX * avgX + avgY * avgY + avgZ * avgZ);
+            if (mag < 0.1f) {
+                ESP_LOGW(HTTP_TAG, "IMU calibration failed - magnitude too low");
+                return;
+            }
+            
+            // Gravity vector in IMU coordinates (normalized)
+            float gx = avgX / mag;
+            float gy = avgY / mag;
+            float gz = avgZ / mag;
+            
+            // We want to rotate so that gravity points in +Z direction (device down = positive Z)
+            // Target gravity direction: (0, 0, 1)
+            // After calibration: device_x ≈ 0, device_y ≈ 0, device_z ≈ gravity magnitude
+            // Build rotation matrix that transforms (gx, gy, gz) to (0, 0, 1)
+            
+            // Use Rodrigues' rotation formula
+            // rotation axis = gravity x target = (gx,gy,gz) x (0,0,1) = (gy*1-gz*0, gz*0-gx*1, gx*0-gy*0) = (gy, -gx, 0)
+            // rotation angle = acos(dot(gravity, target)) = acos(gz)
+            
+            float ax = gy;
+            float ay = -gx;
+            float az = 0;
+            float axisMag = sqrtf(ax * ax + ay * ay);
+            
+            if (axisMag < 0.001f) {
+                // Gravity already aligned with Z axis
+                if (gz > 0) {
+                    // Already pointing in +Z - identity matrix
+                    state.imuCalibMatrix[0] = 1; state.imuCalibMatrix[1] = 0; state.imuCalibMatrix[2] = 0;
+                    state.imuCalibMatrix[3] = 0; state.imuCalibMatrix[4] = 1; state.imuCalibMatrix[5] = 0;
+                    state.imuCalibMatrix[6] = 0; state.imuCalibMatrix[7] = 0; state.imuCalibMatrix[8] = 1;
+                } else {
+                    // Pointing in -Z - 180 degree rotation around X to flip
+                    state.imuCalibMatrix[0] = 1; state.imuCalibMatrix[1] = 0; state.imuCalibMatrix[2] = 0;
+                    state.imuCalibMatrix[3] = 0; state.imuCalibMatrix[4] = -1; state.imuCalibMatrix[5] = 0;
+                    state.imuCalibMatrix[6] = 0; state.imuCalibMatrix[7] = 0; state.imuCalibMatrix[8] = -1;
+                }
+            } else {
+                // Normalize rotation axis
+                ax /= axisMag;
+                ay /= axisMag;
+                
+                // Rotation angle
+                float cosAngle = gz;  // dot(gravity, (0,0,1))
+                float angle = acosf(cosAngle > 1.0f ? 1.0f : (cosAngle < -1.0f ? -1.0f : cosAngle));
+                float sinAngle = sinf(angle);
+                float oneMinusCos = 1.0f - cosAngle;
+                
+                // Rodrigues' rotation formula: R = I + sin(θ)K + (1-cos(θ))K²
+                // where K is the skew-symmetric cross-product matrix of the axis
+                state.imuCalibMatrix[0] = cosAngle + ax * ax * oneMinusCos;
+                state.imuCalibMatrix[1] = ax * ay * oneMinusCos - az * sinAngle;
+                state.imuCalibMatrix[2] = ax * az * oneMinusCos + ay * sinAngle;
+                
+                state.imuCalibMatrix[3] = ay * ax * oneMinusCos + az * sinAngle;
+                state.imuCalibMatrix[4] = cosAngle + ay * ay * oneMinusCos;
+                state.imuCalibMatrix[5] = ay * az * oneMinusCos - ax * sinAngle;
+                
+                state.imuCalibMatrix[6] = az * ax * oneMinusCos - ay * sinAngle;
+                state.imuCalibMatrix[7] = az * ay * oneMinusCos + ax * sinAngle;
+                state.imuCalibMatrix[8] = cosAngle + az * az * oneMinusCos;
+            }
+            
+            state.imuCalibrated = true;
+            
+            // Save to NVS
+            nvs_handle_t nvs;
+            if (nvs_open("imu_calib", NVS_READWRITE, &nvs) == ESP_OK) {
+                nvs_set_blob(nvs, "matrix", state.imuCalibMatrix, sizeof(state.imuCalibMatrix));
+                nvs_set_u8(nvs, "valid", 1);
+                nvs_commit(nvs);
+                nvs_close(nvs);
+                ESP_LOGI(HTTP_TAG, "IMU calibration saved to NVS");
+            }
+            
+            ESP_LOGI(HTTP_TAG, "IMU calibration complete. Gravity: (%.2f, %.2f, %.2f)", gx, gy, gz);
+        }
+    }
+    
+    /**
+     * @brief Apply IMU calibration to get device-frame values
+     * Call this after reading raw IMU values
+     */
+    static void applyImuCalibration() {
+        auto& state = SYNC_STATE.state();
+        
+        if (!state.imuCalibrated) {
+            // No calibration - use raw values
+            state.deviceAccelX = state.accelX;
+            state.deviceAccelY = state.accelY;
+            state.deviceAccelZ = state.accelZ;
+            state.deviceGyroX = state.gyroX;
+            state.deviceGyroY = state.gyroY;
+            state.deviceGyroZ = state.gyroZ;
+            return;
+        }
+        
+        // Apply rotation matrix: device = R * imu
+        float* R = state.imuCalibMatrix;
+        
+        // Transform accelerometer
+        state.deviceAccelX = R[0] * state.accelX + R[1] * state.accelY + R[2] * state.accelZ;
+        state.deviceAccelY = R[3] * state.accelX + R[4] * state.accelY + R[5] * state.accelZ;
+        state.deviceAccelZ = R[6] * state.accelX + R[7] * state.accelY + R[8] * state.accelZ;
+        
+        // Transform gyroscope
+        state.deviceGyroX = R[0] * state.gyroX + R[1] * state.gyroY + R[2] * state.gyroZ;
+        state.deviceGyroY = R[3] * state.gyroX + R[4] * state.gyroY + R[5] * state.gyroZ;
+        state.deviceGyroZ = R[6] * state.gyroX + R[7] * state.gyroY + R[8] * state.gyroZ;
+    }
+    
+    /**
+     * @brief Load IMU calibration from NVS
+     */
+    static void loadImuCalibration() {
+        auto& state = SYNC_STATE.state();
+        
+        nvs_handle_t nvs;
+        if (nvs_open("imu_calib", NVS_READONLY, &nvs) == ESP_OK) {
+            uint8_t valid = 0;
+            if (nvs_get_u8(nvs, "valid", &valid) == ESP_OK && valid == 1) {
+                size_t len = sizeof(state.imuCalibMatrix);
+                if (nvs_get_blob(nvs, "matrix", state.imuCalibMatrix, &len) == ESP_OK) {
+                    state.imuCalibrated = true;
+                    ESP_LOGI(HTTP_TAG, "IMU calibration loaded from NVS");
+                }
+            }
+            nvs_close(nvs);
+        }
     }
     
     // ========== Captive Portal Handlers ==========

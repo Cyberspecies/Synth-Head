@@ -677,14 +677,21 @@ inline const char PAGE_EQUATIONS[] = R"rawliteral(
     { id: 'temperature', name: 'Temperature', type: 'env' },
     { id: 'humidity', name: 'Humidity', type: 'env' },
     { id: 'pressure', name: 'Pressure', type: 'env' },
-    // IMU - Accelerometer
+    // IMU - Accelerometer (raw)
     { id: 'accel_x', name: 'Accel X', type: 'imu' },
     { id: 'accel_y', name: 'Accel Y', type: 'imu' },
     { id: 'accel_z', name: 'Accel Z', type: 'imu' },
-    // IMU - Gyroscope
+    // IMU - Gyroscope (raw)
     { id: 'gyro_x', name: 'Gyro X', type: 'imu' },
     { id: 'gyro_y', name: 'Gyro Y', type: 'imu' },
     { id: 'gyro_z', name: 'Gyro Z', type: 'imu' },
+    // Device IMU (calibrated)
+    { id: 'device_accel_x', name: 'Dev Accel X', type: 'device' },
+    { id: 'device_accel_y', name: 'Dev Accel Y', type: 'device' },
+    { id: 'device_accel_z', name: 'Dev Accel Z', type: 'device' },
+    { id: 'device_gyro_x', name: 'Dev Gyro X', type: 'device' },
+    { id: 'device_gyro_y', name: 'Dev Gyro Y', type: 'device' },
+    { id: 'device_gyro_z', name: 'Dev Gyro Z', type: 'device' },
     // GPS
     { id: 'gps_lat', name: 'GPS Lat', type: 'gps' },
     { id: 'gps_lon', name: 'GPS Lon', type: 'gps' },
@@ -696,7 +703,9 @@ inline const char PAGE_EQUATIONS[] = R"rawliteral(
     { id: 'gps_min', name: 'GPS Min', type: 'gps' },
     { id: 'gps_sec', name: 'GPS Sec', type: 'gps' },
     // Microphone
-    { id: 'mic_db', name: 'Mic dB', type: 'mic' }
+    { id: 'mic_db', name: 'Mic dB', type: 'mic' },
+    // Utility
+    { id: 'random', name: 'Random', type: 'util' }
   ];
   
   // Initialize

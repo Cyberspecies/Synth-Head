@@ -222,6 +222,9 @@ bool BootMode::onBoot() {
         printf("  Password: %s\n", security.getPassword());
         printf("  Portal opens automatically on connect.\n\n");
         
+        // Load IMU calibration from NVS if available
+        SystemAPI::Web::HttpServer::loadImuCalibration();
+        
         // Auto-connect to external network if it was enabled before reboot
         if (extEnabled && connectNow && strlen(state.extWifiSSID) > 0) {
             printf("  Connecting to external network: %s...\n", state.extWifiSSID);

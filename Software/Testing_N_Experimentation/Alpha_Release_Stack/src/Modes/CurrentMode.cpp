@@ -808,6 +808,11 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
     state.gyroY = ImuDriver::gyroY;
     state.gyroZ = ImuDriver::gyroZ;
     
+    // Process IMU calibration (accumulate samples if calibrating)
+    SystemAPI::Web::HttpServer::processImuCalibration();
+    // Apply IMU calibration to get device-frame values
+    SystemAPI::Web::HttpServer::applyImuCalibration();
+    
     // Update microphone from real driver (rolling average for stability)
     state.micConnected = MicDriver::initialized;
     state.micLevel = MicDriver::level;

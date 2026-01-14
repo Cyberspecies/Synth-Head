@@ -82,6 +82,13 @@ struct SyncState {
   uint8_t micLevel = 0;
   float micDb = -60.0f;  // dB level (-60 to 0)
   
+  // IMU Calibration (rotation matrix to align IMU with device)
+  bool imuCalibrated = false;
+  float imuCalibMatrix[9] = {1,0,0, 0,1,0, 0,0,1};  // 3x3 rotation matrix (row-major)
+  // Device-corrected IMU values (after applying calibration)
+  float deviceAccelX = 0.0f, deviceAccelY = 0.0f, deviceAccelZ = 0.0f;
+  float deviceGyroX = 0.0f, deviceGyroY = 0.0f, deviceGyroZ = 0.0f;
+  
   // User controls (bidirectional)
   bool ledEnabled = false;
   uint8_t ledColor = 0;  // 0=off, 1=red, 2=green, 3=blue, 4=white

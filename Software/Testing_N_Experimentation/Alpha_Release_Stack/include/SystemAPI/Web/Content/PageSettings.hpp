@@ -220,6 +220,50 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
         </div>
       </div>
       
+      <!-- IMU Calibration Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2>IMU Calibration</h2>
+        </div>
+        <div class="card-body">
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+            Calibrate the IMU to align sensor readings with device orientation. 
+            Place device flat and still during calibration.
+          </p>
+          
+          <div class="info-list" style="margin-bottom: 16px;">
+            <div class="info-row">
+              <span class="info-label">Status</span>
+              <span class="info-value" id="imu-calib-status">Checking...</span>
+            </div>
+            <div class="info-row" id="imu-live-row" style="display: none;">
+              <span class="info-label">Device Accel</span>
+              <span class="info-value" id="imu-device-accel">X: 0 Y: 0 Z: 0</span>
+            </div>
+            <div class="info-row" id="imu-gyro-row" style="display: none;">
+              <span class="info-label">Device Gyro</span>
+              <span class="info-value" id="imu-device-gyro">X: 0 Y: 0 Z: 0</span>
+            </div>
+          </div>
+          
+          <!-- Progress bar (hidden by default) -->
+          <div id="imu-calib-progress" style="display: none; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 4px;">
+              <span>Recording...</span>
+              <span id="imu-calib-countdown">3.0s</span>
+            </div>
+            <div style="height: 8px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden;">
+              <div id="imu-calib-bar" style="height: 100%; background: var(--accent); width: 0%; transition: width 0.1s;"></div>
+            </div>
+          </div>
+          
+          <div class="button-group">
+            <button id="imu-calibrate-btn" class="btn btn-primary">Start Calibration</button>
+            <button id="imu-clear-btn" class="btn btn-secondary">Clear Calibration</button>
+          </div>
+        </div>
+      </div>
+      
       <div class="card danger-card">
         <div class="card-header">
           <h2>Danger Zone</h2>
@@ -552,6 +596,112 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
     }
     updateWizardState();
   }
+  
+  // ===== IMU Calibration Logic =====
+  var imuCalibrating = false;
+  var imuCalibPollInterval = null;
+  
+  function updateImuStatus() {
+    fetch('/api/imu/status')
+      .then(r => r.json())
+      .then(data => {
+        var statusEl = document.getElementById('imu-calib-status');
+        var progressEl = document.getElementById('imu-calib-progress');
+        var calibBtn = document.getElementById('imu-calibrate-btn');
+        
+        if (data.calibrating) {
+          imuCalibrating = true;
+          statusEl.textContent = 'Calibrating...';
+          statusEl.style.color = 'var(--warning)';
+          progressEl.style.display = 'block';
+          calibBtn.disabled = true;
+          
+          var progress = data.progress || 0;
+          var remaining = (data.remainingMs || 0) / 1000;
+          document.getElementById('imu-calib-bar').style.width = progress + '%';
+          document.getElementById('imu-calib-countdown').textContent = remaining.toFixed(1) + 's';
+          
+          if (!imuCalibPollInterval) {
+            imuCalibPollInterval = setInterval(updateImuStatus, 100);
+          }
+        } else {
+          if (imuCalibrating) {
+            // Just finished
+            showToast('IMU calibration complete!', 'success');
+            imuCalibrating = false;
+          }
+          
+          if (imuCalibPollInterval) {
+            clearInterval(imuCalibPollInterval);
+            imuCalibPollInterval = null;
+          }
+          
+          progressEl.style.display = 'none';
+          calibBtn.disabled = false;
+          
+          if (data.calibrated) {
+            statusEl.textContent = 'Calibrated ✓';
+            statusEl.style.color = 'var(--success)';
+            document.getElementById('imu-live-row').style.display = 'flex';
+            document.getElementById('imu-gyro-row').style.display = 'flex';
+          } else {
+            statusEl.textContent = 'Not calibrated';
+            statusEl.style.color = 'var(--text-muted)';
+            document.getElementById('imu-live-row').style.display = 'none';
+            document.getElementById('imu-gyro-row').style.display = 'none';
+          }
+        }
+      })
+      .catch(err => {
+        document.getElementById('imu-calib-status').textContent = 'Error';
+      });
+  }
+  
+  function updateImuLiveValues() {
+    fetch('/api/sensors')
+      .then(r => r.json())
+      .then(data => {
+        if (data.imu_calibrated) {
+          var ax = (data.device_accel_x || 0).toFixed(1);
+          var ay = (data.device_accel_y || 0).toFixed(1);
+          var az = (data.device_accel_z || 0).toFixed(1);
+          document.getElementById('imu-device-accel').textContent = 'X:' + ax + ' Y:' + ay + ' Z:' + az;
+          var gx = (data.device_gyro_x || 0).toFixed(1);
+          var gy = (data.device_gyro_y || 0).toFixed(1);
+          var gz = (data.device_gyro_z || 0).toFixed(1);
+          document.getElementById('imu-device-gyro').textContent = 'X:' + gx + ' Y:' + gy + ' Z:' + gz;
+        }
+      })
+      .catch(function() {});
+  }
+  
+  document.getElementById('imu-calibrate-btn').addEventListener('click', function() {
+    if (confirm('Place the device flat and keep it still. Start calibration?')) {
+      fetch('/api/imu/calibrate', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          showToast('Calibration started - keep device still!', 'info');
+          updateImuStatus();
+        })
+        .catch(err => showToast('Failed to start calibration', 'error'));
+    }
+  });
+  
+  document.getElementById('imu-clear-btn').addEventListener('click', function() {
+    if (confirm('Clear IMU calibration?')) {
+      fetch('/api/imu/clear', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          showToast('Calibration cleared', 'success');
+          updateImuStatus();
+        })
+        .catch(err => showToast('Failed to clear calibration', 'error'));
+    }
+  });
+  
+  // Initial IMU status check
+  updateImuStatus();
+  setInterval(updateImuLiveValues, 500);
   
   // Extend fetchState
   fetchState = function() {

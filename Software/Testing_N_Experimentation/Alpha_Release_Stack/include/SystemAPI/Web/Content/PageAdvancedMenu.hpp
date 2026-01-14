@@ -154,7 +154,7 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
                   <span class="stat-label">Equations</span>
                 </div>
                 <div class="stat-item">
-                  <span class="stat-value" id="sensor-count">20</span>
+                  <span class="stat-value" id="sensor-count">27</span>
                   <span class="stat-label">Inputs</span>
                 </div>
               </div>
