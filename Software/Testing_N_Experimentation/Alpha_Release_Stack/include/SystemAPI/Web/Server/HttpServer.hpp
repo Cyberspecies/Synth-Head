@@ -595,6 +595,18 @@ private:
         // Connection status
         cJSON_AddBoolToObject(root, "gpuConnected", state.gpuConnected);
         
+        // GPU stats
+        cJSON* gpuStats = cJSON_CreateObject();
+        cJSON_AddNumberToObject(gpuStats, "fps", state.gpuFps);
+        cJSON_AddNumberToObject(gpuStats, "freeHeap", state.gpuFreeHeap);
+        cJSON_AddNumberToObject(gpuStats, "minHeap", state.gpuMinHeap);
+        cJSON_AddNumberToObject(gpuStats, "load", state.gpuLoad);
+        cJSON_AddNumberToObject(gpuStats, "totalFrames", state.gpuTotalFrames);
+        cJSON_AddNumberToObject(gpuStats, "uptime", state.gpuUptime);
+        cJSON_AddBoolToObject(gpuStats, "hub75Ok", state.gpuHub75Ok);
+        cJSON_AddBoolToObject(gpuStats, "oledOk", state.gpuOledOk);
+        cJSON_AddItemToObject(root, "gpu", gpuStats);
+        
         // Microphone
         cJSON_AddNumberToObject(root, "mic", state.micLevel);
         cJSON_AddBoolToObject(root, "micConnected", state.micConnected);

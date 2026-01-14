@@ -178,7 +178,10 @@ Physical Screen      →    Your Coordinates
 | `0x64` | OLED_CIRCLE | Draw circle on OLED |
 | `0x65` | OLED_PRESENT | Push OLED buffer to display |
 | **System** |||
-| `0xF0` | PING | Connectivity check |
+| `0xF0` | PING | Connectivity check - GPU responds with PONG |
+| `0xF1` | PONG | GPU response to PING with uptime |
+| `0xF2` | REQUEST_CONFIG | Request GPU configuration info |
+| `0xF3` | CONFIG_RESPONSE | GPU configuration response |
 | `0xFF` | RESET | Reset GPU state |
 
 ---
@@ -515,9 +518,62 @@ Push OLED buffer to display and clear buffer for next frame.
 ---
 
 #### `0xF0` - PING
-Connection check. GPU logs receipt.
+Connection check. GPU responds with PONG containing uptime.
 
-**Payload:** None
+**Payload:** None (length = 0)
+
+**Response:** GPU sends `0xF1` (PONG) with uptime data
+
+---
+
+#### `0xF1` - PONG
+GPU response to PING command with uptime information.
+
+**Direction:** GPU → CPU (response only)
+
+**Payload:**
+| Offset | Size | Description |
+|--------|------|-------------|
+| 0-3 | 4 | GPU uptime in milliseconds (uint32_t, little-endian) |
+
+---
+
+#### `0xF2` - REQUEST_CONFIG
+Request GPU hardware configuration and status.
+
+**Payload:** None (length = 0)
+
+**Response:** GPU sends `0xF3` (CONFIG_RESPONSE) with configuration data
+
+---
+
+#### `0xF3` - CONFIG_RESPONSE
+GPU configuration and hardware information response.
+
+**Direction:** GPU → CPU (response only)
+
+**Payload (32 bytes):**
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 | panel_count | Number of display panels (2) |
+| 1 | 1 | panel1_type | Panel 1 type (0=HUB75_RGB) |
+| 2-3 | 2 | panel1_width | Panel 1 width (128) |
+| 4-5 | 2 | panel1_height | Panel 1 height (32) |
+| 6 | 1 | panel1_bit_depth | Panel 1 bit depth (24 = RGB888) |
+| 7 | 1 | panel2_type | Panel 2 type (1=OLED_MONO) |
+| 8-9 | 2 | panel2_width | Panel 2 width (128) |
+| 10-11 | 2 | panel2_height | Panel 2 height (128) |
+| 12 | 1 | panel2_bit_depth | Panel 2 bit depth (1 = mono) |
+| 13-16 | 4 | uptime_ms | GPU uptime in milliseconds |
+| 17-20 | 4 | max_data_rate | Max UART baud (10000000) |
+| 21-22 | 2 | command_version | Protocol version (0x0100 = v1.0) |
+| 23 | 1 | hub75_ok | HUB75 initialized (0/1) |
+| 24 | 1 | oled_ok | OLED initialized (0/1) |
+| 25-31 | 7 | reserved | Reserved for future use |
+
+**Panel Types:**
+- `0` = HUB75_RGB (RGB LED matrix)
+- `1` = OLED_MONO (Monochrome OLED)
 
 ---
 

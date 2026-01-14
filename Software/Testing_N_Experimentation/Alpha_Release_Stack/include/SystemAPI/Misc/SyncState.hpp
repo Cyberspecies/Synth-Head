@@ -67,6 +67,16 @@ struct SyncState {
   // Connection status
   bool gpuConnected = false;
   
+  // GPU stats
+  float gpuFps = 0.0f;           // GPU frames per second
+  uint32_t gpuFreeHeap = 0;      // GPU free heap bytes
+  uint32_t gpuMinHeap = 0;       // GPU minimum free heap
+  uint8_t gpuLoad = 0;           // GPU load percent (0-100)
+  uint32_t gpuTotalFrames = 0;   // Total GPU frames since boot
+  uint32_t gpuUptime = 0;        // GPU uptime in ms
+  bool gpuHub75Ok = false;       // HUB75 display status
+  bool gpuOledOk = false;        // OLED display status
+  
   // Microphone
   bool micConnected = false;
   uint8_t micLevel = 0;

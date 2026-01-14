@@ -247,6 +247,15 @@ static uint8_t* oled_update_buffer = nullptr;  // Double buffer for safe cross-c
 static bool aa_enabled = true;
 
 // ============================================================
+// GPU Stats (for REQUEST_STATS response)
+// ============================================================
+static float current_fps = 0.0f;           // Updated every 2 seconds in main loop
+static uint32_t current_free_heap = 0;     // Free heap bytes
+static uint32_t current_min_heap = 0;      // Minimum free heap seen
+static uint8_t gpu_load_percent = 0;       // Estimated GPU load (0-100)
+static uint32_t total_frames = 0;          // Total frames rendered since boot
+
+// ============================================================
 // Boot Animation & No Signal State
 // ============================================================
 enum class BootState {
@@ -259,7 +268,8 @@ enum class BootState {
 
 static BootState bootState = BootState::FADE_IN;
 static int64_t bootStartTime = 0;
-static int64_t lastCpuCommandTime = 0;
+static int64_t lastCpuCommandTime = 0;      // Any command (for cpuConnected)
+static int64_t lastDisplayCommandTime = 0;   // Only display commands (for NO_SIGNAL timeout)
 static int64_t fadeOutStartTime = 0;
 static bool cpuConnected = false;
 static const int64_t FADE_DURATION_US = 1500000;  // 1.5 seconds
@@ -687,18 +697,22 @@ static bool updateBootAnimation() {
     }
     
     case BootState::RUNNING: {
-      // Check for CPU timeout
-      if (lastCpuCommandTime > 0 && (now - lastCpuCommandTime) > NO_SIGNAL_TIMEOUT_US) {
+      // Check for CPU timeout - only display commands reset this, not PINGs
+      // If we've never received a display command (lastDisplayCommandTime == 0), 
+      // use bootStartTime as the reference point
+      int64_t refTime = (lastDisplayCommandTime > 0) ? lastDisplayCommandTime : bootStartTime;
+      if ((now - refTime) > NO_SIGNAL_TIMEOUT_US) {
         bootState = BootState::NO_SIGNAL;
         cpuConnected = false;
-        ESP_LOGW(TAG, "CPU disconnected - showing No Signal");
+        ESP_LOGW(TAG, "CPU disconnected (no display commands for %.1fs) - showing No Signal",
+                 (float)(now - refTime) / 1000000.0f);
       }
       return false;  // Normal operation
     }
     
     case BootState::NO_SIGNAL: {
       // Swaying "NO SIGNAL" animation to prevent burn-in
-      float t = (float)(now / 1000) / 1000.0f;  // Time in seconds
+      float t = (float)now / 1000000.0f;  // Time in seconds (proper float division)
       
       // Clear buffers
       memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
@@ -1531,7 +1545,13 @@ enum class CmdType : uint8_t {
   OLED_HLINE = 0x68,     // Horizontal line
   OLED_FILL_CIRCLE = 0x69,
   
-  PING = 0xF0,
+  // System commands
+  PING = 0xF0,           // CPU ping request
+  PONG = 0xF1,           // GPU pong response with uptime
+  REQUEST_CONFIG = 0xF2, // Request GPU configuration
+  CONFIG_RESPONSE = 0xF3,// GPU configuration response
+  REQUEST_STATS = 0xF4,  // Request GPU performance stats
+  STATS_RESPONSE = 0xF5, // GPU stats response (FPS, RAM, load)
   RESET = 0xFF,
 };
 
@@ -1551,12 +1571,36 @@ constexpr uint8_t SYNC1 = 0x55;
 // ============================================================
 static uint8_t cmd_buffer[2048];
 
+// Check if command type is a display command (affects display content)
+static bool isDisplayCommand(CmdType type) {
+  switch (type) {
+    // System commands that don't affect display
+    case CmdType::PING:
+    case CmdType::PONG:
+    case CmdType::REQUEST_CONFIG:
+    case CmdType::CONFIG_RESPONSE:
+    case CmdType::REQUEST_STATS:
+    case CmdType::STATS_RESPONSE:
+    case CmdType::NOP:
+      return false;
+    // All other commands affect display content
+    default:
+      return true;
+  }
+}
+
 static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
   // Track CPU connection for boot animation
-  lastCpuCommandTime = esp_timer_get_time();
+  int64_t now = esp_timer_get_time();
+  lastCpuCommandTime = now;
   if (!cpuConnected) {
     cpuConnected = true;
     ESP_LOGI(TAG, "CPU connected (received command 0x%02X)", (int)hdr->type);
+  }
+  
+  // Track display commands separately for NO_SIGNAL timeout
+  if (isDisplayCommand(hdr->type)) {
+    lastDisplayCommandTime = now;
   }
   
   switch (hdr->type) {
@@ -2023,8 +2067,188 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     }
     
     case CmdType::PING: {
-      ESP_LOGI(TAG, "PING received");
-      // Could send response back
+      ESP_LOGI(TAG, "PING received - sending PONG with uptime");
+      // Calculate uptime in milliseconds
+      uint32_t uptime_ms = (esp_timer_get_time() - gpu.startTime) / 1000;
+      
+      // Build PONG response: [0xAA][0x55][PONG=0xF1][len=4][uptime_ms:4]
+      uint8_t response[9];
+      response[0] = 0xAA;  // Sync byte 1
+      response[1] = 0x55;  // Sync byte 2
+      response[2] = static_cast<uint8_t>(CmdType::PONG);  // Command type
+      response[3] = 4;     // Payload length low byte
+      response[4] = 0;     // Payload length high byte
+      // Uptime in little-endian
+      response[5] = (uptime_ms >>  0) & 0xFF;
+      response[6] = (uptime_ms >>  8) & 0xFF;
+      response[7] = (uptime_ms >> 16) & 0xFF;
+      response[8] = (uptime_ms >> 24) & 0xFF;
+      
+      uart_write_bytes(UART_PORT, response, sizeof(response));
+      ESP_LOGI(TAG, "PONG sent: uptime=%lu ms", (unsigned long)uptime_ms);
+      break;
+    }
+    
+    case CmdType::REQUEST_CONFIG: {
+      ESP_LOGI(TAG, "REQUEST_CONFIG received - sending GPU configuration");
+      
+      // Calculate uptime
+      uint32_t uptime_ms = (esp_timer_get_time() - gpu.startTime) / 1000;
+      
+      // Build CONFIG_RESPONSE
+      // Payload structure (32 bytes):
+      //   [0]     panel_count (2: HUB75 + OLED)
+      //   [1]     panel1_type (0=HUB75_RGB)
+      //   [2-3]   panel1_width (128)
+      //   [4-5]   panel1_height (32)
+      //   [6]     panel1_bit_depth (24 for RGB888)
+      //   [7]     panel2_type (1=OLED_MONO)
+      //   [8-9]   panel2_width (128)
+      //   [10-11] panel2_height (128)
+      //   [12]    panel2_bit_depth (1 for monochrome)
+      //   [13-16] total_uptime_ms (uint32_t)
+      //   [17-20] max_data_rate_bps (uint32_t, 10000000)
+      //   [21-22] command_version (uint16_t, e.g. 0x0100 = v1.0)
+      //   [23]    hub75_ok flag
+      //   [24]    oled_ok flag
+      //   [25-31] reserved (zeros)
+      
+      uint8_t payload[32];
+      memset(payload, 0, sizeof(payload));
+      
+      // Panel count
+      payload[0] = 2;
+      
+      // Panel 1: HUB75 RGB
+      payload[1] = 0;  // Type: HUB75_RGB
+      payload[2] = TOTAL_WIDTH & 0xFF;   // Width low
+      payload[3] = (TOTAL_WIDTH >> 8) & 0xFF;  // Width high
+      payload[4] = TOTAL_HEIGHT & 0xFF;  // Height low
+      payload[5] = (TOTAL_HEIGHT >> 8) & 0xFF;  // Height high
+      payload[6] = 24;  // Bit depth (RGB888)
+      
+      // Panel 2: OLED Monochrome
+      payload[7] = 1;  // Type: OLED_MONO
+      payload[8] = OLED_WIDTH & 0xFF;   // Width low
+      payload[9] = (OLED_WIDTH >> 8) & 0xFF;  // Width high
+      payload[10] = OLED_HEIGHT & 0xFF;  // Height low
+      payload[11] = (OLED_HEIGHT >> 8) & 0xFF;  // Height high
+      payload[12] = 1;  // Bit depth (monochrome)
+      
+      // Total uptime (little-endian)
+      payload[13] = (uptime_ms >>  0) & 0xFF;
+      payload[14] = (uptime_ms >>  8) & 0xFF;
+      payload[15] = (uptime_ms >> 16) & 0xFF;
+      payload[16] = (uptime_ms >> 24) & 0xFF;
+      
+      // Max data rate: 10,000,000 bps (little-endian)
+      uint32_t max_rate = UART_BAUD;
+      payload[17] = (max_rate >>  0) & 0xFF;
+      payload[18] = (max_rate >>  8) & 0xFF;
+      payload[19] = (max_rate >> 16) & 0xFF;
+      payload[20] = (max_rate >> 24) & 0xFF;
+      
+      // Command version: 1.0 = 0x0100
+      payload[21] = 0x00;  // Minor version
+      payload[22] = 0x01;  // Major version
+      
+      // Hardware status flags
+      payload[23] = hub75_ok ? 1 : 0;
+      payload[24] = oled_ok ? 1 : 0;
+      
+      // Build response header: [0xAA][0x55][CONFIG_RESPONSE=0xF3][len=32]
+      uint8_t header[5];
+      header[0] = 0xAA;
+      header[1] = 0x55;
+      header[2] = static_cast<uint8_t>(CmdType::CONFIG_RESPONSE);
+      header[3] = sizeof(payload) & 0xFF;
+      header[4] = (sizeof(payload) >> 8) & 0xFF;
+      
+      uart_write_bytes(UART_PORT, header, sizeof(header));
+      uart_write_bytes(UART_PORT, payload, sizeof(payload));
+      
+      ESP_LOGI(TAG, "CONFIG_RESPONSE sent: panels=%d, uptime=%lu ms, baud=%d",
+               payload[0], (unsigned long)uptime_ms, UART_BAUD);
+      break;
+    }
+    
+    case CmdType::REQUEST_STATS: {
+      ESP_LOGI(TAG, "REQUEST_STATS received - sending GPU performance stats");
+      
+      // Calculate uptime
+      uint32_t uptime_ms = (esp_timer_get_time() - gpu.startTime) / 1000;
+      
+      // Update heap stats now for freshest data
+      current_free_heap = esp_get_free_heap_size();
+      current_min_heap = esp_get_minimum_free_heap_size();
+      
+      // Build STATS_RESPONSE
+      // Payload structure (24 bytes):
+      //   [0-3]   fps_x100 (uint32_t) - FPS * 100 for 2 decimal precision
+      //   [4-7]   free_heap (uint32_t) - Free heap bytes
+      //   [8-11]  min_heap (uint32_t) - Minimum free heap since boot
+      //   [12]    gpu_load (uint8_t) - Estimated GPU load 0-100%
+      //   [13-16] total_frames (uint32_t) - Total frames since boot
+      //   [17-20] uptime_ms (uint32_t) - Uptime in milliseconds
+      //   [21]    hub75_ok (uint8_t) - HUB75 status
+      //   [22]    oled_ok (uint8_t) - OLED status
+      //   [23]    reserved
+      
+      uint8_t payload[24];
+      memset(payload, 0, sizeof(payload));
+      
+      // FPS * 100 (little-endian)
+      uint32_t fps_x100 = (uint32_t)(current_fps * 100.0f);
+      payload[0] = (fps_x100 >>  0) & 0xFF;
+      payload[1] = (fps_x100 >>  8) & 0xFF;
+      payload[2] = (fps_x100 >> 16) & 0xFF;
+      payload[3] = (fps_x100 >> 24) & 0xFF;
+      
+      // Free heap (little-endian)
+      payload[4] = (current_free_heap >>  0) & 0xFF;
+      payload[5] = (current_free_heap >>  8) & 0xFF;
+      payload[6] = (current_free_heap >> 16) & 0xFF;
+      payload[7] = (current_free_heap >> 24) & 0xFF;
+      
+      // Min heap (little-endian)
+      payload[8]  = (current_min_heap >>  0) & 0xFF;
+      payload[9]  = (current_min_heap >>  8) & 0xFF;
+      payload[10] = (current_min_heap >> 16) & 0xFF;
+      payload[11] = (current_min_heap >> 24) & 0xFF;
+      
+      // GPU load estimate
+      payload[12] = gpu_load_percent;
+      
+      // Total frames (little-endian)
+      payload[13] = (total_frames >>  0) & 0xFF;
+      payload[14] = (total_frames >>  8) & 0xFF;
+      payload[15] = (total_frames >> 16) & 0xFF;
+      payload[16] = (total_frames >> 24) & 0xFF;
+      
+      // Uptime (little-endian)
+      payload[17] = (uptime_ms >>  0) & 0xFF;
+      payload[18] = (uptime_ms >>  8) & 0xFF;
+      payload[19] = (uptime_ms >> 16) & 0xFF;
+      payload[20] = (uptime_ms >> 24) & 0xFF;
+      
+      // Hardware status
+      payload[21] = hub75_ok ? 1 : 0;
+      payload[22] = oled_ok ? 1 : 0;
+      
+      // Build response header
+      uint8_t header[5];
+      header[0] = 0xAA;
+      header[1] = 0x55;
+      header[2] = static_cast<uint8_t>(CmdType::STATS_RESPONSE);
+      header[3] = sizeof(payload) & 0xFF;
+      header[4] = (sizeof(payload) >> 8) & 0xFF;
+      
+      uart_write_bytes(UART_PORT, header, sizeof(header));
+      uart_write_bytes(UART_PORT, payload, sizeof(payload));
+      
+      ESP_LOGI(TAG, "STATS_RESPONSE sent: fps=%.2f, heap=%lu/%lu, load=%d%%, frames=%lu",
+               current_fps, (unsigned long)current_free_heap, (unsigned long)current_min_heap,
+               gpu_load_percent, (unsigned long)total_frames);
       break;
     }
     
@@ -2318,6 +2542,7 @@ extern "C" void app_main() {
   bootState = BootState::FADE_IN;
   cpuConnected = false;
   lastCpuCommandTime = 0;
+  lastDisplayCommandTime = 0;
   
   // Allocate framebuffers
   hub75_buffer = (uint8_t*)heap_caps_malloc(HUB75_BUFFER_SIZE, MALLOC_CAP_DMA);
@@ -2390,6 +2615,15 @@ extern "C" void app_main() {
       // Get heap info to detect memory leaks
       uint32_t freeHeap = esp_get_free_heap_size();
       uint32_t minFreeHeap = esp_get_minimum_free_heap_size();
+      
+      // Update global stats for REQUEST_STATS responses
+      current_fps = fps;
+      current_free_heap = freeHeap;
+      current_min_heap = minFreeHeap;
+      total_frames = gpu.frameCount;
+      // Estimate GPU load based on FPS vs target (60 FPS = fully utilized)
+      gpu_load_percent = (fps > 0) ? (uint8_t)((fps / 60.0f) * 100.0f) : 0;
+      if (gpu_load_percent > 100) gpu_load_percent = 100;
       
       ESP_LOGI(TAG, "=== STATUS ===");
       ESP_LOGI(TAG, "  FPS: %.1f | HUB75: %lu/2s | OLED_cmd: %lu/2s | OLED_i2c: %lu/2s",

@@ -62,6 +62,20 @@ inline const char PAGE_SYSTEM[] = R"rawliteral(
       </div>
       
       <div class="card">
+        <div class="card-header"><h2>GPU Status</h2></div>
+        <div class="card-body compact">
+          <div class="sys-row"><span>FPS</span><span id="gpu-fps">--</span></div>
+          <div class="sys-row"><span>Load</span><span id="gpu-load">--</span></div>
+          <div class="sys-row"><span>Memory</span><span id="gpu-heap">--</span></div>
+          <div class="sys-row"><span>Min Memory</span><span id="gpu-min-heap">--</span></div>
+          <div class="sys-row"><span>Uptime</span><span id="gpu-uptime">--</span></div>
+          <div class="sys-row"><span>Frames</span><span id="gpu-frames">--</span></div>
+          <div class="sys-row"><span>HUB75</span><span class="status-dot" id="gpu-hub75-dot"></span><span id="gpu-hub75">--</span></div>
+          <div class="sys-row"><span>OLED</span><span class="status-dot" id="gpu-oled-dot"></span><span id="gpu-oled">--</span></div>
+        </div>
+      </div>
+      
+      <div class="card">
         <div class="card-header"><h2>Environment</h2></div>
         <div class="card-body compact">
           <div class="sys-row"><span>Temp</span><span id="sens-temp">N/C</span></div>
@@ -223,6 +237,27 @@ inline const char PAGE_SYSTEM[] = R"rawliteral(
           var gpuText = document.getElementById('conn-gpu');
           gpuDot.className = data.gpuConnected ? 'status-dot connected' : 'status-dot';
           gpuText.textContent = data.gpuConnected ? 'Connected' : 'N/C';
+        }
+        
+        // GPU Stats
+        if (data.gpu) {
+          var g = data.gpu;
+          document.getElementById('gpu-fps').textContent = g.fps !== undefined ? g.fps.toFixed(1) : '--';
+          document.getElementById('gpu-load').textContent = g.load !== undefined ? g.load + '%' : '--';
+          document.getElementById('gpu-heap').textContent = g.freeHeap !== undefined ? Math.round(g.freeHeap / 1024) + ' KB' : '--';
+          document.getElementById('gpu-min-heap').textContent = g.minHeap !== undefined ? Math.round(g.minHeap / 1024) + ' KB' : '--';
+          document.getElementById('gpu-uptime').textContent = g.uptime !== undefined ? formatUptime(Math.floor(g.uptime / 1000)) : '--';
+          document.getElementById('gpu-frames').textContent = g.totalFrames !== undefined ? g.totalFrames.toLocaleString() : '--';
+          
+          var hub75Dot = document.getElementById('gpu-hub75-dot');
+          var hub75Text = document.getElementById('gpu-hub75');
+          hub75Dot.className = g.hub75Ok ? 'status-dot connected' : 'status-dot';
+          hub75Text.textContent = g.hub75Ok ? 'OK' : 'N/C';
+          
+          var oledDot = document.getElementById('gpu-oled-dot');
+          var oledText = document.getElementById('gpu-oled');
+          oledDot.className = g.oledOk ? 'status-dot connected' : 'status-dot';
+          oledText.textContent = g.oledOk ? 'OK' : 'N/C';
         }
         
         // Environment

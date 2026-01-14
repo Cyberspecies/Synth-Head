@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <cstring>
 #include "driver/uart.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 
 class GpuCommands {
@@ -101,7 +102,12 @@ private:
         OLED_FILL_CIRCLE = 0x69,
         
         // System commands
-        PING = 0xF0,
+        PING = 0xF0,           // Send ping to GPU
+        PONG = 0xF1,           // GPU response with uptime
+        REQUEST_CONFIG = 0xF2, // Request GPU configuration
+        CONFIG_RESPONSE = 0xF3,// GPU configuration response
+        REQUEST_STATS = 0xF4,  // Request GPU performance stats
+        STATS_RESPONSE = 0xF5, // GPU stats response (FPS, RAM, load)
         RESET = 0xFF,
     };
     
@@ -287,6 +293,301 @@ public:
     /** Send ping to GPU */
     void ping() {
         sendCmd(CmdType::PING, nullptr, 0);
+    }
+    
+    /**
+     * GPU Configuration Response structure
+     * Contains full GPU hardware and runtime information
+     */
+    struct GpuConfigResponse {
+        uint8_t panelCount;           // Number of display panels
+        
+        // Panel 1 (HUB75)
+        uint8_t panel1Type;           // 0=HUB75_RGB, 1=OLED_MONO
+        uint16_t panel1Width;
+        uint16_t panel1Height;
+        uint8_t panel1BitDepth;
+        
+        // Panel 2 (OLED)
+        uint8_t panel2Type;
+        uint16_t panel2Width;
+        uint16_t panel2Height;
+        uint8_t panel2BitDepth;
+        
+        // Runtime info
+        uint32_t uptimeMs;            // GPU uptime in milliseconds
+        uint32_t maxDataRateBps;      // Maximum UART baud rate
+        uint16_t commandVersion;      // Command protocol version (0x0100 = v1.0)
+        
+        // Hardware status
+        bool hub75Ok;
+        bool oledOk;
+    };
+    
+    /**
+     * GPU performance statistics response
+     * Contains FPS, memory, and load information
+     */
+    struct GpuStatsResponse {
+        float fps;                    // Current FPS (frames per second)
+        uint32_t freeHeap;            // Free heap memory in bytes
+        uint32_t minHeap;             // Minimum free heap since boot
+        uint8_t loadPercent;          // GPU load estimate (0-100%)
+        uint32_t totalFrames;         // Total frames rendered since boot
+        uint32_t uptimeMs;            // GPU uptime in milliseconds
+        bool hub75Ok;                 // HUB75 display status
+        bool oledOk;                  // OLED display status
+    };
+    
+    /**
+     * Ping GPU and get uptime response
+     * @param uptimeMs Output: GPU uptime in milliseconds
+     * @param timeoutMs Maximum wait time for response
+     * @return true if PONG received, false on timeout
+     */
+    bool pingWithResponse(uint32_t& uptimeMs, uint32_t timeoutMs = 500) {
+        // Flush any pending data
+        uart_flush_input(port_);
+        
+        // Send PING
+        sendCmd(CmdType::PING, nullptr, 0);
+        
+        // Wait for PONG response
+        uint8_t header[5];
+        int64_t startTime = esp_timer_get_time();
+        int64_t endTime = startTime + (timeoutMs * 1000);
+        
+        size_t headerReceived = 0;
+        while (esp_timer_get_time() < endTime && headerReceived < 5) {
+            int len = uart_read_bytes(port_, header + headerReceived, 
+                                      5 - headerReceived, pdMS_TO_TICKS(10));
+            if (len > 0) headerReceived += len;
+        }
+        
+        if (headerReceived < 5) {
+            ESP_LOGW("GpuCmd", "pingWithResponse: header timeout");
+            return false;
+        }
+        
+        // Validate header
+        if (header[0] != SYNC0 || header[1] != SYNC1) {
+            ESP_LOGW("GpuCmd", "pingWithResponse: bad sync bytes");
+            return false;
+        }
+        
+        if (header[2] != static_cast<uint8_t>(CmdType::PONG)) {
+            ESP_LOGW("GpuCmd", "pingWithResponse: unexpected command 0x%02X", header[2]);
+            return false;
+        }
+        
+        uint16_t payloadLen = header[3] | (header[4] << 8);
+        if (payloadLen != 4) {
+            ESP_LOGW("GpuCmd", "pingWithResponse: unexpected payload len %d", payloadLen);
+            return false;
+        }
+        
+        // Read uptime payload
+        uint8_t payload[4];
+        size_t payloadReceived = 0;
+        while (esp_timer_get_time() < endTime && payloadReceived < 4) {
+            int len = uart_read_bytes(port_, payload + payloadReceived,
+                                      4 - payloadReceived, pdMS_TO_TICKS(10));
+            if (len > 0) payloadReceived += len;
+        }
+        
+        if (payloadReceived < 4) {
+            ESP_LOGW("GpuCmd", "pingWithResponse: payload timeout");
+            return false;
+        }
+        
+        // Decode little-endian uptime
+        uptimeMs = payload[0] | (payload[1] << 8) | 
+                   (payload[2] << 16) | (payload[3] << 24);
+        
+        return true;
+    }
+    
+    /**
+     * Request GPU configuration and hardware info
+     * @param config Output: GPU configuration response
+     * @param timeoutMs Maximum wait time for response
+     * @return true if config received, false on timeout
+     */
+    bool requestConfig(GpuConfigResponse& config, uint32_t timeoutMs = 500) {
+        // Flush any pending data
+        uart_flush_input(port_);
+        
+        // Send REQUEST_CONFIG
+        sendCmd(CmdType::REQUEST_CONFIG, nullptr, 0);
+        
+        // Wait for CONFIG_RESPONSE
+        uint8_t header[5];
+        int64_t startTime = esp_timer_get_time();
+        int64_t endTime = startTime + (timeoutMs * 1000);
+        
+        size_t headerReceived = 0;
+        while (esp_timer_get_time() < endTime && headerReceived < 5) {
+            int len = uart_read_bytes(port_, header + headerReceived,
+                                      5 - headerReceived, pdMS_TO_TICKS(10));
+            if (len > 0) headerReceived += len;
+        }
+        
+        if (headerReceived < 5) {
+            ESP_LOGW("GpuCmd", "requestConfig: header timeout");
+            return false;
+        }
+        
+        // Validate header
+        if (header[0] != SYNC0 || header[1] != SYNC1) {
+            ESP_LOGW("GpuCmd", "requestConfig: bad sync bytes");
+            return false;
+        }
+        
+        if (header[2] != static_cast<uint8_t>(CmdType::CONFIG_RESPONSE)) {
+            ESP_LOGW("GpuCmd", "requestConfig: unexpected command 0x%02X", header[2]);
+            return false;
+        }
+        
+        uint16_t payloadLen = header[3] | (header[4] << 8);
+        if (payloadLen < 25) {  // Minimum expected payload size
+            ESP_LOGW("GpuCmd", "requestConfig: unexpected payload len %d", payloadLen);
+            return false;
+        }
+        
+        // Read payload
+        uint8_t payload[32];
+        size_t toRead = (payloadLen > 32) ? 32 : payloadLen;
+        size_t payloadReceived = 0;
+        while (esp_timer_get_time() < endTime && payloadReceived < toRead) {
+            int len = uart_read_bytes(port_, payload + payloadReceived,
+                                      toRead - payloadReceived, pdMS_TO_TICKS(10));
+            if (len > 0) payloadReceived += len;
+        }
+        
+        if (payloadReceived < toRead) {
+            ESP_LOGW("GpuCmd", "requestConfig: payload timeout");
+            return false;
+        }
+        
+        // Decode payload into struct
+        config.panelCount = payload[0];
+        
+        config.panel1Type = payload[1];
+        config.panel1Width = payload[2] | (payload[3] << 8);
+        config.panel1Height = payload[4] | (payload[5] << 8);
+        config.panel1BitDepth = payload[6];
+        
+        config.panel2Type = payload[7];
+        config.panel2Width = payload[8] | (payload[9] << 8);
+        config.panel2Height = payload[10] | (payload[11] << 8);
+        config.panel2BitDepth = payload[12];
+        
+        config.uptimeMs = payload[13] | (payload[14] << 8) |
+                          (payload[15] << 16) | (payload[16] << 24);
+        
+        config.maxDataRateBps = payload[17] | (payload[18] << 8) |
+                                (payload[19] << 16) | (payload[20] << 24);
+        
+        config.commandVersion = payload[21] | (payload[22] << 8);
+        
+        config.hub75Ok = payload[23] != 0;
+        config.oledOk = payload[24] != 0;
+        
+        return true;
+    }
+    
+    /**
+     * Request GPU performance statistics
+     * @param stats Output: GPU performance stats
+     * @param timeoutMs Maximum wait time for response
+     * @return true if stats received, false on timeout
+     */
+    bool requestStats(GpuStatsResponse& stats, uint32_t timeoutMs = 500) {
+        // Flush any pending data
+        uart_flush_input(port_);
+        
+        // Send REQUEST_STATS
+        sendCmd(CmdType::REQUEST_STATS, nullptr, 0);
+        
+        // Wait for STATS_RESPONSE
+        uint8_t header[5];
+        int64_t startTime = esp_timer_get_time();
+        int64_t endTime = startTime + (timeoutMs * 1000);
+        
+        size_t headerReceived = 0;
+        while (esp_timer_get_time() < endTime && headerReceived < 5) {
+            int len = uart_read_bytes(port_, header + headerReceived,
+                                      5 - headerReceived, pdMS_TO_TICKS(10));
+            if (len > 0) headerReceived += len;
+        }
+        
+        if (headerReceived < 5) {
+            ESP_LOGW("GpuCmd", "requestStats: header timeout");
+            return false;
+        }
+        
+        // Validate header
+        if (header[0] != SYNC0 || header[1] != SYNC1) {
+            ESP_LOGW("GpuCmd", "requestStats: bad sync bytes");
+            return false;
+        }
+        
+        if (header[2] != static_cast<uint8_t>(CmdType::STATS_RESPONSE)) {
+            ESP_LOGW("GpuCmd", "requestStats: unexpected command 0x%02X", header[2]);
+            return false;
+        }
+        
+        uint16_t payloadLen = header[3] | (header[4] << 8);
+        if (payloadLen < 24) {  // Minimum expected payload size
+            ESP_LOGW("GpuCmd", "requestStats: unexpected payload len %d", payloadLen);
+            return false;
+        }
+        
+        // Read payload
+        uint8_t payload[32];
+        size_t toRead = (payloadLen > 32) ? 32 : payloadLen;
+        size_t payloadReceived = 0;
+        while (esp_timer_get_time() < endTime && payloadReceived < toRead) {
+            int len = uart_read_bytes(port_, payload + payloadReceived,
+                                      toRead - payloadReceived, pdMS_TO_TICKS(10));
+            if (len > 0) payloadReceived += len;
+        }
+        
+        if (payloadReceived < 24) {
+            ESP_LOGW("GpuCmd", "requestStats: payload timeout");
+            return false;
+        }
+        
+        // Decode payload into struct
+        // FPS * 100 (little-endian) -> convert back to float
+        uint32_t fps_x100 = payload[0] | (payload[1] << 8) |
+                           (payload[2] << 16) | (payload[3] << 24);
+        stats.fps = (float)fps_x100 / 100.0f;
+        
+        // Free heap (little-endian)
+        stats.freeHeap = payload[4] | (payload[5] << 8) |
+                        (payload[6] << 16) | (payload[7] << 24);
+        
+        // Min heap (little-endian)
+        stats.minHeap = payload[8] | (payload[9] << 8) |
+                       (payload[10] << 16) | (payload[11] << 24);
+        
+        // GPU load
+        stats.loadPercent = payload[12];
+        
+        // Total frames (little-endian)
+        stats.totalFrames = payload[13] | (payload[14] << 8) |
+                           (payload[15] << 16) | (payload[16] << 24);
+        
+        // Uptime (little-endian)
+        stats.uptimeMs = payload[17] | (payload[18] << 8) |
+                        (payload[19] << 16) | (payload[20] << 24);
+        
+        // Hardware status
+        stats.hub75Ok = payload[21] != 0;
+        stats.oledOk = payload[22] != 0;
+        
+        return true;
     }
     
     /** Reset GPU state (clears shaders, sprites, buffers) */

@@ -604,109 +604,90 @@ namespace ImuDriver {
 }
 
 //=============================================================================
-// GPU UART Driver - ESP-to-ESP Communication
+// GPU UART Driver - ESP-to-ESP Communication (Proper Protocol)
 //=============================================================================
+#include "GpuDriver/GpuCommands.hpp"
+
 namespace GpuDriver {
     // GPU UART pins (from PIN_MAPPING_CPU.md)
     static constexpr int GPU_TX_PIN = 12;   // CPU TX -> GPU RX
     static constexpr int GPU_RX_PIN = 11;   // CPU RX <- GPU TX
-    static constexpr int GPU_BAUD = 1000000; // 1M baud
-    static constexpr uart_port_t GPU_UART = UART_NUM_2;
     
     static bool initialized = false;
     static bool connected = false;
-    static uint32_t lastRxTime = 0;
+    static uint32_t gpuUptimeMs = 0;    // GPU uptime from PONG response
     static uint32_t lastPingTime = 0;
-    static constexpr uint32_t TIMEOUT_MS = 2000;  // Consider disconnected after 2s no response
-    static constexpr uint32_t PING_INTERVAL_MS = 500;  // Send ping every 500ms
+    static uint32_t lastStatsTime = 0;
+    static constexpr uint32_t PING_INTERVAL_MS = 1000;  // Send ping every 1s
+    static constexpr uint32_t STATS_INTERVAL_MS = 2000; // Fetch stats every 2s
     
-    // Simple ping/pong protocol
-    static constexpr uint8_t PING_CMD = 0xAA;
-    static constexpr uint8_t PONG_CMD = 0x55;
+    // GPU stats
+    static float gpuFps = 0.0f;
+    static uint32_t gpuFreeHeap = 0;
+    static uint32_t gpuMinHeap = 0;
+    static uint8_t gpuLoad = 0;
+    static uint32_t gpuTotalFrames = 0;
+    static bool gpuHub75Ok = false;
+    static bool gpuOledOk = false;
+    
+    // GPU command interface
+    static GpuCommands gpu;
     
     bool init() {
         if (initialized) return true;
         
-        uart_config_t uart_config = {
-            .baud_rate = GPU_BAUD,
-            .data_bits = UART_DATA_8_BITS,
-            .parity = UART_PARITY_DISABLE,
-            .stop_bits = UART_STOP_BITS_1,
-            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-            .rx_flow_ctrl_thresh = 0,
-            .source_clk = UART_SCLK_DEFAULT,
-            .flags = {.allow_pd = 0, .backup_before_sleep = 0}
-        };
-        
-        esp_err_t err = uart_param_config(GPU_UART, &uart_config);
-        if (err != ESP_OK) {
-            printf("  GPU: UART config failed: %d\n", err);
-            return false;
-        }
-        
-        err = uart_set_pin(GPU_UART, GPU_TX_PIN, GPU_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-        if (err != ESP_OK) {
-            printf("  GPU: Pin config failed: %d\n", err);
-            return false;
-        }
-        
-        err = uart_driver_install(GPU_UART, 256, 256, 0, nullptr, 0);
-        if (err != ESP_OK) {
-            printf("  GPU: Driver install failed: %d\n", err);
+        // Initialize using GpuCommands (10Mbps)
+        if (!gpu.init(UART_NUM_2, GPU_TX_PIN, GPU_RX_PIN)) {
+            printf("  GPU: Init failed\n");
             return false;
         }
         
         initialized = true;
-        lastRxTime = 0;
         lastPingTime = 0;
-        printf("  GPU: UART initialized (TX:%d, RX:%d @ %d baud)\n", GPU_TX_PIN, GPU_RX_PIN, GPU_BAUD);
+        connected = false;
+        printf("  GPU: UART initialized via GpuCommands (TX:%d, RX:%d @ 10Mbps)\n", GPU_TX_PIN, GPU_RX_PIN);
         return true;
     }
     
-    // Send a ping to GPU
-    void sendPing() {
-        if (!initialized) return;
-        uint8_t ping = PING_CMD;
-        uart_write_bytes(GPU_UART, &ping, 1);
-    }
-    
-    // Non-blocking update - check for incoming data and manage connection state
+    // Non-blocking update - periodically ping GPU and fetch stats
     void update(uint32_t currentTimeMs) {
         if (!initialized) return;
         
-        // Send periodic ping
+        // Send periodic ping with response
         if (currentTimeMs - lastPingTime >= PING_INTERVAL_MS) {
-            sendPing();
             lastPingTime = currentTimeMs;
-        }
-        
-        // Check for incoming data
-        size_t available = 0;
-        uart_get_buffered_data_len(GPU_UART, &available);
-        
-        while (available > 0) {
-            uint8_t byte;
-            int len = uart_read_bytes(GPU_UART, &byte, 1, 0);
-            if (len > 0) {
-                // Any data received means GPU is connected
-                lastRxTime = currentTimeMs;
-                
-                // If we receive a ping, send pong back
-                if (byte == PING_CMD) {
-                    uint8_t pong = PONG_CMD;
-                    uart_write_bytes(GPU_UART, &pong, 1);
-                }
+            
+            uint32_t uptime = 0;
+            if (gpu.pingWithResponse(uptime, 100)) {  // 100ms timeout
+                connected = true;
+                gpuUptimeMs = uptime;
+            } else {
+                connected = false;
+                gpuUptimeMs = 0;
             }
-            available--;
         }
         
-        // Update connection status based on timeout
-        if (lastRxTime > 0 && (currentTimeMs - lastRxTime) < TIMEOUT_MS) {
-            connected = true;
-        } else {
-            connected = false;
+        // Fetch GPU stats periodically (less frequently than ping)
+        if (connected && (currentTimeMs - lastStatsTime >= STATS_INTERVAL_MS)) {
+            lastStatsTime = currentTimeMs;
+            
+            GpuCommands::GpuStatsResponse stats;
+            if (gpu.requestStats(stats, 100)) {  // 100ms timeout
+                gpuFps = stats.fps;
+                gpuFreeHeap = stats.freeHeap;
+                gpuMinHeap = stats.minHeap;
+                gpuLoad = stats.loadPercent;
+                gpuTotalFrames = stats.totalFrames;
+                gpuUptimeMs = stats.uptimeMs;
+                gpuHub75Ok = stats.hub75Ok;
+                gpuOledOk = stats.oledOk;
+            }
         }
     }
+    
+    // Getters
+    GpuCommands& getGpu() { return gpu; }
+    uint32_t getGpuUptime() { return gpuUptimeMs; }
 }
 
 // Simulated sensor values (for sensors not yet implemented)
@@ -850,6 +831,16 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
     
     // Update GPU connection status
     state.gpuConnected = GpuDriver::connected;
+    
+    // Update GPU stats
+    state.gpuFps = GpuDriver::gpuFps;
+    state.gpuFreeHeap = GpuDriver::gpuFreeHeap;
+    state.gpuMinHeap = GpuDriver::gpuMinHeap;
+    state.gpuLoad = GpuDriver::gpuLoad;
+    state.gpuTotalFrames = GpuDriver::gpuTotalFrames;
+    state.gpuUptime = GpuDriver::gpuUptimeMs;
+    state.gpuHub75Ok = GpuDriver::gpuHub75Ok;
+    state.gpuOledOk = GpuDriver::gpuOledOk;
     
     // Print credentials every 10 seconds
     if (m_credentialPrintTime >= 10000) {
