@@ -22,6 +22,7 @@
 #include "esp_wifi.h"
 #include "esp_random.h"
 #include "esp_spiffs.h"
+#include "esp_timer.h"
 #include "cJSON.h"
 
 // Socket includes for getpeername
@@ -52,12 +53,37 @@ struct SavedSprite {
     // Note: Actual pixel data stored in NVS/SPIFFS for persistence
 };
 
+/**
+ * @brief Variable definition for equations
+ */
+struct EquationVariable {
+    std::string name;
+    std::string type;   // "static", "sensor", "equation"
+    std::string value;  // static value, sensor id, or equation id
+};
+
+/**
+ * @brief Saved equation definition
+ */
+struct SavedEquation {
+    int id = 0;
+    std::string name;
+    std::string expression;
+    std::vector<EquationVariable> variables;
+};
+
 // Sprite storage (persisted to SPIFFS)
 static std::vector<SavedSprite> savedSprites_;
 static int nextSpriteId_ = 1;
+
+// Equation storage (persisted to SPIFFS)
+static std::vector<SavedEquation> savedEquations_;
+static int nextEquationId_ = 1;
+
 static bool spiffs_initialized_ = false;
 static const char* SPRITE_DIR = "/spiffs/sprites";
 static const char* SPRITE_INDEX_FILE = "/spiffs/sprites/index.json";
+static const char* EQUATION_INDEX_FILE = "/spiffs/equations.json";
 
 /**
  * @brief HTTP Server for Web Portal
@@ -90,8 +116,11 @@ public:
         // Load saved sprites from SPIFFS
         loadSpritesFromStorage();
         
+        // Load saved equations from SPIFFS
+        loadEquationsFromStorage();
+        
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-        config.max_uri_handlers = 30;
+        config.max_uri_handlers = 80;
         config.stack_size = 8192;
         config.lru_purge_enable = true;
         config.uri_match_fn = httpd_uri_match_wildcard;
@@ -185,6 +214,13 @@ private:
         registerHandler("/api/config/rename", HTTP_POST, handleApiConfigRename);
         registerHandler("/api/config/duplicate", HTTP_POST, handleApiConfigDuplicate);
         registerHandler("/api/config/delete", HTTP_POST, handleApiConfigDelete);
+        
+        // Equation Editor page and API endpoints
+        registerHandler("/advanced/equations", HTTP_GET, handlePageEquations);
+        registerHandler("/api/equations", HTTP_GET, handleApiEquations);
+        registerHandler("/api/equation/save", HTTP_POST, handleApiEquationSave);
+        registerHandler("/api/equation/delete", HTTP_POST, handleApiEquationDelete);
+        registerHandler("/api/sensors", HTTP_GET, handleApiSensors);
         
         // Captive portal detection endpoints (comprehensive list for all devices)
         const char* redirect_paths[] = {
@@ -395,6 +431,135 @@ private:
             }
             
             ESP_LOGI(HTTP_TAG, "Loaded %d sprites from storage", savedSprites_.size());
+        }
+        
+        cJSON_Delete(root);
+    }
+    
+    /**
+     * @brief Save equations to SPIFFS
+     */
+    static void saveEquationsToStorage() {
+        if (!spiffs_initialized_) return;
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "nextId", nextEquationId_);
+        
+        cJSON* equations = cJSON_CreateArray();
+        for (const auto& eq : savedEquations_) {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "id", eq.id);
+            cJSON_AddStringToObject(item, "name", eq.name.c_str());
+            cJSON_AddStringToObject(item, "expression", eq.expression.c_str());
+            
+            cJSON* vars = cJSON_CreateArray();
+            for (const auto& v : eq.variables) {
+                cJSON* varItem = cJSON_CreateObject();
+                cJSON_AddStringToObject(varItem, "name", v.name.c_str());
+                cJSON_AddStringToObject(varItem, "type", v.type.c_str());
+                cJSON_AddStringToObject(varItem, "value", v.value.c_str());
+                cJSON_AddItemToArray(vars, varItem);
+            }
+            cJSON_AddItemToObject(item, "variables", vars);
+            
+            cJSON_AddItemToArray(equations, item);
+        }
+        cJSON_AddItemToObject(root, "equations", equations);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        if (json) {
+            FILE* f = fopen(EQUATION_INDEX_FILE, "w");
+            if (f) {
+                fprintf(f, "%s", json);
+                fclose(f);
+                ESP_LOGI(HTTP_TAG, "Saved %d equations to storage", savedEquations_.size());
+            } else {
+                ESP_LOGE(HTTP_TAG, "Failed to open equation index for writing");
+            }
+            free(json);
+        }
+    }
+    
+    /**
+     * @brief Load equations from SPIFFS
+     */
+    static void loadEquationsFromStorage() {
+        if (!spiffs_initialized_) return;
+        
+        struct stat st;
+        if (stat(EQUATION_INDEX_FILE, &st) != 0) {
+            ESP_LOGI(HTTP_TAG, "No equation index found, starting fresh");
+            return;
+        }
+        
+        FILE* f = fopen(EQUATION_INDEX_FILE, "r");
+        if (!f) {
+            ESP_LOGE(HTTP_TAG, "Failed to open equation index for reading");
+            return;
+        }
+        
+        char* buf = (char*)malloc(st.st_size + 1);
+        if (!buf) {
+            fclose(f);
+            return;
+        }
+        
+        size_t read = fread(buf, 1, st.st_size, f);
+        buf[read] = '\0';
+        fclose(f);
+        
+        cJSON* root = cJSON_Parse(buf);
+        free(buf);
+        
+        if (!root) {
+            ESP_LOGE(HTTP_TAG, "Failed to parse equation index JSON");
+            return;
+        }
+        
+        cJSON* nextId = cJSON_GetObjectItem(root, "nextId");
+        if (nextId && cJSON_IsNumber(nextId)) {
+            nextEquationId_ = nextId->valueint;
+        }
+        
+        cJSON* equations = cJSON_GetObjectItem(root, "equations");
+        if (equations && cJSON_IsArray(equations)) {
+            savedEquations_.clear();
+            
+            cJSON* item = NULL;
+            cJSON_ArrayForEach(item, equations) {
+                SavedEquation eq;
+                
+                cJSON* id = cJSON_GetObjectItem(item, "id");
+                cJSON* name = cJSON_GetObjectItem(item, "name");
+                cJSON* expression = cJSON_GetObjectItem(item, "expression");
+                cJSON* variables = cJSON_GetObjectItem(item, "variables");
+                
+                if (id && cJSON_IsNumber(id)) eq.id = id->valueint;
+                if (name && cJSON_IsString(name)) eq.name = name->valuestring;
+                if (expression && cJSON_IsString(expression)) eq.expression = expression->valuestring;
+                
+                if (variables && cJSON_IsArray(variables)) {
+                    cJSON* varItem = NULL;
+                    cJSON_ArrayForEach(varItem, variables) {
+                        EquationVariable v;
+                        cJSON* vname = cJSON_GetObjectItem(varItem, "name");
+                        cJSON* vtype = cJSON_GetObjectItem(varItem, "type");
+                        cJSON* vvalue = cJSON_GetObjectItem(varItem, "value");
+                        
+                        if (vname && cJSON_IsString(vname)) v.name = vname->valuestring;
+                        if (vtype && cJSON_IsString(vtype)) v.type = vtype->valuestring;
+                        if (vvalue && cJSON_IsString(vvalue)) v.value = vvalue->valuestring;
+                        
+                        eq.variables.push_back(v);
+                    }
+                }
+                
+                savedEquations_.push_back(eq);
+            }
+            
+            ESP_LOGI(HTTP_TAG, "Loaded %d equations from storage", savedEquations_.size());
         }
         
         cJSON_Delete(root);
@@ -740,6 +905,16 @@ private:
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
         httpd_resp_send(req, Content::PAGE_SPRITE, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    static esp_err_t handlePageEquations(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return redirectToLogin(req);
+        
+        ESP_LOGI(HTTP_TAG, "Serving Equations page");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_send(req, Content::PAGE_EQUATIONS, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     
@@ -1854,8 +2029,239 @@ private:
         return ESP_OK;
     }
     
-    // ========== Captive Portal Handlers ==========
+    // ========== Equation API Handlers ==========
     
+    /**
+     * @brief Get all equations
+     */
+    static esp_err_t handleApiEquations(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON* equations = cJSON_CreateArray();
+        
+        for (const auto& eq : savedEquations_) {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "id", eq.id);
+            cJSON_AddStringToObject(item, "name", eq.name.c_str());
+            cJSON_AddStringToObject(item, "expression", eq.expression.c_str());
+            
+            cJSON* vars = cJSON_CreateArray();
+            for (const auto& v : eq.variables) {
+                cJSON* varItem = cJSON_CreateObject();
+                cJSON_AddStringToObject(varItem, "name", v.name.c_str());
+                cJSON_AddStringToObject(varItem, "type", v.type.c_str());
+                cJSON_AddStringToObject(varItem, "value", v.value.c_str());
+                cJSON_AddItemToArray(vars, varItem);
+            }
+            cJSON_AddItemToObject(item, "variables", vars);
+            
+            cJSON_AddItemToArray(equations, item);
+        }
+        
+        cJSON_AddItemToObject(root, "equations", equations);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Save (create or update) an equation
+     */
+    static esp_err_t handleApiEquationSave(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[4096];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* id = cJSON_GetObjectItem(root, "id");
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        cJSON* expression = cJSON_GetObjectItem(root, "expression");
+        cJSON* variables = cJSON_GetObjectItem(root, "variables");
+        
+        bool success = false;
+        
+        if (name && cJSON_IsString(name) && expression && cJSON_IsString(expression)) {
+            SavedEquation eq;
+            eq.name = name->valuestring;
+            eq.expression = expression->valuestring;
+            
+            // Parse variables
+            if (variables && cJSON_IsArray(variables)) {
+                cJSON* varItem = NULL;
+                cJSON_ArrayForEach(varItem, variables) {
+                    EquationVariable v;
+                    cJSON* vname = cJSON_GetObjectItem(varItem, "name");
+                    cJSON* vtype = cJSON_GetObjectItem(varItem, "type");
+                    cJSON* vvalue = cJSON_GetObjectItem(varItem, "value");
+                    
+                    if (vname && cJSON_IsString(vname)) v.name = vname->valuestring;
+                    if (vtype && cJSON_IsString(vtype)) v.type = vtype->valuestring;
+                    if (vvalue && cJSON_IsString(vvalue)) v.value = vvalue->valuestring;
+                    
+                    eq.variables.push_back(v);
+                }
+            }
+            
+            // Check if updating existing or creating new
+            if (id && cJSON_IsNumber(id) && id->valueint > 0) {
+                // Update existing
+                for (auto& existing : savedEquations_) {
+                    if (existing.id == id->valueint) {
+                        existing.name = eq.name;
+                        existing.expression = eq.expression;
+                        existing.variables = eq.variables;
+                        ESP_LOGI(HTTP_TAG, "Updated equation %d: '%s'", existing.id, existing.name.c_str());
+                        success = true;
+                        break;
+                    }
+                }
+            } else {
+                // Create new
+                eq.id = nextEquationId_++;
+                savedEquations_.push_back(eq);
+                ESP_LOGI(HTTP_TAG, "Created equation %d: '%s'", eq.id, eq.name.c_str());
+                success = true;
+            }
+            
+            if (success) {
+                saveEquationsToStorage();
+            }
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Delete an equation
+     */
+    static esp_err_t handleApiEquationDelete(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* id = cJSON_GetObjectItem(root, "id");
+        bool success = false;
+        
+        if (id && cJSON_IsNumber(id)) {
+            int eqId = id->valueint;
+            for (auto it = savedEquations_.begin(); it != savedEquations_.end(); ++it) {
+                if (it->id == eqId) {
+                    ESP_LOGI(HTTP_TAG, "Deleted equation %d ('%s')", eqId, it->name.c_str());
+                    savedEquations_.erase(it);
+                    saveEquationsToStorage();
+                    success = true;
+                    break;
+                }
+            }
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get sensor values for equation editor
+     */
+    static esp_err_t handleApiSensors(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& state = SYNC_STATE.state();
+        
+        cJSON* root = cJSON_CreateObject();
+        
+        // System Time
+        cJSON_AddNumberToObject(root, "millis", (double)(esp_timer_get_time() / 1000));
+        
+        // Environment Sensors
+        cJSON_AddNumberToObject(root, "temperature", state.temperature);
+        cJSON_AddNumberToObject(root, "humidity", state.humidity);
+        cJSON_AddNumberToObject(root, "pressure", state.pressure);
+        
+        // IMU - Accelerometer
+        cJSON_AddNumberToObject(root, "accel_x", state.accelX);
+        cJSON_AddNumberToObject(root, "accel_y", state.accelY);
+        cJSON_AddNumberToObject(root, "accel_z", state.accelZ);
+        
+        // IMU - Gyroscope
+        cJSON_AddNumberToObject(root, "gyro_x", state.gyroX);
+        cJSON_AddNumberToObject(root, "gyro_y", state.gyroY);
+        cJSON_AddNumberToObject(root, "gyro_z", state.gyroZ);
+        
+        // GPS
+        cJSON_AddNumberToObject(root, "gps_lat", state.latitude);
+        cJSON_AddNumberToObject(root, "gps_lon", state.longitude);
+        cJSON_AddNumberToObject(root, "gps_alt", state.altitude);
+        cJSON_AddNumberToObject(root, "gps_speed", state.gpsSpeed);
+        cJSON_AddNumberToObject(root, "gps_sats", state.satellites);
+        
+        // GPS Time - calculate unix timestamp
+        // Simple approximation (not accounting for leap years perfectly)
+        uint32_t unixTime = 0;
+        if (state.gpsYear >= 1970) {
+            uint32_t years = state.gpsYear - 1970;
+            uint32_t days = years * 365 + (years + 1) / 4; // Approximate leap years
+            static const uint16_t daysBeforeMonth[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+            if (state.gpsMonth >= 1 && state.gpsMonth <= 12) {
+                days += daysBeforeMonth[state.gpsMonth - 1];
+            }
+            days += state.gpsDay - 1;
+            unixTime = days * 86400 + state.gpsHour * 3600 + state.gpsMinute * 60 + state.gpsSecond;
+        }
+        cJSON_AddNumberToObject(root, "gps_unix", unixTime);
+        cJSON_AddNumberToObject(root, "gps_hour", state.gpsHour);
+        cJSON_AddNumberToObject(root, "gps_min", state.gpsMinute);
+        cJSON_AddNumberToObject(root, "gps_sec", state.gpsSecond);
+        
+        // Microphone
+        cJSON_AddNumberToObject(root, "mic_db", state.micDb);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    // ========== Captive Portal Handlers ==========
+
     /**
      * @brief Handle captive portal detection endpoints
      * 

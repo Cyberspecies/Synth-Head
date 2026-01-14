@@ -144,6 +144,22 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
               </div>
             </a>
             
+            <a href="/advanced/equations" class="submenu-card">
+              <span class="submenu-icon">&#x222B;</span>
+              <div class="submenu-title">Equation Editor</div>
+              <div class="submenu-desc">Create equations using sensor inputs for dynamic animation parameters. Build complex behaviors from simple math.</div>
+              <div class="submenu-stats">
+                <div class="stat-item">
+                  <span class="stat-value" id="equation-count">--</span>
+                  <span class="stat-label">Equations</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-value" id="sensor-count">20</span>
+                  <span class="stat-label">Inputs</span>
+                </div>
+              </div>
+            </a>
+            
           </div>
         </div>
       </div>
@@ -188,6 +204,17 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
         document.getElementById('active-config').textContent = active ? active.name : 'None';
       }
     }).catch(function() {});
+    
+    // Load equation stats
+    fetch('/api/equations')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.equations) {
+        document.getElementById('equation-count').textContent = data.equations.length;
+      }
+    }).catch(function() {
+      document.getElementById('equation-count').textContent = '0';
+    });
   }
   
   function formatBytes(bytes) {
