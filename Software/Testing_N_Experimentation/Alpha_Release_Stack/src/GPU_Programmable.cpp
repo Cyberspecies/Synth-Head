@@ -1296,66 +1296,53 @@ static void blitSpriteF(int id, float dx, float dy) {
   
   if (s.format == 0 && gpu.target == 0) {
     if (aa_enabled) {
-      // BILINEAR SPLATTING: Each sprite pixel distributes to 4 screen pixels
-      // based on fractional position overlap
-      
-      // Screen bounds for the sprite
-      int screenMinX = (int)floorf(dx);
-      int screenMaxX = (int)ceilf(dx + s.width);
-      int screenMinY = (int)floorf(dy);
-      int screenMaxY = (int)ceilf(dy + s.height);
-      
-      // Clamp to screen
+      // True coverage-based subpixel blending for smooth movement
+      int screenMinX = (int)floorf(dx) - 1;
+      int screenMaxX = (int)ceilf(dx + s.width) + 1;
+      int screenMinY = (int)floorf(dy) - 1;
+      int screenMaxY = (int)ceilf(dy + s.height) + 1;
       if (screenMinX < 0) screenMinX = 0;
       if (screenMinY < 0) screenMinY = 0;
       if (screenMaxX >= TOTAL_WIDTH) screenMaxX = TOTAL_WIDTH - 1;
       if (screenMaxY >= TOTAL_HEIGHT) screenMaxY = TOTAL_HEIGHT - 1;
-      
-      // Clear the splat accumulation buffer (only the region we'll use)
       for (int y = screenMinY; y <= screenMaxY; y++) {
         for (int x = screenMinX; x <= screenMaxX; x++) {
-          int idx = y * TOTAL_WIDTH + x;
-          splat_r[idx] = splat_g[idx] = splat_b[idx] = splat_w[idx] = 0;
+          float accum_r = 0, accum_g = 0, accum_b = 0, accum_w = 0;
+          // For each sprite pixel, compute coverage of this output pixel
+          for (int sy = 0; sy < s.height; sy++) {
+            for (int sx = 0; sx < s.width; sx++) {
+              // Sprite pixel center in screen space
+              float spx = dx + sx + 0.5f;
+              float spy = dy + sy + 0.5f;
+              // Output pixel bounds
+              float left = x, right = x + 1, top = y, bottom = y + 1;
+              // Compute coverage as area of overlap between sprite pixel (point) and output pixel (box)
+              // Use a simple smoothstep falloff for subpixel coverage
+              float dist_x = fabsf(spx - (x + 0.5f));
+              float dist_y = fabsf(spy - (y + 0.5f));
+              float coverage = fmaxf(0.0f, 1.0f - dist_x) * fmaxf(0.0f, 1.0f - dist_y);
+              if (coverage > 0.001f) {
+                int sidx = (sy * s.width + sx) * 3;
+                accum_r += s.data[sidx + 0] * coverage;
+                accum_g += s.data[sidx + 1] * coverage;
+                accum_b += s.data[sidx + 2] * coverage;
+                accum_w += coverage;
+              }
+            }
+          }
+          if (accum_w > 0.001f) {
+            uint8_t r = (uint8_t)fminf(255.0f, accum_r / accum_w);
+            uint8_t g = (uint8_t)fminf(255.0f, accum_g / accum_w);
+            uint8_t b = (uint8_t)fminf(255.0f, accum_b / accum_w);
+            uint8_t alpha = (uint8_t)fminf(255.0f, accum_w * 255.0f);
+            if (alpha > 250) {
+              setPixelHUB75(x, y, r, g, b);
+            } else if (alpha > 4) {
+              blendPixelHUB75(x, y, r, g, b, alpha);
+            }
+          }
         }
       }
-      
-      // For each sprite pixel, splat to screen pixels
-      for (int sy = 0; sy < s.height; sy++) {
-        for (int sx = 0; sx < s.width; sx++) {
-          // Get sprite pixel color
-          int sidx = (sy * s.width + sx) * 3;
-          float pr = s.data[sidx + 0];
-          float pg = s.data[sidx + 1];
-          float pb = s.data[sidx + 2];
-          
-          // Screen position of this sprite pixel (floating point)
-          float screenX = dx + sx;
-          float screenY = dy + sy;
-          
-          // Integer screen position and fractional offset
-          int ix = (int)floorf(screenX);
-          int iy = (int)floorf(screenY);
-          float fx = screenX - ix;  // 0.0 to 1.0 fractional X
-          float fy = screenY - iy;  // 0.0 to 1.0 fractional Y
-          
-          // Bilinear weights for the 4 destination pixels
-          // The sprite pixel overlaps 4 screen pixels with these weights:
-          float w00 = (1.0f - fx) * (1.0f - fy);  // top-left
-          float w10 = fx * (1.0f - fy);           // top-right
-          float w01 = (1.0f - fx) * fy;           // bottom-left
-          float w11 = fx * fy;                    // bottom-right
-          
-          // Splat to the 4 overlapping screen pixels
-          splatPixel(ix,     iy,     pr, pg, pb, w00);
-          splatPixel(ix + 1, iy,     pr, pg, pb, w10);
-          splatPixel(ix,     iy + 1, pr, pg, pb, w01);
-          splatPixel(ix + 1, iy + 1, pr, pg, pb, w11);
-        }
-      }
-      
-      // Flush accumulated colors to screen
-      flushSplatBuffer(screenMinX, screenMinY, screenMaxX, screenMaxY);
-      
     } else {
       // No AA: Direct integer blit (nearest neighbor)
       int ix = (int)roundf(dx);
