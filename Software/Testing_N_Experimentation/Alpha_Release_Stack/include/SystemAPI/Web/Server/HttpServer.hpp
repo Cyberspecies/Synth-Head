@@ -13,11 +13,13 @@
 #include "SystemAPI/Web/WebTypes.hpp"
 #include "SystemAPI/Web/Interfaces/ICommandHandler.hpp"
 #include "SystemAPI/Web/Content/WebContent.hpp"
+#include "SystemAPI/Web/Content/PageSdCard.hpp"
 #include "SystemAPI/Misc/SyncState.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
 #include "SystemAPI/Animation/AnimationConfig.hpp"
 #include "SystemAPI/Utils/FileSystemService.hpp"
 #include "SystemAPI/Storage/StorageManager.hpp"
+#include "SystemAPI/Storage/SdCardManager.hpp"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -33,10 +35,14 @@
 #include "lwip/inet.h"
 
 #include <cstring>
+#include <cerrno>
+#include <cmath>
 #include <vector>
 #include <functional>
 #include <string>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <unistd.h>
 
 namespace SystemAPI {
 namespace Web {
@@ -44,7 +50,7 @@ namespace Web {
 static const char* HTTP_TAG = "HttpServer";
 
 /**
- * @brief Saved sprite metadata (pixel data stored separately)
+ * @brief Saved sprite metadata with embedded pixel data
  */
 struct SavedSprite {
     int id = 0;
@@ -53,7 +59,8 @@ struct SavedSprite {
     int height = 32;
     int scale = 100;
     std::string preview;  // base64 PNG thumbnail
-    // Note: Actual pixel data stored in NVS/SPIFFS for persistence
+    std::vector<uint8_t> pixelData;  // Raw RGB888 pixel data for GPU upload
+    bool uploadedToGpu = false;      // Track if sprite is in GPU cache
 };
 
 /**
@@ -75,27 +82,84 @@ struct SavedEquation {
     std::vector<EquationVariable> variables;
 };
 
+/**
+ * @brief Gyro Eye scene configuration
+ * Tracks pupil position using device pitch/roll
+ * Formula: pupil_x = center_x + (roll * max_offset * intensity) + eye_offset
+ *          pupil_y = center_y + (pitch * max_offset * intensity)
+ */
+struct GyroEyeSceneConfig {
+    int spriteId = -1;           // Sprite for pupil (-1 = use circle)
+    float intensity = 1.0f;      // Movement multiplier
+    float maxOffsetX = 8.0f;     // Max horizontal pixel offset
+    float maxOffsetY = 6.0f;     // Max vertical pixel offset
+    float smoothingFactor = 0.15f; // Low-pass filter strength
+    int eyeOffset = 0;           // Offset between left/right eyes
+    int leftEyeCenterX = 32;     // Left eye center X
+    int leftEyeCenterY = 16;     // Left eye center Y
+    int rightEyeCenterX = 96;    // Right eye center X
+    int rightEyeCenterY = 16;    // Right eye center Y
+    bool invertPitch = false;    // Invert up/down
+    bool invertRoll = false;     // Invert left/right
+    uint8_t bgR = 0, bgG = 0, bgB = 0;  // Background color
+};
+
+/**
+ * @brief Static sprite scene configuration
+ */
+struct StaticSpriteSceneConfig {
+    int spriteId = 0;
+    int posX = 0;
+    int posY = 0;
+    uint8_t bgR = 0, bgG = 0, bgB = 0;
+};
+
+/**
+ * @brief Saved scene definition
+ * Scene Types: 0=NONE, 1=GYRO_EYES, 2=STATIC_SPRITE, 3=ANIMATED
+ */
+struct SavedScene {
+    int id = 0;
+    std::string name;
+    int type = 0;
+    bool active = false;
+    bool hasGyroEyeConfig = false;
+    bool hasStaticSpriteConfig = false;
+    GyroEyeSceneConfig gyroEye;
+    StaticSpriteSceneConfig staticSprite;
+};
+
 // Sprite storage (persisted to SD card)
-static std::vector<SavedSprite> savedSprites_;
-static int nextSpriteId_ = 1;
+// Use inline for C++17 to ensure single definition across translation units
+inline std::vector<SavedSprite> savedSprites_;
+inline int nextSpriteId_ = 100;  // Start at 100 so user sprites are "From Storage" (IDs < 100 would be built-in)
 
 // Equation storage (persisted to SD card)
-static std::vector<SavedEquation> savedEquations_;
-static int nextEquationId_ = 1;
+inline std::vector<SavedEquation> savedEquations_;
+inline int nextEquationId_ = 1;
 
-static bool spiffs_initialized_ = false;  // Still used for legacy SPIFFS
-static bool sdcard_storage_ready_ = false;
+// Scene storage (persisted to SD card)
+inline std::vector<SavedScene> savedScenes_;
+inline int nextSceneId_ = 1;
+inline int activeSceneId_ = -1;
+// Note: Scene callbacks moved to HttpServer class instance members
+
+inline bool spiffs_initialized_ = false;  // Still used for legacy SPIFFS
+inline bool sdcard_storage_ready_ = false;
 
 // SD Card paths (primary storage)
 static const char* SPRITE_DIR = "/sdcard/sprites";
-static const char* SPRITE_INDEX_FILE = "/sdcard/sprites/index.json";
+static const char* SPRITE_INDEX_FILE = "/sdcard/sprites/index.dat";
 static const char* EQUATION_DIR = "/sdcard/equations";
 static const char* EQUATION_INDEX_FILE = "/sdcard/equations/index.json";
+static const char* SCENE_DIR = "/sdcard/scenes";
+static const char* SCENE_INDEX_FILE = "/sdcard/scenes/index.json";
 
 // Legacy SPIFFS paths (fallback)
 static const char* SPRITE_DIR_SPIFFS = "/spiffs/sprites";
 static const char* SPRITE_INDEX_FILE_SPIFFS = "/spiffs/sprites/index.json";
 static const char* EQUATION_INDEX_FILE_SPIFFS = "/spiffs/equations.json";
+static const char* SCENE_INDEX_FILE_SPIFFS = "/spiffs/scenes.json";
 
 /**
  * @brief HTTP Server for Web Portal
@@ -130,9 +194,10 @@ public:
             initSpiffs();
         }
         
-        // Load saved sprites and equations from SD card (or SPIFFS fallback)
+        // Load saved sprites, equations, and scenes from SD card (or SPIFFS fallback)
         loadSpritesFromStorage();
         loadEquationsFromStorage();
+        loadScenesFromStorage();
         
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.max_uri_handlers = 80;
@@ -175,6 +240,55 @@ public:
     }
     
     /**
+     * @brief Set scene activated callback (called when user activates a scene)
+     */
+    void setSceneActivatedCallback(std::function<void(const SavedScene&)> callback) {
+        sceneActivatedCallback_ = callback;
+        ESP_LOGI(HTTP_TAG, "Scene activated callback registered: %s", callback ? "YES" : "NO");
+    }
+    
+    /**
+     * @brief Set scene updated callback (called when active scene config changes)
+     */
+    void setSceneUpdatedCallback(std::function<void(const SavedScene&)> callback) {
+        sceneUpdatedCallback_ = callback;
+        ESP_LOGI(HTTP_TAG, "Scene updated callback registered: %s", callback ? "YES" : "NO");
+    }
+    
+    /**
+     * @brief Set sprite display callback (for immediate GPU rendering)
+     */
+    void setSpriteDisplayCallback(std::function<void(const StaticSpriteSceneConfig&)> callback) {
+        spriteDisplayCallback_ = callback;
+        ESP_LOGI(HTTP_TAG, "Sprite display callback registered: %s", callback ? "YES" : "NO");
+    }
+    
+    /**
+     * @brief Set display clear callback
+     */
+    void setDisplayClearCallback(std::function<void()> callback) {
+        displayClearCallback_ = callback;
+        ESP_LOGI(HTTP_TAG, "Display clear callback registered: %s", callback ? "YES" : "NO");
+    }
+    
+    /**
+     * @brief Get the active scene (if any)
+     */
+    const SavedScene* getActiveScene() const {
+        for (const auto& scene : savedScenes_) {
+            if (scene.active) return &scene;
+        }
+        return nullptr;
+    }
+    
+    /**
+     * @brief Get all saved sprites (for diagnostic/debug purposes)
+     */
+    const std::vector<SavedSprite>& getSprites() const {
+        return savedSprites_;
+    }
+    
+    /**
      * @brief Get the httpd handle (for advanced use)
      */
     httpd_handle_t getHandle() const { return server_; }
@@ -201,9 +315,10 @@ private:
         registerHandler("/system", HTTP_GET, handlePageSystem);
         registerHandler("/advanced", HTTP_GET, handlePageAdvancedMenu);
         registerHandler("/advanced/sprites", HTTP_GET, handlePageSprite);
-        registerHandler("/advanced/configs", HTTP_GET, handlePageAdvancedConfigs);
+        registerHandler("/advanced/scenes", HTTP_GET, handlePageScenes);
         registerHandler("/sprites", HTTP_GET, handlePageSprite);  // Legacy redirect
         registerHandler("/settings", HTTP_GET, handlePageSettings);
+        registerHandler("/sdcard", HTTP_GET, handlePageSdCard);  // SD Card Browser
         
         // Static content handlers
         registerHandler("/style.css", HTTP_GET, handleCss);
@@ -230,6 +345,15 @@ private:
         registerHandler("/api/config/duplicate", HTTP_POST, handleApiConfigDuplicate);
         registerHandler("/api/config/delete", HTTP_POST, handleApiConfigDelete);
         
+        // Scene API endpoints
+        registerHandler("/api/scenes", HTTP_GET, handleApiScenes);
+        registerHandler("/api/scene/create", HTTP_POST, handleApiSceneCreate);
+        registerHandler("/api/scene/delete", HTTP_POST, handleApiSceneDelete);
+        registerHandler("/api/scene/activate", HTTP_POST, handleApiSceneActivate);
+        registerHandler("/api/scene/update", HTTP_POST, handleApiSceneUpdate);
+        registerHandler("/api/scene/display", HTTP_POST, handleApiSceneDisplay);
+        registerHandler("/api/scene/clear", HTTP_POST, handleApiSceneClear);
+        
         // Equation Editor page and API endpoints
         registerHandler("/advanced/equations", HTTP_GET, handlePageEquations);
         registerHandler("/api/equations", HTTP_GET, handleApiEquations);
@@ -241,12 +365,19 @@ private:
         registerHandler("/api/imu/calibrate", HTTP_POST, handleApiImuCalibrate);
         registerHandler("/api/imu/status", HTTP_GET, handleApiImuStatus);
         registerHandler("/api/imu/clear", HTTP_POST, handleApiImuClear);
-        
+
+        // Fan Control API endpoint
+        registerHandler("/api/fan/toggle", HTTP_POST, handleApiFanToggle);
+
         // SD Card API endpoints
         registerHandler("/api/sdcard/status", HTTP_GET, handleApiSdCardStatus);
         registerHandler("/api/sdcard/format", HTTP_POST, handleApiSdCardFormat);
         registerHandler("/api/sdcard/clear", HTTP_POST, handleApiSdCardClear);
         registerHandler("/api/sdcard/list", HTTP_GET, handleApiSdCardList);
+        registerHandler("/api/sdcard/hex", HTTP_GET, handleApiSdCardHex);
+        registerHandler("/api/sdcard/read", HTTP_GET, handleApiSdCardRead);
+        registerHandler("/api/sdcard/download", HTTP_GET, handleApiSdCardDownload);
+        registerHandler("/api/sdcard/delete", HTTP_POST, handleApiSdCardDelete);
         
         // Captive portal detection endpoints (comprehensive list for all devices)
         const char* redirect_paths[] = {
@@ -318,7 +449,14 @@ private:
      * Primary storage - uses FileSystemService
      */
     static void initSdCardStorage() {
-        if (sdcard_storage_ready_) return;
+        ESP_LOGI(HTTP_TAG, "========================================");
+        ESP_LOGI(HTTP_TAG, "  INITIALIZING SD CARD STORAGE");
+        ESP_LOGI(HTTP_TAG, "========================================");
+        
+        if (sdcard_storage_ready_) {
+            ESP_LOGI(HTTP_TAG, "SD storage already initialized, skipping");
+            return;
+        }
         
         auto& fs = Utils::FileSystemService::instance();
         
@@ -328,15 +466,23 @@ private:
             return;
         }
         
-        // Create directory structure using StorageManager paths
+        // Create directory structure
         struct stat st;
-        if (stat(SPRITE_DIR, &st) != 0) {
-            fs.createDir(SPRITE_DIR);
-            ESP_LOGI(HTTP_TAG, "Created SD card sprites directory");
-        }
-        if (stat(EQUATION_DIR, &st) != 0) {
-            fs.createDir(EQUATION_DIR);
-            ESP_LOGI(HTTP_TAG, "Created SD card equations directory");
+        const char* dirs[] = { SPRITE_DIR, EQUATION_DIR, SCENE_DIR };
+        const char* names[] = { "sprites", "equations", "scenes" };
+        
+        for (int i = 0; i < 3; i++) {
+            if (stat(dirs[i], &st) != 0) {
+                int ret = mkdir(dirs[i], 0755);
+                if (ret == 0) {
+                    ESP_LOGI(HTTP_TAG, "Created SD card %s directory: %s", names[i], dirs[i]);
+                } else {
+                    ESP_LOGE(HTTP_TAG, "Failed to create %s directory: %s (errno=%d: %s)", 
+                             names[i], dirs[i], errno, strerror(errno));
+                }
+            } else {
+                ESP_LOGI(HTTP_TAG, "SD card %s directory exists: %s", names[i], dirs[i]);
+            }
         }
         
         sdcard_storage_ready_ = true;
@@ -402,15 +548,77 @@ private:
     
     /**
      * @brief Save sprite index to storage (SD card preferred)
+     * Uses FileSystemService for all file operations to ensure proper handling
      */
     static void saveSpritesToStorage() {
-        if (!sdcard_storage_ready_ && !spiffs_initialized_) return;
+        ESP_LOGI(HTTP_TAG, "saveSpritesToStorage: sdcard=%d, spiffs=%d", 
+                 sdcard_storage_ready_, spiffs_initialized_);
         
-        const char* indexPath = getSpriteIndexPath();
+        auto& fs = Utils::FileSystemService::instance();
         
+        // Only use SD card via FileSystemService - no SPIFFS fallback
+        if (!sdcard_storage_ready_ || !fs.isReady() || !fs.isMounted()) {
+            ESP_LOGE(HTTP_TAG, "SD card not available for sprite storage!");
+            return;
+        }
+        
+        // Use relative paths for FileSystemService (it adds /sdcard prefix)
+        const char* spritesRelDir = "/sprites";
+        const char* indexRelPath = "/sprites/index.dat";
+        
+        // Ensure directory exists
+        if (!fs.dirExists(spritesRelDir)) {
+            ESP_LOGI(HTTP_TAG, "Creating sprites directory");
+            fs.createDir(spritesRelDir);
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        
+        // First, save all pixel files and preview files
+        for (const auto& sprite : savedSprites_) {
+            if (!sprite.pixelData.empty()) {
+                char pixelRelPath[64];
+                snprintf(pixelRelPath, sizeof(pixelRelPath), "/sprites/sprite_%d.bin", sprite.id);
+                
+                ESP_LOGI(HTTP_TAG, "Saving pixel file: sprite_%d.bin (%zu bytes)", 
+                         sprite.id, sprite.pixelData.size());
+                
+                // Use FileSystemService writeFile - handles path building internally
+                if (fs.writeFile(pixelRelPath, sprite.pixelData.data(), sprite.pixelData.size())) {
+                    ESP_LOGI(HTTP_TAG, "Saved pixel data for sprite %d", sprite.id);
+                } else {
+                    ESP_LOGE(HTTP_TAG, "Failed to save pixel file for sprite %d", sprite.id);
+                }
+                
+                // Small delay between file writes to allow FAT sync
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
+            
+            // Save preview as separate file (base64 PNG string)
+            if (!sprite.preview.empty()) {
+                char previewRelPath[64];
+                snprintf(previewRelPath, sizeof(previewRelPath), "/sprites/preview_%d.txt", sprite.id);
+                
+                ESP_LOGI(HTTP_TAG, "Saving preview file: preview_%d.txt (%zu bytes)", 
+                         sprite.id, sprite.preview.size());
+                
+                if (fs.writeFile(previewRelPath, sprite.preview.c_str(), sprite.preview.size())) {
+                    ESP_LOGI(HTTP_TAG, "Saved preview for sprite %d", sprite.id);
+                } else {
+                    ESP_LOGE(HTTP_TAG, "Failed to save preview file for sprite %d", sprite.id);
+                }
+                
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
+        }
+        
+        // Wait for filesystem to settle after pixel writes
+        vTaskDelay(pdMS_TO_TICKS(200));
+        
+        // Build JSON index
         cJSON* root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "version", 2);
         cJSON_AddNumberToObject(root, "nextId", nextSpriteId_);
-        cJSON_AddStringToObject(root, "storage", sdcard_storage_ready_ ? "sdcard" : "spiffs");
+        cJSON_AddNumberToObject(root, "count", (int)savedSprites_.size());
         
         cJSON* sprites = cJSON_CreateArray();
         for (const auto& sprite : savedSprites_) {
@@ -420,7 +628,9 @@ private:
             cJSON_AddNumberToObject(item, "width", sprite.width);
             cJSON_AddNumberToObject(item, "height", sprite.height);
             cJSON_AddNumberToObject(item, "scale", sprite.scale);
-            cJSON_AddStringToObject(item, "preview", sprite.preview.c_str());
+            cJSON_AddBoolToObject(item, "hasPixels", !sprite.pixelData.empty());
+            cJSON_AddNumberToObject(item, "pixelSize", (int)sprite.pixelData.size());
+            // Note: preview not saved to index - too large, regenerate on load if needed
             cJSON_AddItemToArray(sprites, item);
         }
         cJSON_AddItemToObject(root, "sprites", sprites);
@@ -428,76 +638,225 @@ private:
         char* json = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
         
-        if (json) {
-            FILE* f = fopen(indexPath, "w");
-            if (f) {
-                fprintf(f, "%s", json);
-                fclose(f);
-                ESP_LOGI(HTTP_TAG, "Saved %d sprites to %s", savedSprites_.size(),
-                    sdcard_storage_ready_ ? "SD card" : "SPIFFS");
-            } else {
-                ESP_LOGE(HTTP_TAG, "Failed to open sprite index for writing: %s", indexPath);
+        if (!json) {
+            ESP_LOGE(HTTP_TAG, "Failed to serialize sprite index JSON");
+            return;
+        }
+        
+        size_t jsonLen = strlen(json);
+        ESP_LOGI(HTTP_TAG, "Writing sprite index: %zu bytes, %d sprites", jsonLen, (int)savedSprites_.size());
+        
+        // Write via FileSystemService with retry logic
+        // Delete existing first to avoid FAT issues
+        fs.deleteFile(indexRelPath);
+        vTaskDelay(pdMS_TO_TICKS(100));  // Wait for FAT table to update
+        
+        bool writeSuccess = false;
+        for (int retry = 0; retry < 3 && !writeSuccess; retry++) {
+            if (retry > 0) {
+                ESP_LOGW(HTTP_TAG, "Retrying index write (attempt %d/3)...", retry + 1);
+                vTaskDelay(pdMS_TO_TICKS(200));
             }
-            free(json);
+            
+            if (fs.writeFile(indexRelPath, json, jsonLen)) {
+                // Verify write
+                vTaskDelay(pdMS_TO_TICKS(50));
+                uint64_t writtenSize = fs.getFileSize(indexRelPath);
+                if (writtenSize == jsonLen) {
+                    ESP_LOGI(HTTP_TAG, "Saved %d sprites to SD card (verified: %llu bytes)", 
+                             (int)savedSprites_.size(), writtenSize);
+                    writeSuccess = true;
+                } else {
+                    ESP_LOGW(HTTP_TAG, "Index file size mismatch: expected %zu, got %llu", jsonLen, writtenSize);
+                    fs.deleteFile(indexRelPath);  // Delete corrupt file and retry
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                }
+            } else {
+                ESP_LOGE(HTTP_TAG, "Failed to write sprite index (attempt %d)", retry + 1);
+            }
+        }
+        
+        if (!writeSuccess) {
+            ESP_LOGE(HTTP_TAG, "CRITICAL: Failed to save sprite index after 3 retries!");
+        }
+        
+        free(json);
+    }
+    
+    /**
+     * @brief Scan for orphaned sprite files (recovery mechanism)
+     * If index.json doesn't exist but sprite_*.bin files do, recover them
+     */
+    static void recoverOrphanedSprites() {
+        auto& fs = Utils::FileSystemService::instance();
+        
+        if (!sdcard_storage_ready_ || !fs.isReady() || !fs.isMounted()) {
+            return;
+        }
+        
+        const char* spritesRelDir = "/sprites";
+        
+        std::vector<int> foundIds;
+        
+        // Scan directory for sprite_*.bin files
+        fs.listDir(spritesRelDir, [&](const Utils::FileInfo& info) {
+            if (info.isDirectory) return true;
+            
+            int id;
+            if (sscanf(info.name, "sprite_%d.bin", &id) == 1) {
+                foundIds.push_back(id);
+            }
+            return true;
+        });
+        
+        if (foundIds.empty()) return;
+        
+        ESP_LOGI(HTTP_TAG, "Found %d sprite files, checking for orphans...", (int)foundIds.size());
+        
+        int recovered = 0;
+        for (int id : foundIds) {
+            // Check if we already have this sprite loaded
+            bool exists = false;
+            for (const auto& s : savedSprites_) {
+                if (s.id == id) { exists = true; break; }
+            }
+            if (exists) continue;
+            
+            char pixelRelPath[64];
+            snprintf(pixelRelPath, sizeof(pixelRelPath), "/sprites/sprite_%d.bin", id);
+            
+            uint64_t fileSize = fs.getFileSize(pixelRelPath);
+            if (fileSize == 0 || fileSize > 1024*1024) continue;
+            
+            SavedSprite sprite;
+            sprite.id = id;
+            sprite.name = "Recovered_" + std::to_string(id);
+            
+            // Try to guess dimensions from file size (assume RGB888)
+            int pixels = (int)(fileSize / 3);
+            
+            // Common sizes: 32x32=1024, 64x64=4096, 64x32=2048, 31x31=961
+            if (pixels == 1024) { sprite.width = 32; sprite.height = 32; }
+            else if (pixels == 4096) { sprite.width = 64; sprite.height = 64; }
+            else if (pixels == 2048) { sprite.width = 64; sprite.height = 32; }
+            else if (pixels == 961) { sprite.width = 31; sprite.height = 31; }
+            else {
+                // Default to square-ish
+                sprite.width = (int)sqrt(pixels);
+                sprite.height = pixels / sprite.width;
+            }
+            
+            sprite.scale = 100;
+            sprite.pixelData.resize((size_t)fileSize);
+            
+            int bytesRead = fs.readFile(pixelRelPath, sprite.pixelData.data(), sprite.pixelData.size());
+            
+            if (bytesRead == (int)fileSize) {
+                sprite.uploadedToGpu = false;
+                savedSprites_.push_back(sprite);
+                ESP_LOGI(HTTP_TAG, "Recovered sprite %d (%dx%d, %d bytes)", 
+                         id, sprite.width, sprite.height, bytesRead);
+                         
+                // Update nextSpriteId if needed
+                if (id >= nextSpriteId_) nextSpriteId_ = id + 1;
+                recovered++;
+            }
+        }
+        
+        // If we recovered sprites, save the updated index
+        if (recovered > 0) {
+            ESP_LOGI(HTTP_TAG, "Recovered %d orphaned sprites, saving index...", recovered);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            saveSpritesToStorage();
         }
     }
     
     /**
-     * @brief Load sprite index from storage (SD card or SPIFFS)
+     * @brief Load sprite index from storage using FileSystemService
      */
     static void loadSpritesFromStorage() {
-        if (!sdcard_storage_ready_ && !spiffs_initialized_) return;
+        ESP_LOGI(HTTP_TAG, "========================================");
+        ESP_LOGI(HTTP_TAG, "  LOADING SPRITES FROM STORAGE");
+        ESP_LOGI(HTTP_TAG, "========================================");
         
-        const char* indexPath = getSpriteIndexPath();
+        auto& fs = Utils::FileSystemService::instance();
         
-        // Also try to migrate from SPIFFS to SD card if we have SD but data is in SPIFFS
-        if (sdcard_storage_ready_) {
-            struct stat sdStat, spiffsStat;
-            bool hasSpiffsData = (stat(SPRITE_INDEX_FILE_SPIFFS, &spiffsStat) == 0);
-            bool hasSDData = (stat(SPRITE_INDEX_FILE, &sdStat) == 0);
-            
-            // If we have SPIFFS data but no SD data, migrate it
-            if (hasSpiffsData && !hasSDData) {
-                ESP_LOGI(HTTP_TAG, "Migrating sprites from SPIFFS to SD card...");
-                indexPath = SPRITE_INDEX_FILE_SPIFFS;  // Load from SPIFFS
-                // After loading we'll save to SD automatically since SD is ready
-            }
-        }
+        // Debug: Print SD card status
+        ESP_LOGI(HTTP_TAG, "SD card status:");
+        ESP_LOGI(HTTP_TAG, "  sdcard_storage_ready_: %d", sdcard_storage_ready_);
+        ESP_LOGI(HTTP_TAG, "  fs.isReady(): %d", fs.isReady());
+        ESP_LOGI(HTTP_TAG, "  fs.isMounted(): %d", fs.isMounted());
         
-        struct stat st;
-        if (stat(indexPath, &st) != 0) {
-            ESP_LOGI(HTTP_TAG, "No sprite index found at %s, starting fresh", indexPath);
+        if (!sdcard_storage_ready_ || !fs.isReady() || !fs.isMounted()) {
+            ESP_LOGW(HTTP_TAG, "SD card not available for loading sprites");
             return;
         }
         
-        FILE* f = fopen(indexPath, "r");
-        if (!f) {
-            ESP_LOGE(HTTP_TAG, "Failed to open sprite index for reading: %s", indexPath);
+        // Debug: List sprites directory contents
+        ESP_LOGI(HTTP_TAG, "Listing /sprites directory:");
+        int fileCount = 0;
+        fs.listDir("/sprites", [&](const Utils::FileInfo& info) -> bool {
+            ESP_LOGI(HTTP_TAG, "  [%s] %s (%llu bytes)", 
+                     info.isDirectory ? "DIR" : "FILE", 
+                     info.name, info.size);
+            fileCount++;
+            return true;
+        });
+        ESP_LOGI(HTTP_TAG, "Found %d entries in /sprites", fileCount);
+        
+        const char* indexRelPath = "/sprites/index.dat";
+        
+        // Check if index file exists
+        if (!fs.fileExists(indexRelPath)) {
+            ESP_LOGW(HTTP_TAG, "No sprite index found at %s", indexRelPath);
+            ESP_LOGI(HTTP_TAG, "Scanning for orphaned sprite files...");
+            recoverOrphanedSprites();
             return;
         }
         
-        char* buf = (char*)malloc(st.st_size + 1);
-        if (!buf) {
-            fclose(f);
+        // Get file size first
+        uint64_t indexSize = fs.getFileSize(indexRelPath);
+        ESP_LOGI(HTTP_TAG, "Index file exists: %s (%llu bytes)", indexRelPath, indexSize);
+        
+        // Read the index file
+        char* buf = nullptr;
+        size_t bufSize = 0;
+        if (!fs.readFile(indexRelPath, &buf, &bufSize) || !buf) {
+            ESP_LOGE(HTTP_TAG, "Failed to read sprite index!");
+            recoverOrphanedSprites();
             return;
         }
         
-        size_t bytesRead = fread(buf, 1, st.st_size, f);
-        buf[bytesRead] = '\0';
-        fclose(f);
+        ESP_LOGI(HTTP_TAG, "Read sprite index: %zu bytes", bufSize);
+        
+        // Debug: Print first 200 chars of index
+        if (bufSize > 0) {
+            char preview[201];
+            size_t previewLen = bufSize < 200 ? bufSize : 200;
+            memcpy(preview, buf, previewLen);
+            preview[previewLen] = '\0';
+            ESP_LOGI(HTTP_TAG, "Index content preview: %s", preview);
+        }
         
         cJSON* root = cJSON_Parse(buf);
         free(buf);
         
         if (!root) {
-            ESP_LOGE(HTTP_TAG, "Failed to parse sprite index JSON");
+            ESP_LOGE(HTTP_TAG, "Failed to parse sprite index JSON!");
+            ESP_LOGE(HTTP_TAG, "cJSON error: %s", cJSON_GetErrorPtr() ? cJSON_GetErrorPtr() : "unknown");
+            recoverOrphanedSprites();
             return;
         }
         
+        // Parse version and nextId
+        cJSON* version = cJSON_GetObjectItem(root, "version");
         cJSON* nextId = cJSON_GetObjectItem(root, "nextId");
         if (nextId && cJSON_IsNumber(nextId)) {
             nextSpriteId_ = nextId->valueint;
         }
+        
+        ESP_LOGI(HTTP_TAG, "Index version=%d, nextId=%d", 
+                 version ? version->valueint : 1, nextSpriteId_);
         
         cJSON* sprites = cJSON_GetObjectItem(root, "sprites");
         if (sprites && cJSON_IsArray(sprites)) {
@@ -512,29 +871,67 @@ private:
                 cJSON* width = cJSON_GetObjectItem(item, "width");
                 cJSON* height = cJSON_GetObjectItem(item, "height");
                 cJSON* scale = cJSON_GetObjectItem(item, "scale");
-                cJSON* preview = cJSON_GetObjectItem(item, "preview");
+                cJSON* pixelSize = cJSON_GetObjectItem(item, "pixelSize");
                 
                 if (id && cJSON_IsNumber(id)) sprite.id = id->valueint;
                 if (name && cJSON_IsString(name)) sprite.name = name->valuestring;
                 if (width && cJSON_IsNumber(width)) sprite.width = width->valueint;
                 if (height && cJSON_IsNumber(height)) sprite.height = height->valueint;
                 if (scale && cJSON_IsNumber(scale)) sprite.scale = scale->valueint;
-                if (preview && cJSON_IsString(preview)) sprite.preview = preview->valuestring;
                 
+                ESP_LOGI(HTTP_TAG, "Loading sprite %d '%s' (%dx%d)", 
+                         sprite.id, sprite.name.c_str(), sprite.width, sprite.height);
+                
+                // Try to load pixel data
+                char pixelRelPath[64];
+                snprintf(pixelRelPath, sizeof(pixelRelPath), "/sprites/sprite_%d.bin", sprite.id);
+                
+                if (fs.fileExists(pixelRelPath)) {
+                    uint64_t fileSize = fs.getFileSize(pixelRelPath);
+                    if (fileSize > 0 && fileSize < 1024*1024) {  // Max 1MB
+                        sprite.pixelData.resize((size_t)fileSize);
+                        int bytesRead = fs.readFile(pixelRelPath, sprite.pixelData.data(), sprite.pixelData.size());
+                        
+                        if (bytesRead == (int)fileSize) {
+                            ESP_LOGI(HTTP_TAG, "  Loaded %d bytes of pixel data", bytesRead);
+                        } else {
+                            ESP_LOGW(HTTP_TAG, "  Pixel read mismatch: expected %llu, got %d", fileSize, bytesRead);
+                            sprite.pixelData.clear();
+                        }
+                    } else {
+                        ESP_LOGW(HTTP_TAG, "  Invalid pixel file size: %llu", fileSize);
+                    }
+                } else {
+                    ESP_LOGW(HTTP_TAG, "  No pixel file found");
+                }
+                
+                // Try to load preview file
+                char previewRelPath[64];
+                snprintf(previewRelPath, sizeof(previewRelPath), "/sprites/preview_%d.txt", sprite.id);
+                
+                if (fs.fileExists(previewRelPath)) {
+                    char* previewBuf = nullptr;
+                    size_t previewSize = 0;
+                    if (fs.readFile(previewRelPath, &previewBuf, &previewSize) && previewBuf) {
+                        sprite.preview = std::string(previewBuf, previewSize);
+                        free(previewBuf);
+                        ESP_LOGI(HTTP_TAG, "  Loaded preview (%zu bytes)", sprite.preview.size());
+                    }
+                } else {
+                    ESP_LOGW(HTTP_TAG, "  No preview file found");
+                }
+                
+                sprite.uploadedToGpu = false;
                 savedSprites_.push_back(sprite);
             }
             
-            ESP_LOGI(HTTP_TAG, "Loaded %d sprites from %s", savedSprites_.size(),
-                sdcard_storage_ready_ ? "SD card" : "SPIFFS");
-                
-            // If we loaded from SPIFFS but SD is now ready, migrate to SD
-            if (sdcard_storage_ready_ && strcmp(indexPath, SPRITE_INDEX_FILE_SPIFFS) == 0) {
-                ESP_LOGI(HTTP_TAG, "Saving sprites to SD card after migration");
-                saveSpritesToStorage();
-            }
+            ESP_LOGI(HTTP_TAG, "Loaded %d sprites from SD card", (int)savedSprites_.size());
         }
         
         cJSON_Delete(root);
+        
+        // Try to recover any orphaned sprite files
+        recoverOrphanedSprites();
     }
     
     /**
@@ -585,6 +982,226 @@ private:
             }
             free(json);
         }
+    }
+    
+    /**
+     * @brief Get scene index path based on available storage
+     */
+    static const char* getSceneIndexPath() {
+        if (sdcard_storage_ready_) return SCENE_INDEX_FILE;
+        return SCENE_INDEX_FILE_SPIFFS;
+    }
+    
+    /**
+     * @brief Save scenes to storage (SD card preferred)
+     */
+    static void saveScenesStorage() {
+        if (!sdcard_storage_ready_ && !spiffs_initialized_) return;
+        
+        const char* indexPath = getSceneIndexPath();
+        
+        // Create scenes directory if using SD card
+        if (sdcard_storage_ready_) {
+            struct stat st;
+            if (stat(SCENE_DIR, &st) != 0) {
+                mkdir(SCENE_DIR, 0755);
+            }
+        }
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "nextId", nextSceneId_);
+        cJSON_AddNumberToObject(root, "activeId", activeSceneId_);
+        cJSON_AddStringToObject(root, "storage", sdcard_storage_ready_ ? "sdcard" : "spiffs");
+        
+        cJSON* scenes = cJSON_CreateArray();
+        for (const auto& s : savedScenes_) {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "id", s.id);
+            cJSON_AddStringToObject(item, "name", s.name.c_str());
+            cJSON_AddNumberToObject(item, "type", s.type);
+            cJSON_AddBoolToObject(item, "active", s.active);
+            
+            // Save gyro eye config if present
+            if (s.hasGyroEyeConfig) {
+                cJSON* gyro = cJSON_CreateObject();
+                cJSON_AddNumberToObject(gyro, "spriteId", s.gyroEye.spriteId);
+                cJSON_AddNumberToObject(gyro, "intensity", s.gyroEye.intensity);
+                cJSON_AddNumberToObject(gyro, "maxOffsetX", s.gyroEye.maxOffsetX);
+                cJSON_AddNumberToObject(gyro, "maxOffsetY", s.gyroEye.maxOffsetY);
+                cJSON_AddNumberToObject(gyro, "smoothingFactor", s.gyroEye.smoothingFactor);
+                cJSON_AddNumberToObject(gyro, "eyeOffset", s.gyroEye.eyeOffset);
+                cJSON_AddNumberToObject(gyro, "leftEyeCenterX", s.gyroEye.leftEyeCenterX);
+                cJSON_AddNumberToObject(gyro, "leftEyeCenterY", s.gyroEye.leftEyeCenterY);
+                cJSON_AddNumberToObject(gyro, "rightEyeCenterX", s.gyroEye.rightEyeCenterX);
+                cJSON_AddNumberToObject(gyro, "rightEyeCenterY", s.gyroEye.rightEyeCenterY);
+                cJSON_AddBoolToObject(gyro, "invertPitch", s.gyroEye.invertPitch);
+                cJSON_AddBoolToObject(gyro, "invertRoll", s.gyroEye.invertRoll);
+                cJSON_AddNumberToObject(gyro, "bgR", s.gyroEye.bgR);
+                cJSON_AddNumberToObject(gyro, "bgG", s.gyroEye.bgG);
+                cJSON_AddNumberToObject(gyro, "bgB", s.gyroEye.bgB);
+                cJSON_AddItemToObject(item, "gyroEye", gyro);
+            }
+            
+            // Save static sprite config if present
+            if (s.hasStaticSpriteConfig) {
+                cJSON* sprite = cJSON_CreateObject();
+                cJSON_AddNumberToObject(sprite, "spriteId", s.staticSprite.spriteId);
+                cJSON_AddNumberToObject(sprite, "posX", s.staticSprite.posX);
+                cJSON_AddNumberToObject(sprite, "posY", s.staticSprite.posY);
+                cJSON_AddNumberToObject(sprite, "bgR", s.staticSprite.bgR);
+                cJSON_AddNumberToObject(sprite, "bgG", s.staticSprite.bgG);
+                cJSON_AddNumberToObject(sprite, "bgB", s.staticSprite.bgB);
+                cJSON_AddItemToObject(item, "staticSprite", sprite);
+            }
+            
+            cJSON_AddItemToArray(scenes, item);
+        }
+        cJSON_AddItemToObject(root, "scenes", scenes);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        if (json) {
+            FILE* f = fopen(indexPath, "w");
+            if (f) {
+                fprintf(f, "%s", json);
+                fclose(f);
+                ESP_LOGI(HTTP_TAG, "Saved %d scenes to %s", savedScenes_.size(),
+                    sdcard_storage_ready_ ? "SD card" : "SPIFFS");
+            } else {
+                ESP_LOGE(HTTP_TAG, "Failed to open scene index for writing: %s", indexPath);
+            }
+            free(json);
+        }
+    }
+    
+    /**
+     * @brief Load scenes from storage (SD card or SPIFFS)
+     */
+    static void loadScenesFromStorage() {
+        if (!sdcard_storage_ready_ && !spiffs_initialized_) return;
+        
+        const char* indexPath = getSceneIndexPath();
+        
+        // Also try to migrate from SPIFFS to SD card
+        if (sdcard_storage_ready_) {
+            struct stat sdStat, spiffsStat;
+            bool hasSpiffsData = (stat(SCENE_INDEX_FILE_SPIFFS, &spiffsStat) == 0);
+            bool hasSDData = (stat(SCENE_INDEX_FILE, &sdStat) == 0);
+            
+            if (hasSpiffsData && !hasSDData) {
+                ESP_LOGI(HTTP_TAG, "Migrating scenes from SPIFFS to SD card...");
+                indexPath = SCENE_INDEX_FILE_SPIFFS;
+            }
+        }
+        
+        struct stat st;
+        if (stat(indexPath, &st) != 0) {
+            ESP_LOGI(HTTP_TAG, "No scene index found at %s, starting fresh", indexPath);
+            return;
+        }
+        
+        FILE* f = fopen(indexPath, "r");
+        if (!f) {
+            ESP_LOGE(HTTP_TAG, "Failed to open scene index for reading: %s", indexPath);
+            return;
+        }
+        
+        char* buf = (char*)malloc(st.st_size + 1);
+        if (!buf) {
+            fclose(f);
+            return;
+        }
+        
+        size_t bytesRead = fread(buf, 1, st.st_size, f);
+        buf[bytesRead] = '\0';
+        fclose(f);
+        
+        cJSON* root = cJSON_Parse(buf);
+        free(buf);
+        
+        if (!root) {
+            ESP_LOGE(HTTP_TAG, "Failed to parse scene index JSON");
+            return;
+        }
+        
+        cJSON* nextId = cJSON_GetObjectItem(root, "nextId");
+        if (nextId && cJSON_IsNumber(nextId)) {
+            nextSceneId_ = nextId->valueint;
+        }
+        
+        cJSON* activeId = cJSON_GetObjectItem(root, "activeId");
+        if (activeId && cJSON_IsNumber(activeId)) {
+            activeSceneId_ = activeId->valueint;
+        }
+        
+        cJSON* scenes = cJSON_GetObjectItem(root, "scenes");
+        if (scenes && cJSON_IsArray(scenes)) {
+            savedScenes_.clear();
+            
+            cJSON* item = NULL;
+            cJSON_ArrayForEach(item, scenes) {
+                SavedScene scene;
+                
+                cJSON* id = cJSON_GetObjectItem(item, "id");
+                cJSON* name = cJSON_GetObjectItem(item, "name");
+                cJSON* type = cJSON_GetObjectItem(item, "type");
+                cJSON* active = cJSON_GetObjectItem(item, "active");
+                
+                if (id && cJSON_IsNumber(id)) scene.id = id->valueint;
+                if (name && cJSON_IsString(name)) scene.name = name->valuestring;
+                if (type && cJSON_IsNumber(type)) scene.type = type->valueint;
+                if (active) scene.active = cJSON_IsTrue(active);
+                
+                // Load gyro eye config
+                cJSON* gyro = cJSON_GetObjectItem(item, "gyroEye");
+                if (gyro) {
+                    scene.hasGyroEyeConfig = true;
+                    cJSON* val;
+                    if ((val = cJSON_GetObjectItem(gyro, "spriteId"))) scene.gyroEye.spriteId = val->valueint;
+                    if ((val = cJSON_GetObjectItem(gyro, "intensity"))) scene.gyroEye.intensity = val->valuedouble;
+                    if ((val = cJSON_GetObjectItem(gyro, "maxOffsetX"))) scene.gyroEye.maxOffsetX = val->valuedouble;
+                    if ((val = cJSON_GetObjectItem(gyro, "maxOffsetY"))) scene.gyroEye.maxOffsetY = val->valuedouble;
+                    if ((val = cJSON_GetObjectItem(gyro, "smoothingFactor"))) scene.gyroEye.smoothingFactor = val->valuedouble;
+                    if ((val = cJSON_GetObjectItem(gyro, "eyeOffset"))) scene.gyroEye.eyeOffset = val->valueint;
+                    if ((val = cJSON_GetObjectItem(gyro, "leftEyeCenterX"))) scene.gyroEye.leftEyeCenterX = val->valueint;
+                    if ((val = cJSON_GetObjectItem(gyro, "leftEyeCenterY"))) scene.gyroEye.leftEyeCenterY = val->valueint;
+                    if ((val = cJSON_GetObjectItem(gyro, "rightEyeCenterX"))) scene.gyroEye.rightEyeCenterX = val->valueint;
+                    if ((val = cJSON_GetObjectItem(gyro, "rightEyeCenterY"))) scene.gyroEye.rightEyeCenterY = val->valueint;
+                    if ((val = cJSON_GetObjectItem(gyro, "invertPitch"))) scene.gyroEye.invertPitch = cJSON_IsTrue(val);
+                    if ((val = cJSON_GetObjectItem(gyro, "invertRoll"))) scene.gyroEye.invertRoll = cJSON_IsTrue(val);
+                    if ((val = cJSON_GetObjectItem(gyro, "bgR"))) scene.gyroEye.bgR = val->valueint;
+                    if ((val = cJSON_GetObjectItem(gyro, "bgG"))) scene.gyroEye.bgG = val->valueint;
+                    if ((val = cJSON_GetObjectItem(gyro, "bgB"))) scene.gyroEye.bgB = val->valueint;
+                }
+                
+                // Load static sprite config
+                cJSON* sprite = cJSON_GetObjectItem(item, "staticSprite");
+                if (sprite) {
+                    scene.hasStaticSpriteConfig = true;
+                    cJSON* val;
+                    if ((val = cJSON_GetObjectItem(sprite, "spriteId"))) scene.staticSprite.spriteId = val->valueint;
+                    if ((val = cJSON_GetObjectItem(sprite, "posX"))) scene.staticSprite.posX = val->valueint;
+                    if ((val = cJSON_GetObjectItem(sprite, "posY"))) scene.staticSprite.posY = val->valueint;
+                    if ((val = cJSON_GetObjectItem(sprite, "bgR"))) scene.staticSprite.bgR = val->valueint;
+                    if ((val = cJSON_GetObjectItem(sprite, "bgG"))) scene.staticSprite.bgG = val->valueint;
+                    if ((val = cJSON_GetObjectItem(sprite, "bgB"))) scene.staticSprite.bgB = val->valueint;
+                }
+                
+                savedScenes_.push_back(scene);
+            }
+            
+            ESP_LOGI(HTTP_TAG, "Loaded %d scenes from %s", savedScenes_.size(),
+                sdcard_storage_ready_ ? "SD card" : "SPIFFS");
+            
+            // If we loaded from SPIFFS but SD is now ready, migrate to SD
+            if (sdcard_storage_ready_ && strcmp(indexPath, SCENE_INDEX_FILE_SPIFFS) == 0) {
+                ESP_LOGI(HTTP_TAG, "Saving scenes to SD card after migration");
+                saveScenesStorage();
+            }
+        }
+        
+        cJSON_Delete(root);
     }
     
     /**
@@ -1015,13 +1632,13 @@ private:
         return ESP_OK;
     }
     
-    static esp_err_t handlePageAdvancedConfigs(httpd_req_t* req) {
+    static esp_err_t handlePageScenes(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return redirectToLogin(req);
         
-        ESP_LOGI(HTTP_TAG, "Serving Advanced Configs page");
+        ESP_LOGI(HTTP_TAG, "Serving Scenes page");
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-        httpd_resp_send(req, Content::PAGE_ADVANCED, HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send(req, Content::PAGE_SCENES, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     
@@ -1170,7 +1787,7 @@ private:
         cJSON_AddNumberToObject(sensors, "pressure", state.pressure);
         cJSON_AddItemToObject(root, "sensors", sensors);
         
-        // IMU data
+        // IMU data (raw)
         cJSON* imu = cJSON_CreateObject();
         cJSON_AddNumberToObject(imu, "accelX", state.accelX);
         cJSON_AddNumberToObject(imu, "accelY", state.accelY);
@@ -1179,7 +1796,18 @@ private:
         cJSON_AddNumberToObject(imu, "gyroY", state.gyroY);
         cJSON_AddNumberToObject(imu, "gyroZ", state.gyroZ);
         cJSON_AddItemToObject(root, "imu", imu);
-        
+
+        // Device IMU data (calibrated)
+        cJSON* deviceImu = cJSON_CreateObject();
+        cJSON_AddNumberToObject(deviceImu, "accelX", state.deviceAccelX);
+        cJSON_AddNumberToObject(deviceImu, "accelY", state.deviceAccelY);
+        cJSON_AddNumberToObject(deviceImu, "accelZ", state.deviceAccelZ);
+        cJSON_AddNumberToObject(deviceImu, "gyroX", state.deviceGyroX);
+        cJSON_AddNumberToObject(deviceImu, "gyroY", state.deviceGyroY);
+        cJSON_AddNumberToObject(deviceImu, "gyroZ", state.deviceGyroZ);
+        cJSON_AddBoolToObject(deviceImu, "calibrated", state.imuCalibrated);
+        cJSON_AddItemToObject(root, "deviceImu", deviceImu);
+
         // GPS data
         cJSON* gps = cJSON_CreateObject();
         cJSON_AddNumberToObject(gps, "latitude", state.latitude);
@@ -1245,7 +1873,11 @@ private:
         // Authentication state (don't send password!)
         cJSON_AddBoolToObject(root, "authEnabled", state.authEnabled);
         cJSON_AddStringToObject(root, "authUsername", state.authUsername);
-        
+
+        // Fan state
+        cJSON_AddBoolToObject(root, "fanEnabled", state.fanEnabled);
+        cJSON_AddNumberToObject(root, "fanSpeed", state.fanSpeed);
+
         char* json = cJSON_PrintUnformatted(root);
         
         httpd_resp_set_type(req, "application/json");
@@ -1825,6 +2457,419 @@ private:
         return ESP_OK;
     }
     
+    // ========== Scene API Handlers ==========
+    
+    /**
+     * @brief Get list of scenes
+     */
+    static esp_err_t handleApiScenes(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON* scenes = cJSON_CreateArray();
+        
+        for (const auto& scene : savedScenes_) {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "id", scene.id);
+            cJSON_AddStringToObject(item, "name", scene.name.c_str());
+            cJSON_AddNumberToObject(item, "type", scene.type);
+            cJSON_AddBoolToObject(item, "active", scene.active);
+            
+            // Add gyro eye config if type is GYRO_EYES
+            if (scene.type == 1 && scene.hasGyroEyeConfig) {
+                cJSON* gyroEye = cJSON_CreateObject();
+                cJSON_AddNumberToObject(gyroEye, "spriteId", scene.gyroEye.spriteId);
+                cJSON_AddNumberToObject(gyroEye, "intensity", scene.gyroEye.intensity);
+                cJSON_AddNumberToObject(gyroEye, "maxOffsetX", scene.gyroEye.maxOffsetX);
+                cJSON_AddNumberToObject(gyroEye, "maxOffsetY", scene.gyroEye.maxOffsetY);
+                cJSON_AddNumberToObject(gyroEye, "smoothingFactor", scene.gyroEye.smoothingFactor);
+                cJSON_AddNumberToObject(gyroEye, "eyeOffset", scene.gyroEye.eyeOffset);
+                cJSON_AddNumberToObject(gyroEye, "leftEyeCenterX", scene.gyroEye.leftEyeCenterX);
+                cJSON_AddNumberToObject(gyroEye, "leftEyeCenterY", scene.gyroEye.leftEyeCenterY);
+                cJSON_AddNumberToObject(gyroEye, "rightEyeCenterX", scene.gyroEye.rightEyeCenterX);
+                cJSON_AddNumberToObject(gyroEye, "rightEyeCenterY", scene.gyroEye.rightEyeCenterY);
+                cJSON_AddBoolToObject(gyroEye, "invertPitch", scene.gyroEye.invertPitch);
+                cJSON_AddBoolToObject(gyroEye, "invertRoll", scene.gyroEye.invertRoll);
+                cJSON_AddNumberToObject(gyroEye, "bgR", scene.gyroEye.bgR);
+                cJSON_AddNumberToObject(gyroEye, "bgG", scene.gyroEye.bgG);
+                cJSON_AddNumberToObject(gyroEye, "bgB", scene.gyroEye.bgB);
+                cJSON_AddItemToObject(item, "gyroEye", gyroEye);
+            }
+            
+            // Add static sprite config if type is STATIC_SPRITE
+            if (scene.type == 2 && scene.hasStaticSpriteConfig) {
+                cJSON* staticSprite = cJSON_CreateObject();
+                cJSON_AddNumberToObject(staticSprite, "spriteId", scene.staticSprite.spriteId);
+                cJSON_AddNumberToObject(staticSprite, "posX", scene.staticSprite.posX);
+                cJSON_AddNumberToObject(staticSprite, "posY", scene.staticSprite.posY);
+                cJSON_AddNumberToObject(staticSprite, "bgR", scene.staticSprite.bgR);
+                cJSON_AddNumberToObject(staticSprite, "bgG", scene.staticSprite.bgG);
+                cJSON_AddNumberToObject(staticSprite, "bgB", scene.staticSprite.bgB);
+                cJSON_AddItemToObject(item, "staticSprite", staticSprite);
+            }
+            
+            cJSON_AddItemToArray(scenes, item);
+        }
+        
+        cJSON_AddItemToObject(root, "scenes", scenes);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Create a new scene
+     */
+    static esp_err_t handleApiSceneCreate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[512];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        cJSON* type = cJSON_GetObjectItem(root, "type");
+        
+        bool success = false;
+        int newId = -1;
+        
+        if (name && cJSON_IsString(name) && type && cJSON_IsNumber(type)) {
+            SavedScene scene;
+            scene.id = nextSceneId_++;
+            scene.name = name->valuestring;
+            scene.type = type->valueint;
+            scene.active = false;
+            scene.hasGyroEyeConfig = false;
+            scene.hasStaticSpriteConfig = false;
+            
+            // Initialize default configs based on type
+            if (scene.type == 1) {
+                scene.hasGyroEyeConfig = true;
+                scene.gyroEye = GyroEyeSceneConfig();  // Default values
+            } else if (scene.type == 2) {
+                scene.hasStaticSpriteConfig = true;
+                scene.staticSprite = StaticSpriteSceneConfig();
+            }
+            
+            savedScenes_.push_back(scene);
+            newId = scene.id;
+            success = true;
+            saveScenesStorage();
+            
+            ESP_LOGI(HTTP_TAG, "Created scene: %s (type %d, id %d)", scene.name.c_str(), scene.type, scene.id);
+        }
+        
+        cJSON_Delete(root);
+        
+        cJSON* resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "success", success);
+        if (success) {
+            cJSON_AddNumberToObject(resp, "id", newId);
+        }
+        
+        char* json = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Delete a scene
+     */
+    static esp_err_t handleApiSceneDelete(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* id = cJSON_GetObjectItem(root, "id");
+        bool success = false;
+        
+        if (id && cJSON_IsNumber(id)) {
+            for (auto it = savedScenes_.begin(); it != savedScenes_.end(); ++it) {
+                if (it->id == id->valueint) {
+                    ESP_LOGI(HTTP_TAG, "Deleting scene: %s (id %d)", it->name.c_str(), it->id);
+                    savedScenes_.erase(it);
+                    success = true;
+                    saveScenesStorage();
+                    break;
+                }
+            }
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Activate a scene
+     */
+    static esp_err_t handleApiSceneActivate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* id = cJSON_GetObjectItem(root, "id");
+        bool success = false;
+        
+        if (id && cJSON_IsNumber(id)) {
+            // Deactivate all scenes first
+            for (auto& scene : savedScenes_) {
+                scene.active = false;
+            }
+            
+            // Activate the selected scene
+            for (auto& scene : savedScenes_) {
+                if (scene.id == id->valueint) {
+                    scene.active = true;
+                    activeSceneId_ = scene.id;
+                    success = true;
+                    
+                    // Notify scene renderer if callback is set
+                    auto& callback = getSceneActivatedCallback();
+                    if (callback) {
+                        callback(scene);
+                    }
+                    
+                    ESP_LOGI(HTTP_TAG, "Activated scene: %s (id %d)", scene.name.c_str(), scene.id);
+                    break;
+                }
+            }
+            
+            if (success) {
+                saveScenesStorage();
+            }
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Update scene configuration
+     */
+    static esp_err_t handleApiSceneUpdate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[2048];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* id = cJSON_GetObjectItem(root, "id");
+        cJSON* config = cJSON_GetObjectItem(root, "config");
+        bool success = false;
+        
+        if (id && cJSON_IsNumber(id) && config) {
+            for (auto& scene : savedScenes_) {
+                if (scene.id == id->valueint) {
+                    // Update gyro eye config
+                    cJSON* gyroEye = cJSON_GetObjectItem(config, "gyroEye");
+                    if (gyroEye && scene.type == 1) {
+                        scene.hasGyroEyeConfig = true;
+                        
+                        cJSON* item;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "spriteId"))) scene.gyroEye.spriteId = item->valueint;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "intensity"))) scene.gyroEye.intensity = item->valuedouble;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "maxOffsetX"))) scene.gyroEye.maxOffsetX = item->valuedouble;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "maxOffsetY"))) scene.gyroEye.maxOffsetY = item->valuedouble;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "smoothingFactor"))) scene.gyroEye.smoothingFactor = item->valuedouble;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "eyeOffset"))) scene.gyroEye.eyeOffset = item->valueint;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "leftEyeCenterX"))) scene.gyroEye.leftEyeCenterX = item->valueint;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "leftEyeCenterY"))) scene.gyroEye.leftEyeCenterY = item->valueint;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "rightEyeCenterX"))) scene.gyroEye.rightEyeCenterX = item->valueint;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "rightEyeCenterY"))) scene.gyroEye.rightEyeCenterY = item->valueint;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "invertPitch"))) scene.gyroEye.invertPitch = cJSON_IsTrue(item);
+                        if ((item = cJSON_GetObjectItem(gyroEye, "invertRoll"))) scene.gyroEye.invertRoll = cJSON_IsTrue(item);
+                        if ((item = cJSON_GetObjectItem(gyroEye, "bgR"))) scene.gyroEye.bgR = item->valueint;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "bgG"))) scene.gyroEye.bgG = item->valueint;
+                        if ((item = cJSON_GetObjectItem(gyroEye, "bgB"))) scene.gyroEye.bgB = item->valueint;
+                    }
+                    
+                    // Update static sprite config
+                    cJSON* staticSprite = cJSON_GetObjectItem(config, "staticSprite");
+                    if (staticSprite && scene.type == 2) {
+                        scene.hasStaticSpriteConfig = true;
+                        
+                        cJSON* item;
+                        if ((item = cJSON_GetObjectItem(staticSprite, "spriteId"))) scene.staticSprite.spriteId = item->valueint;
+                        if ((item = cJSON_GetObjectItem(staticSprite, "posX"))) scene.staticSprite.posX = item->valueint;
+                        if ((item = cJSON_GetObjectItem(staticSprite, "posY"))) scene.staticSprite.posY = item->valueint;
+                        if ((item = cJSON_GetObjectItem(staticSprite, "bgR"))) scene.staticSprite.bgR = item->valueint;
+                        if ((item = cJSON_GetObjectItem(staticSprite, "bgG"))) scene.staticSprite.bgG = item->valueint;
+                        if ((item = cJSON_GetObjectItem(staticSprite, "bgB"))) scene.staticSprite.bgB = item->valueint;
+                    }
+                    
+                    success = true;
+                    saveScenesStorage();
+                    
+                    // Notify if this scene is active
+                    auto& callback = getSceneUpdatedCallback();
+                    if (scene.active && callback) {
+                        callback(scene);
+                    }
+                    
+                    ESP_LOGI(HTTP_TAG, "Updated scene config: %s (id %d)", scene.name.c_str(), scene.id);
+                    break;
+                }
+            }
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Display sprite on HUB75 directly (for scene testing)
+     * Pipeline: Web UI -> Core 0 -> Callback -> Core 1 -> GPU -> HUB75
+     */
+    static esp_err_t handleApiSceneDisplay(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        bool success = false;
+        
+        cJSON* spriteId = cJSON_GetObjectItem(root, "spriteId");
+        cJSON* posX = cJSON_GetObjectItem(root, "posX");
+        cJSON* posY = cJSON_GetObjectItem(root, "posY");
+        cJSON* bgR = cJSON_GetObjectItem(root, "bgR");
+        cJSON* bgG = cJSON_GetObjectItem(root, "bgG");
+        cJSON* bgB = cJSON_GetObjectItem(root, "bgB");
+        
+        if (spriteId && cJSON_IsNumber(spriteId)) {
+            // Build config for sprite display
+            StaticSpriteSceneConfig config;
+            config.spriteId = spriteId->valueint;
+            config.posX = (posX && cJSON_IsNumber(posX)) ? posX->valueint : 0;
+            config.posY = (posY && cJSON_IsNumber(posY)) ? posY->valueint : 0;
+            config.bgR = (bgR && cJSON_IsNumber(bgR)) ? (uint8_t)bgR->valueint : 0;
+            config.bgG = (bgG && cJSON_IsNumber(bgG)) ? (uint8_t)bgG->valueint : 0;
+            config.bgB = (bgB && cJSON_IsNumber(bgB)) ? (uint8_t)bgB->valueint : 0;
+            
+            ESP_LOGI(HTTP_TAG, "Scene display request: sprite=%d pos=(%d,%d) bg=(%d,%d,%d) sprites_count=%d",
+                     config.spriteId, config.posX, config.posY,
+                     config.bgR, config.bgG, config.bgB, savedSprites_.size());
+            
+            // Notify renderer via callback (works even if sprite doesn't exist - shows placeholder)
+            auto& callback = getSpriteDisplayCallback();
+            if (callback) {
+                callback(config);
+                ESP_LOGI(HTTP_TAG, "Sprite display callback invoked successfully");
+                success = true;  // Set success here, after callback invoked
+            } else {
+                ESP_LOGW(HTTP_TAG, "No sprite display callback registered!");
+            }
+        } else {
+            ESP_LOGW(HTTP_TAG, "Invalid or missing spriteId in request");
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        if (success) {
+            httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        } else {
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Sprite not found or display not ready\"}", HTTPD_RESP_USE_STRLEN);
+        }
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Clear HUB75 display
+     */
+    static esp_err_t handleApiSceneClear(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        bool success = false;
+        
+        auto& callback = getDisplayClearCallback();
+        if (callback) {
+            callback();
+            ESP_LOGI(HTTP_TAG, "Display cleared");
+            success = true;  // Set success here, after callback invoked
+        } else {
+            ESP_LOGW(HTTP_TAG, "No display clear callback registered");
+        }
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false,\"error\":\"Display not ready\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
     // ========== Sprite API Handlers ==========
     
     /**
@@ -1846,6 +2891,8 @@ private:
             // Calculate size in bytes (RGB888)
             int sizeBytes = sprite.width * sprite.height * 3;
             cJSON_AddNumberToObject(item, "sizeBytes", sizeBytes);
+            cJSON_AddBoolToObject(item, "hasPixels", !sprite.pixelData.empty());
+            cJSON_AddNumberToObject(item, "pixelDataSize", sprite.pixelData.size());
             cJSON_AddStringToObject(item, "preview", sprite.preview.c_str());
             cJSON_AddItemToArray(sprites, item);
         }
@@ -1865,6 +2912,7 @@ private:
      * @brief Save a new sprite
      */
     static esp_err_t handleApiSpriteSave(httpd_req_t* req) {
+        ESP_LOGI(HTTP_TAG, "handleApiSpriteSave called, content_len=%d", req->content_len);
         if (requiresAuthRedirect(req)) return sendUnauthorized(req);
         
         ESP_LOGI(HTTP_TAG, "Sprite save request, content length: %d", req->content_len);
@@ -1902,6 +2950,7 @@ private:
         cJSON* height = cJSON_GetObjectItem(root, "height");
         cJSON* scale = cJSON_GetObjectItem(root, "scale");
         cJSON* preview = cJSON_GetObjectItem(root, "preview");
+        cJSON* pixels = cJSON_GetObjectItem(root, "pixels");  // Base64 RGB888 data
         
         bool success = false;
         
@@ -1913,9 +2962,34 @@ private:
             sprite.height = height ? height->valueint : 32;
             sprite.scale = scale ? scale->valueint : 100;
             sprite.preview = preview && cJSON_IsString(preview) ? preview->valuestring : "";
+            sprite.uploadedToGpu = false;
+            
+            // Decode base64 pixel data if provided
+            if (pixels && cJSON_IsString(pixels)) {
+                size_t expectedSize = sprite.width * sprite.height * 3;  // RGB888
+                sprite.pixelData.resize(expectedSize);
+                size_t decodedSize = 0;
+                
+                if (decodeBase64(pixels->valuestring, sprite.pixelData.data(), expectedSize, &decodedSize)) {
+                    if (decodedSize == expectedSize) {
+                        ESP_LOGI(HTTP_TAG, "Decoded %d bytes of pixel data for sprite '%s' (%dx%d)", 
+                                 decodedSize, sprite.name.c_str(), sprite.width, sprite.height);
+                    } else {
+                        ESP_LOGW(HTTP_TAG, "Pixel data size mismatch: expected %d, got %d", expectedSize, decodedSize);
+                        sprite.pixelData.clear();
+                    }
+                } else {
+                    ESP_LOGW(HTTP_TAG, "Failed to decode base64 pixel data");
+                    sprite.pixelData.clear();
+                }
+            } else {
+                ESP_LOGW(HTTP_TAG, "No pixel data in sprite save request");
+            }
             
             savedSprites_.push_back(sprite);
-            ESP_LOGI(HTTP_TAG, "Saved sprite '%s' with id %d", sprite.name.c_str(), sprite.id);
+            ESP_LOGI(HTTP_TAG, "Saved sprite '%s' with id %d, pixels=%s", 
+                     sprite.name.c_str(), sprite.id, 
+                     sprite.pixelData.empty() ? "NO" : "YES");
             saveSpritesToStorage();  // Persist to flash
             success = true;
         }
@@ -1976,18 +3050,22 @@ private:
      * @brief Delete a sprite
      */
     static esp_err_t handleApiSpriteDelete(httpd_req_t* req) {
+        ESP_LOGI(HTTP_TAG, "handleApiSpriteDelete called");
         if (requiresAuthRedirect(req)) return sendUnauthorized(req);
         
         char buf[256];
         int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
         if (ret <= 0) {
+            ESP_LOGE(HTTP_TAG, "Delete sprite: No body received");
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
             return ESP_FAIL;
         }
         buf[ret] = '\0';
+        ESP_LOGI(HTTP_TAG, "Delete sprite body: %s", buf);
         
         cJSON* root = cJSON_Parse(buf);
         if (!root) {
+            ESP_LOGE(HTTP_TAG, "Delete sprite: Invalid JSON");
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
             return ESP_FAIL;
         }
@@ -1997,6 +3075,8 @@ private:
         
         if (id && cJSON_IsNumber(id)) {
             int spriteId = id->valueint;
+            ESP_LOGI(HTTP_TAG, "Attempting to delete sprite ID: %d (total sprites: %d)", 
+                     spriteId, savedSprites_.size());
             for (auto it = savedSprites_.begin(); it != savedSprites_.end(); ++it) {
                 if (it->id == spriteId) {
                     ESP_LOGI(HTTP_TAG, "Deleted sprite %d ('%s')", spriteId, it->name.c_str());
@@ -2006,10 +3086,16 @@ private:
                     break;
                 }
             }
+            if (!success) {
+                ESP_LOGW(HTTP_TAG, "Sprite ID %d not found", spriteId);
+            }
+        } else {
+            ESP_LOGE(HTTP_TAG, "Delete sprite: Missing or invalid 'id' field");
         }
         
         cJSON_Delete(root);
         
+        ESP_LOGI(HTTP_TAG, "Delete sprite result: %s", success ? "success" : "failed");
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
@@ -2132,20 +3218,62 @@ private:
     static esp_err_t handleApiStorage(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return sendUnauthorized(req);
         
-        // Get actual SPIFFS stats
-        size_t totalBytes = 0, usedBytes = 0;
-        if (spiffs_initialized_) {
-            esp_spiffs_info(NULL, &totalBytes, &usedBytes);
-        } else {
-            // Fallback estimate if SPIFFS not initialized
-            totalBytes = 4 * 1024 * 1024;  // 4MB
+        // Get storage stats based on which storage is active
+        uint64_t totalBytes = 0, usedBytes = 0, freeBytes = 0;
+        const char* storageType = "none";
+        
+        if (sdcard_storage_ready_) {
+            // Use SD card stats
+            auto& fs = Utils::FileSystemService::instance();
+            totalBytes = fs.getTotalBytes();
+            freeBytes = fs.getFreeBytes();
+            usedBytes = totalBytes > freeBytes ? totalBytes - freeBytes : 0;
+            storageType = "sdcard";
+        } else if (spiffs_initialized_) {
+            // Use SPIFFS stats
+            size_t spiffsTotal = 0, spiffsUsed = 0;
+            esp_spiffs_info(NULL, &spiffsTotal, &spiffsUsed);
+            totalBytes = spiffsTotal;
+            usedBytes = spiffsUsed;
+            freeBytes = totalBytes > usedBytes ? totalBytes - usedBytes : 0;
+            storageType = "spiffs";
         }
         
         cJSON* root = cJSON_CreateObject();
-        cJSON_AddNumberToObject(root, "total", totalBytes);
-        cJSON_AddNumberToObject(root, "used", usedBytes);
-        cJSON_AddNumberToObject(root, "free", totalBytes > usedBytes ? totalBytes - usedBytes : 0);
+        cJSON_AddNumberToObject(root, "total", (double)totalBytes);
+        cJSON_AddNumberToObject(root, "used", (double)usedBytes);
+        cJSON_AddNumberToObject(root, "free", (double)freeBytes);
+        cJSON_AddStringToObject(root, "storageType", storageType);
         cJSON_AddNumberToObject(root, "spriteCount", savedSprites_.size());
+        cJSON_AddBoolToObject(root, "sdcardReady", sdcard_storage_ready_);
+        cJSON_AddBoolToObject(root, "spiffsReady", spiffs_initialized_);
+        
+        // List sprite binary files for debugging
+        cJSON* spriteFiles = cJSON_CreateArray();
+        const char* dataDir = sdcard_storage_ready_ ? "/sdcard/sprites" : "/spiffs/sprites";
+        DIR* dir = opendir(dataDir);
+        if (dir) {
+            struct dirent* entry;
+            while ((entry = readdir(dir)) != NULL) {
+                if (strstr(entry->d_name, ".bin") || strstr(entry->d_name, ".json")) {
+                    cJSON* fileObj = cJSON_CreateObject();
+                    cJSON_AddStringToObject(fileObj, "name", entry->d_name);
+                    
+                    // Get file size - limit filename to avoid truncation
+                    char fullPath[128];
+                    snprintf(fullPath, sizeof(fullPath), "%.15s/%.100s", dataDir, entry->d_name);
+                    struct stat st;
+                    if (stat(fullPath, &st) == 0) {
+                        cJSON_AddNumberToObject(fileObj, "size", st.st_size);
+                    }
+                    
+                    cJSON_AddItemToArray(spriteFiles, fileObj);
+                }
+            }
+            closedir(dir);
+        }
+        cJSON_AddItemToObject(root, "spriteFiles", spriteFiles);
+        cJSON_AddStringToObject(root, "spriteDir", dataDir);
         
         char* json = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
@@ -2491,12 +3619,41 @@ private:
         }
         
         ESP_LOGI(HTTP_TAG, "IMU calibration cleared from all storage");
-        
+
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, "{\"success\":true,\"message\":\"Calibration cleared\"}", HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
-    
+
+    /**
+     * @brief Toggle fan on/off
+     */
+    static esp_err_t handleApiFanToggle(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+
+        auto& state = SYNC_STATE.state();
+
+        // Toggle fan state
+        state.fanEnabled = !state.fanEnabled;
+        SYNC_STATE.notifyChange(SyncState::FLAG_FAN);
+
+        ESP_LOGI(HTTP_TAG, "Fan toggled: %s", state.fanEnabled ? "ON" : "OFF");
+
+        // Build JSON response
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", true);
+        cJSON_AddBoolToObject(root, "fanEnabled", state.fanEnabled);
+        cJSON_AddNumberToObject(root, "fanSpeed", state.fanSpeed);
+
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+
 public:
     /**
      * @brief Process IMU calibration - call this in the main loop
@@ -2844,6 +4001,291 @@ public:
         return ESP_OK;
     }
     
+    /**
+     * @brief Get hex dump of file
+     */
+    static esp_err_t handleApiSdCardHex(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isMounted()) {
+            httpd_resp_send(req, "SD card not mounted", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Get path from query
+        char path[256] = "";
+        char query[512];
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+            char value[256];
+            if (httpd_query_key_value(query, "path", value, sizeof(value)) == ESP_OK) {
+                strncpy(path, value, sizeof(path) - 1);
+                // URL decode
+                for (char* p = path; *p; p++) {
+                    if (*p == '%' && p[1] && p[2]) {
+                        char hex[3] = {p[1], p[2], 0};
+                        *p = (char)strtol(hex, nullptr, 16);
+                        memmove(p+1, p+3, strlen(p+3)+1);
+                    }
+                }
+            }
+        }
+        
+        if (path[0] == '\0') {
+            httpd_resp_send(req, "Missing path parameter", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Build full path
+        char fullPath[280];
+        if (path[0] == '/') {
+            snprintf(fullPath, sizeof(fullPath), "/sdcard%s", path);
+        } else {
+            snprintf(fullPath, sizeof(fullPath), "/sdcard/%s", path);
+        }
+        
+        FILE* f = fopen(fullPath, "rb");
+        if (!f) {
+            char errMsg[320];
+            snprintf(errMsg, sizeof(errMsg), "Failed to open: %s (errno=%d)", fullPath, errno);
+            httpd_resp_send(req, errMsg, HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Read up to 4KB for hex preview
+        const int maxBytes = 4096;
+        uint8_t* buffer = (uint8_t*)malloc(maxBytes);
+        if (!buffer) {
+            fclose(f);
+            httpd_resp_send(req, "Out of memory", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        size_t bytesRead = fread(buffer, 1, maxBytes, f);
+        fclose(f);
+        
+        // Build hex dump output
+        std::string hexOutput;
+        hexOutput.reserve(bytesRead * 4 + 256);
+        
+        char line[128];
+        for (size_t i = 0; i < bytesRead; i += 16) {
+            // Offset
+            snprintf(line, sizeof(line), "%08zx  ", i);
+            hexOutput += line;
+            
+            // Hex bytes
+            for (size_t j = 0; j < 16; j++) {
+                if (i + j < bytesRead) {
+                    snprintf(line, sizeof(line), "%02x ", buffer[i + j]);
+                    hexOutput += line;
+                } else {
+                    hexOutput += "   ";
+                }
+                if (j == 7) hexOutput += " ";
+            }
+            
+            // ASCII
+            hexOutput += " |";
+            for (size_t j = 0; j < 16 && i + j < bytesRead; j++) {
+                char c = buffer[i + j];
+                hexOutput += (c >= 32 && c < 127) ? c : '.';
+            }
+            hexOutput += "|\n";
+        }
+        
+        free(buffer);
+        
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, hexOutput.c_str(), HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Read file as text
+     */
+    static esp_err_t handleApiSdCardRead(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isMounted()) {
+            httpd_resp_send(req, "SD card not mounted", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Get path from query
+        char path[256] = "";
+        char query[512];
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+            char value[256];
+            if (httpd_query_key_value(query, "path", value, sizeof(value)) == ESP_OK) {
+                strncpy(path, value, sizeof(path) - 1);
+                // URL decode
+                for (char* p = path; *p; p++) {
+                    if (*p == '%' && p[1] && p[2]) {
+                        char hex[3] = {p[1], p[2], 0};
+                        *p = (char)strtol(hex, nullptr, 16);
+                        memmove(p+1, p+3, strlen(p+3)+1);
+                    }
+                }
+            }
+        }
+        
+        if (path[0] == '\0') {
+            httpd_resp_send(req, "Missing path parameter", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Read via FileSystemService
+        char* content = nullptr;
+        size_t contentSize = 0;
+        if (!sdCard.readFile(path, &content, &contentSize) || !content) {
+            httpd_resp_send(req, "Failed to read file", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, content, contentSize);
+        free(content);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Download file
+     */
+    static esp_err_t handleApiSdCardDownload(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isMounted()) {
+            httpd_resp_send(req, "SD card not mounted", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Get path from query
+        char path[256] = "";
+        char query[512];
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+            char value[256];
+            if (httpd_query_key_value(query, "path", value, sizeof(value)) == ESP_OK) {
+                strncpy(path, value, sizeof(path) - 1);
+                // URL decode
+                for (char* p = path; *p; p++) {
+                    if (*p == '%' && p[1] && p[2]) {
+                        char hex[3] = {p[1], p[2], 0};
+                        *p = (char)strtol(hex, nullptr, 16);
+                        memmove(p+1, p+3, strlen(p+3)+1);
+                    }
+                }
+            }
+        }
+        
+        if (path[0] == '\0') {
+            httpd_resp_send(req, "Missing path parameter", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Read via FileSystemService
+        char* content = nullptr;
+        size_t contentSize = 0;
+        if (!sdCard.readFile(path, &content, &contentSize) || !content) {
+            httpd_resp_send(req, "Failed to read file", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Get filename from path
+        const char* filename = strrchr(path, '/');
+        filename = filename ? filename + 1 : path;
+        
+        // Set download headers - truncate filename if too long
+        char safeFilename[64];
+        strncpy(safeFilename, filename, sizeof(safeFilename) - 1);
+        safeFilename[sizeof(safeFilename) - 1] = '\0';
+        
+        char header[128];
+        snprintf(header, sizeof(header), "attachment; filename=\"%.60s\"", safeFilename);
+        httpd_resp_set_hdr(req, "Content-Disposition", header);
+        httpd_resp_set_type(req, "application/octet-stream");
+        httpd_resp_send(req, content, contentSize);
+        free(content);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Delete file from SD card
+     */
+    static esp_err_t handleApiSdCardDelete(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isMounted()) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"SD card not mounted\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        // Read POST body
+        char body[512];
+        int bodyLen = httpd_req_recv(req, body, sizeof(body) - 1);
+        if (bodyLen <= 0) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"No data\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        body[bodyLen] = '\0';
+        
+        cJSON* json = cJSON_Parse(body);
+        if (!json) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Invalid JSON\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        cJSON* pathItem = cJSON_GetObjectItem(json, "path");
+        if (!pathItem || !cJSON_IsString(pathItem)) {
+            cJSON_Delete(json);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Missing path\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        const char* path = pathItem->valuestring;
+        ESP_LOGW(HTTP_TAG, "Deleting file: %s", path);
+        
+        bool success = sdCard.deleteFile(path);
+        
+        cJSON_Delete(json);
+        
+        cJSON* response = cJSON_CreateObject();
+        cJSON_AddBoolToObject(response, "success", success);
+        if (!success) {
+            cJSON_AddStringToObject(response, "error", "Failed to delete file");
+        }
+        
+        char* respJson = cJSON_PrintUnformatted(response);
+        cJSON_Delete(response);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, respJson, HTTPD_RESP_USE_STRLEN);
+        free(respJson);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Handle SD card browser page
+     */
+    static esp_err_t handlePageSdCard(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_send(req, Content::getPageSdCard(), HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
     // ========== Captive Portal Handlers ==========
 
     /**
@@ -3166,11 +4608,63 @@ public:
     CommandCallback command_callback_ = nullptr;
     Animation::AnimationConfigManager animConfigManager_;
     
+    // Callbacks stored as instance members (not namespace-level statics)
+    std::function<void(const SavedScene&)> sceneActivatedCallback_;
+    std::function<void(const SavedScene&)> sceneUpdatedCallback_;
+    std::function<void(const StaticSpriteSceneConfig&)> spriteDisplayCallback_;
+    std::function<void()> displayClearCallback_;
+    
 public:
     /**
      * @brief Get the animation configuration manager
      */
     Animation::AnimationConfigManager& getConfigManager() { return animConfigManager_; }
+    
+    // Callback accessors for static handlers
+    static std::function<void(const StaticSpriteSceneConfig&)>& getSpriteDisplayCallback() {
+        return instance().spriteDisplayCallback_;
+    }
+    static std::function<void()>& getDisplayClearCallback() {
+        return instance().displayClearCallback_;
+    }
+    static std::function<void(const SavedScene&)>& getSceneActivatedCallback() {
+        return instance().sceneActivatedCallback_;
+    }
+    static std::function<void(const SavedScene&)>& getSceneUpdatedCallback() {
+        return instance().sceneUpdatedCallback_;
+    }
+    
+    /**
+     * @brief Find a saved sprite by ID
+     * @param spriteId The sprite ID to find
+     * @return Pointer to sprite, or nullptr if not found
+     */
+    static SavedSprite* findSpriteById(int spriteId) {
+        ESP_LOGI(HTTP_TAG, "findSpriteById(%d): searching %d sprites", spriteId, savedSprites_.size());
+        for (auto& sprite : savedSprites_) {
+            ESP_LOGI(HTTP_TAG, "  - Checking sprite id=%d '%s' pixels=%s", 
+                     sprite.id, sprite.name.c_str(), sprite.pixelData.empty() ? "NO" : "YES");
+            if (sprite.id == spriteId) {
+                ESP_LOGI(HTTP_TAG, "  - FOUND!");
+                return &sprite;
+            }
+        }
+        ESP_LOGW(HTTP_TAG, "  - NOT FOUND");
+        return nullptr;
+    }
+    
+    /**
+     * @brief Mark a sprite as uploaded to GPU
+     * @param spriteId The sprite ID to mark
+     */
+    static void markSpriteUploaded(int spriteId) {
+        for (auto& sprite : savedSprites_) {
+            if (sprite.id == spriteId) {
+                sprite.uploadedToGpu = true;
+                break;
+            }
+        }
+    }
 };
 
 // Convenience macro

@@ -161,8 +161,48 @@ uart_config_t cfg = {
 };
 uart_param_config(UART_PORT, &cfg);
 uart_set_pin(UART_PORT, UART_TX_PIN, UART_RX_PIN, -1, -1);
-uart_driver_install(UART_PORT, 1024, 1024, 0, nullptr, 0);
+uart_driver_install(UART_PORT, 4096, 2048, 0, nullptr, 0);  // RX=4KB, TX=2KB
 ```
+
+### ⚠️ CRITICAL TIMING REQUIREMENTS
+
+**The GPU ESP32's uart_task needs time to initialize after boot!**
+
+If you send commands immediately after CPU UART init, the GPU may not be ready to receive them, resulting in:
+- Ping timeouts
+- Commands being lost/ignored
+- Intermittent connection failures
+
+**Required Timing:**
+
+```cpp
+// After uart_driver_install(), WAIT before sending first command!
+uart_driver_install(UART_PORT, 4096, 2048, 0, nullptr, 0);
+
+// CRITICAL: Wait 500ms for GPU to fully initialize its UART task
+// This matches the working CPU_PolygonDemo.cpp timing
+vTaskDelay(pdMS_TO_TICKS(500));
+
+// Now safe to send commands
+sendResetCommand();
+```
+
+**Best Practices:**
+1. **Wait 500ms** after UART init before sending first command
+2. Use `uart_wait_tx_done(port, timeout)` after sending commands that need confirmation
+3. Flush RX buffer before expecting responses: `uart_flush_input(port)`
+4. Use larger buffers (4096 RX, 2048 TX) for high-speed communication
+
+**Reference Implementation:**
+- See [CPU_PolygonDemo.cpp](src/CPU_PolygonDemo.cpp) - this demo works reliably every time
+- Line 193 has the critical 500ms delay after UART init
+
+**If GPU Won't Connect:**
+1. Check hardware connections (TX/RX crossover)
+2. Verify GPIO pins are correct
+3. **Increase startup delay** (500ms is minimum)
+4. Check baud rate matches (10 Mbps)
+5. Verify GPU firmware is flashed and running
 
 ---
 

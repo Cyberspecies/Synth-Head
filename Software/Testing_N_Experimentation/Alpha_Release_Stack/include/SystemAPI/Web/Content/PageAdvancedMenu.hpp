@@ -128,18 +128,18 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
               </div>
             </a>
             
-            <a href="/advanced/configs" class="submenu-card">
-              <span class="submenu-icon">&#x2699;</span>
-              <div class="submenu-title">Display Configurations</div>
-              <div class="submenu-desc">Create and edit animation configurations for HUB75 displays and LED strips. Assign sprites and effects.</div>
+            <a href="/advanced/scenes" class="submenu-card">
+              <span class="submenu-icon">&#x25A1;</span>
+              <div class="submenu-title">Scenes</div>
+              <div class="submenu-desc">Display sprites on HUB75 panels. Select, position, and activate sprites with custom backgrounds.</div>
               <div class="submenu-stats">
                 <div class="stat-item">
-                  <span class="stat-value" id="config-count">--</span>
-                  <span class="stat-label">Configs</span>
+                  <span class="stat-value" id="scene-sprite-count">--</span>
+                  <span class="stat-label">Sprites</span>
                 </div>
                 <div class="stat-item">
-                  <span class="stat-value" id="active-config">--</span>
-                  <span class="stat-label">Active</span>
+                  <span class="stat-value" id="scene-status">Ready</span>
+                  <span class="stat-label">Status</span>
                 </div>
               </div>
             </a>
@@ -156,6 +156,22 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
                 <div class="stat-item">
                   <span class="stat-value" id="sensor-count">27</span>
                   <span class="stat-label">Inputs</span>
+                </div>
+              </div>
+            </a>
+            
+            <a href="/sdcard" class="submenu-card">
+              <span class="submenu-icon">&#x1F4BE;</span>
+              <div class="submenu-title">SD Card Browser</div>
+              <div class="submenu-desc">Browse SD card filesystem. View files, check storage status, and manage saved data.</div>
+              <div class="submenu-stats">
+                <div class="stat-item">
+                  <span class="stat-value" id="sdcard-status">--</span>
+                  <span class="stat-label">Status</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-value" id="sdcard-free">--</span>
+                  <span class="stat-label">Free</span>
                 </div>
               </div>
             </a>
@@ -194,16 +210,16 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
       document.getElementById('storage-free').textContent = '4 MB';
     });
     
-    // Load config stats
-    fetch('/api/configs')
+    // Load scene stats (uses sprites count)
+    fetch('/api/sprites')
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.configs) {
-        document.getElementById('config-count').textContent = data.configs.length;
-        var active = data.configs.find(function(c) { return c.active; });
-        document.getElementById('active-config').textContent = active ? active.name : 'None';
+      if (data.sprites) {
+        document.getElementById('scene-sprite-count').textContent = data.sprites.length;
       }
-    }).catch(function() {});
+    }).catch(function() {
+      document.getElementById('scene-sprite-count').textContent = '0';
+    });
     
     // Load equation stats
     fetch('/api/equations')
@@ -214,6 +230,19 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
       }
     }).catch(function() {
       document.getElementById('equation-count').textContent = '0';
+    });
+    
+    // Load SD card stats
+    fetch('/api/sdcard/status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('sdcard-status').textContent = data.ready ? 'Ready' : 'Not Ready';
+      if (data.free !== undefined) {
+        document.getElementById('sdcard-free').textContent = formatBytes(data.free);
+      }
+    }).catch(function() {
+      document.getElementById('sdcard-status').textContent = 'Error';
+      document.getElementById('sdcard-free').textContent = '--';
     });
   }
   

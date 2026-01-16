@@ -54,6 +54,30 @@ Communication is via UART at **10 Mbps** (10,000,000 baud).
 - **HUB75**: Standard HUB75 pinout (directly connected)
 - **OLED**: I2C address `0x3C`
 
+### ⚠️ CRITICAL: Startup Timing Requirements
+
+**The GPU needs 500ms after boot before it can reliably receive UART commands!**
+
+When the CPU initializes UART and immediately starts sending commands, the GPU's `uart_task` may not be running yet. This causes:
+- Ping timeouts
+- Lost commands  
+- Intermittent "GPU not connected" errors
+
+**Solution:** Wait 500ms after UART init before sending first command.
+
+```cpp
+// Initialize UART
+uart_driver_install(UART_PORT, 4096, 2048, 0, nullptr, 0);
+
+// CRITICAL: Wait for GPU's uart_task to start!
+vTaskDelay(pdMS_TO_TICKS(500));  // 500ms minimum
+
+// Now safe to communicate
+sendPing();
+```
+
+**Reference:** [CPU_PolygonDemo.cpp](src/CPU_PolygonDemo.cpp) works every time because it uses this 500ms delay.
+
 ---
 
 ## Protocol Format
@@ -166,7 +190,11 @@ Physical Screen      →    Your Coordinates
 | **Drawing (Float - 8.8 Fixed Point)** |||
 | `0x48` | DRAW_LINE_F | Line with sub-pixel precision |
 | `0x49` | DRAW_CIRCLE_F | Circle with sub-pixel precision |
-| `0x4A` | DRAW_RECT_F | Rectangle with sub-pixel precision |
+| `0x4A` | DRAW_RECT_F | Rectangle outline with sub-pixel precision |
+| `0x4B` | DRAW_FILL_F | Filled rectangle with AA edges |
+| `0x4C` | BLIT_SPRITE_F | Sprite with sub-pixel position |
+| `0x4D` | BLIT_SPRITE_ROT | Sprite with rotation (transform matrix + AA) |
+| `0x4E` | SET_AA | Toggle anti-aliasing (0=off, 1=on, default on) |
 | **Target Control** |||
 | `0x50` | SET_TARGET | Select render target (0=HUB75, 1=OLED) |
 | `0x51` | PRESENT | Push buffer to display |
@@ -422,7 +450,7 @@ Draw circle with sub-pixel precision.
 ---
 
 #### `0x4A` - DRAW_RECT_F
-Draw rectangle with sub-pixel precision.
+Draw rectangle outline with sub-pixel precision.
 
 **Payload (11 bytes):**
 | Offset | Size | Description |
@@ -434,6 +462,89 @@ Draw rectangle with sub-pixel precision.
 | 8 | 1 | Red |
 | 9 | 1 | Green |
 | 10 | 1 | Blue |
+
+---
+
+#### `0x4B` - DRAW_FILL_F
+Draw filled rectangle with anti-aliased edges.
+
+**Payload (11 bytes):**
+| Offset | Size | Description |
+|--------|------|-------------|
+| 0-1 | 2 | X (8.8 fixed) |
+| 2-3 | 2 | Y (8.8 fixed) |
+| 4-5 | 2 | Width (8.8 fixed) |
+| 6-7 | 2 | Height (8.8 fixed) |
+| 8 | 1 | Red |
+| 9 | 1 | Green |
+| 10 | 1 | Blue |
+
+**Notes:**
+- Calculates edge coverage for smooth AA edges
+- When AA enabled: partial coverage blending at edges
+- When AA disabled: hard threshold edges
+
+---
+
+#### `0x4C` - BLIT_SPRITE_F
+Blit sprite with sub-pixel positioning.
+
+**Payload (5 bytes):**
+| Offset | Size | Description |
+|--------|------|-------------|
+| 0 | 1 | Sprite ID (0-15) |
+| 1-2 | 2 | X position (8.8 fixed) |
+| 3-4 | 2 | Y position (8.8 fixed) |
+
+**Notes:**
+- Sub-pixel offset is achieved via bilinear interpolation
+- Smooth sprite movement without stuttering
+
+---
+
+#### `0x4D` - BLIT_SPRITE_ROT
+Blit sprite with rotation using transformation matrix.
+
+**Payload (7 bytes):**
+| Offset | Size | Description |
+|--------|------|-------------|
+| 0 | 1 | Sprite ID (0-15) |
+| 1-2 | 2 | X position (8.8 fixed) - center of rotation |
+| 3-4 | 2 | Y position (8.8 fixed) - center of rotation |
+| 5-6 | 2 | Angle in degrees (8.8 fixed, signed) |
+
+**Notes:**
+- Rotation is around sprite center (pivot point)
+- When AA enabled: bilinear interpolation for smooth edges
+- When AA disabled: nearest neighbor (jagged but faster)
+- Angle range: -128° to +127.996° (8.8 fixed)
+- Positive angles = clockwise rotation
+
+**Example:**
+```
+Rotate sprite 0 at position (64, 16) by 45 degrees:
+[0x4D] [0x00] [0x00, 0x40] [0x00, 0x10] [0x00, 0x2D]
+       sprite  X=64.0       Y=16.0       angle=45.0
+```
+
+---
+
+#### `0x4E` - SET_AA
+Toggle GPU-side anti-aliasing.
+
+**Payload (1 byte):**
+| Value | Description |
+|-------|-------------|
+| 0 | Disable anti-aliasing (hard pixels, faster) |
+| 1 | Enable anti-aliasing (smooth edges, default) |
+
+**Affects:**
+- `DRAW_LINE_F` - Wu's anti-aliasing
+- `DRAW_CIRCLE_F` - Distance-based edge blending
+- `DRAW_FILL_F` - Edge coverage alpha blending
+- `BLIT_SPRITE_ROT` - Bilinear vs nearest neighbor
+
+**Default:** Anti-aliasing is ON (`aa_enabled = true`)
 
 ---
 

@@ -124,7 +124,7 @@ public:
         
         esp_vfs_fat_sdmmc_mount_config_t mount_config = {};
         mount_config.format_if_mount_failed = false;
-        mount_config.max_files = 5;
+        mount_config.max_files = 8;  // Increased for sprite operations
         mount_config.allocation_unit_size = 16 * 1024;
         
         sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
@@ -291,7 +291,7 @@ public:
         // Mount with format option
         esp_vfs_fat_sdmmc_mount_config_t mount_config = {};
         mount_config.format_if_mount_failed = true;
-        mount_config.max_files = 5;
+        mount_config.max_files = 8;  // Match normal mount
         mount_config.allocation_unit_size = 16 * 1024;
         
         sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();

@@ -22,6 +22,9 @@
 #include <functional>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <cerrno>
+#include "esp_log.h"
 
 namespace SystemAPI {
 namespace Utils {
@@ -256,22 +259,66 @@ public:
     }
     
     /**
-     * @brief Write data to file
+     * @brief Write data to file with proper sync
      * @return true on success
      */
     bool writeFile(const char* path, const void* data, size_t size) {
-        if (!hal_.isMounted()) return false;
+        if (!hal_.isMounted()) {
+            ESP_LOGE("FSService", "SD card not mounted");
+            return false;
+        }
         
         char fullPath[160];
         hal_.buildFullPath(fullPath, sizeof(fullPath), path);
         
+        // Ensure parent directory exists
+        char dirPath[160];
+        strncpy(dirPath, fullPath, sizeof(dirPath));
+        char* lastSlash = strrchr(dirPath, '/');
+        if (lastSlash && lastSlash != dirPath) {
+            *lastSlash = '\0';
+            struct stat st;
+            if (stat(dirPath, &st) != 0 || !S_ISDIR(st.st_mode)) {
+                ESP_LOGI("FSService", "Creating directory: %s", dirPath);
+                mkdir(dirPath, 0755);
+                vTaskDelay(pdMS_TO_TICKS(20));
+            }
+        }
+        
+        // Remove existing file first
+        struct stat fst;
+        if (stat(fullPath, &fst) == 0) {
+            ESP_LOGI("FSService", "Removing existing file: %s", fullPath);
+            remove(fullPath);
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        
+        // Open file for writing
+        ESP_LOGI("FSService", "Opening file: %s", fullPath);
         FILE* f = fopen(fullPath, "wb");
-        if (!f) return false;
+        if (!f) {
+            ESP_LOGE("FSService", "Failed to open file for writing: %s (errno=%d)", fullPath, errno);
+            return false;
+        }
         
         size_t written = fwrite(data, 1, size, f);
+        
+        // Flush and sync to ensure data is written to SD card
+        fflush(f);
+        int fd = fileno(f);
+        if (fd >= 0) {
+            fsync(fd);
+        }
+        
         fclose(f);
         
-        return written == size;
+        if (written != size) {
+            ESP_LOGE("FSService", "Write size mismatch: expected %zu, wrote %zu", size, written);
+            return false;
+        }
+        
+        ESP_LOGI("FSService", "Successfully wrote %zu bytes to %s", size, fullPath);
+        return true;
     }
     
     /**

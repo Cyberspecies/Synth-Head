@@ -77,6 +77,13 @@ struct SyncState {
   bool gpuHub75Ok = false;       // HUB75 display status
   bool gpuOledOk = false;        // OLED display status
   
+  // GPU alert stats
+  uint32_t gpuAlertsReceived = 0;   // Total alerts received from GPU
+  uint32_t gpuDroppedFrames = 0;    // Total dropped frames reported
+  uint32_t gpuBufferOverflows = 0;  // Total buffer overflows
+  bool gpuBufferWarning = false;    // Current buffer warning state
+  bool gpuHeapWarning = false;      // Current heap warning state
+  
   // Microphone
   bool micConnected = false;
   uint8_t micLevel = 0;
@@ -92,7 +99,8 @@ struct SyncState {
   // User controls (bidirectional)
   bool ledEnabled = false;
   uint8_t ledColor = 0;  // 0=off, 1=red, 2=green, 3=blue, 4=white
-  int16_t fanSpeed = 0;  // 0-100%
+  bool fanEnabled = false;  // Fan on/off toggle
+  int16_t fanSpeed = 100;   // 0-100% (default to full speed when enabled)
   
   // Menu selection
   uint8_t selectedMenuItem = 0;
@@ -220,6 +228,11 @@ public:
     notifyChange(SyncState::FLAG_LED);
   }
   
+  void setFanEnabled(bool val) {
+    state_.fanEnabled = val;
+    notifyChange(SyncState::FLAG_FAN);
+  }
+
   void setFanSpeed(int16_t val) {
     state_.fanSpeed = val;
     notifyChange(SyncState::FLAG_FAN);

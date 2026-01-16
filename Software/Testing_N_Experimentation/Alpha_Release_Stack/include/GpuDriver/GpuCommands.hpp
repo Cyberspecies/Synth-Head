@@ -6,11 +6,26 @@
  * 
  * Protocol: [0xAA][0x55][CmdType:1][Length:2][Payload:N]
  * 
+ * CRITICAL TIMING REQUIREMENTS:
+ * ============================
+ * 1. Wait 500ms after UART init before sending first command
+ *    - GPU needs time to start its uart_task after boot
+ *    - See CPU_PolygonDemo.cpp for working reference
+ * 
+ * 2. Use uart_wait_tx_done() after sending commands
+ *    - Ensures bytes are fully transmitted before continuing
+ * 
+ * 3. Flush RX buffer before expecting responses
+ *    - Clears any stale data from GPU boot messages
+ * 
+ * If GPU connection is intermittent, increase startup delay.
+ * PolygonDemo uses 500ms and works reliably every time.
+ * 
  * Usage:
  *   #include "GpuDriver/GpuCommands.hpp"
  *   
  *   GpuCommands gpu;
- *   gpu.init();
+ *   gpu.init();  // Includes 500ms startup delay
  *   
  *   // Draw on HUB75
  *   gpu.hub75Clear(0, 0, 0);
@@ -65,6 +80,7 @@ private:
         // Sprite commands
         UPLOAD_SPRITE = 0x20,
         DELETE_SPRITE = 0x21,
+        CLEAR_ALL_SPRITES = 0x22,  // Clear all sprites in one command
         
         // Variable commands
         SET_VAR = 0x30,
@@ -108,11 +124,66 @@ private:
         CONFIG_RESPONSE = 0xF3,// GPU configuration response
         REQUEST_STATS = 0xF4,  // Request GPU performance stats
         STATS_RESPONSE = 0xF5, // GPU stats response (FPS, RAM, load)
+        
+        // Alert system (GPU->CPU notifications)
+        ALERT = 0xF6,          // GPU sends alert to CPU
+        CLEAR_ALERT = 0xF7,    // CPU clears alert on GPU
+        REQUEST_ALERTS = 0xF8, // CPU requests alert status
+        ALERTS_RESPONSE = 0xF9,// GPU responds with alert status
+        
         RESET = 0xFF,
     };
     
+public:
+    // Alert severity levels (from GPU)
+    enum class AlertLevel : uint8_t {
+        INFO = 0,
+        WARNING = 1,
+        ERROR = 2,
+        CRITICAL = 3,
+    };
+    
+    // Alert types (from GPU)
+    enum class AlertType : uint8_t {
+        NONE = 0x00,
+        BUFFER_WARNING = 0x01,   // RX buffer > 50% full
+        BUFFER_CRITICAL = 0x02, // RX buffer > 75% full
+        BUFFER_OVERFLOW = 0x03, // RX buffer overflow detected
+        FRAME_DROP = 0x10,      // Frames being dropped
+        FRAME_DROP_SEVERE = 0x11, // Severe frame drops
+        HEAP_LOW = 0x20,        // Free heap < 50KB
+        HEAP_CRITICAL = 0x21,   // Free heap < 20KB
+        HUB75_ERROR = 0x30,     // HUB75 display error
+        OLED_ERROR = 0x31,      // OLED display error
+        UART_ERROR = 0x40,      // UART error
+        PARSER_ERROR = 0x41,    // Command parser error
+        RECOVERED = 0xF0,       // Previous alert condition recovered
+    };
+    
+    // GPU alert statistics structure
+    struct GpuAlertStats {
+        uint32_t alertsReceived;     // Total alerts received
+        uint32_t droppedFrames;      // Total dropped frames reported
+        uint32_t bufferOverflows;    // Total buffer overflows
+        bool bufferWarning;          // Current buffer warning state
+        bool heapWarning;            // Current heap warning state
+        AlertLevel highestLevel;     // Highest alert level seen
+    };
+
+private:
     uart_port_t port_;
     bool initialized_;
+    
+    // Alert tracking
+    GpuAlertStats alertStats_;
+    
+    // RX state machine for non-blocking alert parsing
+    uint8_t rxBuf_[64];
+    int rxState_;
+    uint8_t rxType_;
+    uint16_t rxLen_;
+    uint16_t rxPos_;
+    uint8_t rxPayload_[64];
     
     // 5x7 Font for text rendering (ASCII 32-126)
     // Stored column-wise: each byte is one column, LSB is top
@@ -223,9 +294,9 @@ private:
             static_cast<uint8_t>((len >> 8) & 0xFF)
         };
         
-        uart_write_bytes(port_, header, 5);
+        int written = uart_write_bytes(port_, header, 5);
         if (len > 0 && payload) {
-            uart_write_bytes(port_, payload, len);
+            written += uart_write_bytes(port_, payload, len);
         }
         uart_wait_tx_done(port_, pdMS_TO_TICKS(50));
     }
@@ -237,7 +308,12 @@ private:
     }
     
 public:
-    GpuCommands() : port_(DEFAULT_UART_PORT), initialized_(false) {}
+    GpuCommands() : port_(DEFAULT_UART_PORT), initialized_(false), 
+                    alertStats_{0, 0, 0, false, false, AlertLevel::INFO},
+                    rxState_(0), rxType_(0), rxLen_(0), rxPos_(0) {
+        memset(rxBuf_, 0, sizeof(rxBuf_));
+        memset(rxPayload_, 0, sizeof(rxPayload_));
+    }
     
     // ============================================================
     // Initialization
@@ -273,13 +349,26 @@ public:
         err = uart_set_pin(port_, txPin, rxPin, -1, -1);
         if (err != ESP_OK) return false;
         
-        err = uart_driver_install(port_, 1024, 1024, 0, nullptr, 0);
+        // Use larger RX buffer to match GPU TX buffer
+        err = uart_driver_install(port_, 4096, 2048, 0, nullptr, 0);
         if (err != ESP_OK) return false;
         
         initialized_ = true;
         
+        // CRITICAL: Wait 500ms for GPU to fully initialize its UART task
+        // This matches the working PolygonDemo timing. Shorter delays cause
+        // intermittent connection failures because GPU's uart_task hasn't started yet.
+        // See CPU_PolygonDemo.cpp line 193: vTaskDelay(pdMS_TO_TICKS(500))
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        // Flush any garbage data that accumulated during GPU boot
+        uart_flush_input(port_);
+        
         // Send reset to clear GPU state
         reset();
+        
+        // Wait for reset command to be fully transmitted
+        uart_wait_tx_done(port_, pdMS_TO_TICKS(50));
         
         return true;
     }
@@ -344,13 +433,20 @@ public:
      * @param uptimeMs Output: GPU uptime in milliseconds
      * @param timeoutMs Maximum wait time for response
      * @return true if PONG received, false on timeout
+     * 
+     * NOTE: If ping fails intermittently, ensure:
+     * 1. GPU has had 500ms+ to boot before first ping
+     * 2. uart_wait_tx_done is used after sending commands
+     * 3. See CPU_PolygonDemo.cpp for working reference implementation
      */
     bool pingWithResponse(uint32_t& uptimeMs, uint32_t timeoutMs = 500) {
-        // Flush any pending data
+        // Flush any pending data before ping
         uart_flush_input(port_);
+        vTaskDelay(pdMS_TO_TICKS(5));  // Small delay to let flush complete
         
-        // Send PING
+        // Send PING and wait for TX to complete
         sendCmd(CmdType::PING, nullptr, 0);
+        uart_wait_tx_done(port_, pdMS_TO_TICKS(20));
         
         // Wait for PONG response
         uint8_t header[5];
@@ -360,7 +456,7 @@ public:
         size_t headerReceived = 0;
         while (esp_timer_get_time() < endTime && headerReceived < 5) {
             int len = uart_read_bytes(port_, header + headerReceived, 
-                                      5 - headerReceived, pdMS_TO_TICKS(10));
+                                      5 - headerReceived, pdMS_TO_TICKS(20));
             if (len > 0) headerReceived += len;
         }
         
@@ -590,6 +686,221 @@ public:
         return true;
     }
     
+    // ============================================================
+    // Alert System - GPU to CPU Notifications
+    // ============================================================
+    
+    /**
+     * Get current alert statistics
+     * @return Reference to alert stats structure
+     */
+    const GpuAlertStats& getAlertStats() const {
+        return alertStats_;
+    }
+    
+    /**
+     * Check for and process any GPU alerts/responses (non-blocking)
+     * Call this periodically (e.g., in update loop) to receive GPU feedback.
+     * Alerts are automatically parsed and tracked in alertStats_.
+     */
+    void checkForAlerts() {
+        if (!initialized_) return;
+        
+        // Read available bytes (non-blocking)
+        int len = uart_read_bytes(port_, rxBuf_, sizeof(rxBuf_), 0);
+        if (len <= 0) return;
+        
+        // Parse bytes (state machine)
+        for (int i = 0; i < len; i++) {
+            uint8_t b = rxBuf_[i];
+            switch (rxState_) {
+                case 0: if (b == SYNC0) rxState_ = 1; break;
+                case 1: 
+                    if (b == SYNC1) rxState_ = 2; 
+                    else rxState_ = (b == SYNC0) ? 1 : 0; 
+                    break;
+                case 2: rxType_ = b; rxState_ = 3; break;
+                case 3: rxLen_ = b; rxState_ = 4; break;
+                case 4: 
+                    rxLen_ |= (b << 8);
+                    if (rxLen_ == 0) {
+                        rxState_ = 0;
+                    } else if (rxLen_ > sizeof(rxPayload_)) {
+                        rxState_ = 0;  // Payload too large, skip
+                    } else {
+                        rxPos_ = 0;
+                        rxState_ = 5;
+                    }
+                    break;
+                case 5:
+                    rxPayload_[rxPos_++] = b;
+                    if (rxPos_ >= rxLen_) {
+                        // Process complete message
+                        processResponse(static_cast<CmdType>(rxType_), rxPayload_, rxLen_);
+                        rxState_ = 0;
+                    }
+                    break;
+            }
+        }
+    }
+    
+    /**
+     * Reset alert statistics
+     */
+    void resetAlertStats() {
+        alertStats_ = {0, 0, 0, false, false, AlertLevel::INFO};
+    }
+    
+    /**
+     * Check if there are any active warnings
+     * @return true if buffer or heap warnings are active
+     */
+    bool hasActiveWarnings() const {
+        return alertStats_.bufferWarning || alertStats_.heapWarning;
+    }
+    
+    /**
+     * Check if critical alerts have been received
+     * @return true if any CRITICAL level alerts were received
+     */
+    bool hasCriticalAlerts() const {
+        return alertStats_.highestLevel == AlertLevel::CRITICAL;
+    }
+    
+    /**
+     * Get string representation of alert level
+     */
+    static const char* alertLevelToString(AlertLevel level) {
+        switch (level) {
+            case AlertLevel::INFO: return "INFO";
+            case AlertLevel::WARNING: return "WARN";
+            case AlertLevel::ERROR: return "ERROR";
+            case AlertLevel::CRITICAL: return "CRIT";
+            default: return "????";
+        }
+    }
+    
+    /**
+     * Get string representation of alert type
+     */
+    static const char* alertTypeToString(AlertType type) {
+        switch (type) {
+            case AlertType::NONE: return "NONE";
+            case AlertType::BUFFER_WARNING: return "BUFFER_WARNING";
+            case AlertType::BUFFER_CRITICAL: return "BUFFER_CRITICAL";
+            case AlertType::BUFFER_OVERFLOW: return "BUFFER_OVERFLOW";
+            case AlertType::FRAME_DROP: return "FRAME_DROP";
+            case AlertType::FRAME_DROP_SEVERE: return "FRAME_DROP_SEVERE";
+            case AlertType::HEAP_LOW: return "HEAP_LOW";
+            case AlertType::HEAP_CRITICAL: return "HEAP_CRITICAL";
+            case AlertType::HUB75_ERROR: return "HUB75_ERROR";
+            case AlertType::OLED_ERROR: return "OLED_ERROR";
+            case AlertType::UART_ERROR: return "UART_ERROR";
+            case AlertType::PARSER_ERROR: return "PARSER_ERROR";
+            case AlertType::RECOVERED: return "RECOVERED";
+            default: return "UNKNOWN";
+        }
+    }
+
+private:
+    /**
+     * Process a complete response from GPU
+     */
+    void processResponse(CmdType cmd, const uint8_t* payload, uint16_t len) {
+        switch (cmd) {
+            case CmdType::ALERT:
+                processAlert(payload, len);
+                break;
+            case CmdType::PONG:
+                // PONG received (could add callback if needed)
+                break;
+            default:
+                // Other responses can be handled here
+                break;
+        }
+    }
+    
+    /**
+     * Process an alert from GPU
+     * Payload format (16 bytes):
+     *   [0]     AlertLevel
+     *   [1]     AlertType
+     *   [2-5]   value1 (uint32_t)
+     *   [6-9]   value2 (uint32_t)
+     *   [10-13] timestamp_ms (uint32_t)
+     *   [14-15] alert_count (uint16_t)
+     */
+    void processAlert(const uint8_t* payload, uint16_t len) {
+        if (len < 16) return;
+        
+        AlertLevel level = static_cast<AlertLevel>(payload[0]);
+        AlertType type = static_cast<AlertType>(payload[1]);
+        uint32_t value1 = payload[2] | (payload[3] << 8) | (payload[4] << 16) | (payload[5] << 24);
+        uint32_t value2 = payload[6] | (payload[7] << 8) | (payload[8] << 16) | (payload[9] << 24);
+        // timestamp and alertCount available if needed
+        
+        alertStats_.alertsReceived++;
+        
+        // Track highest alert level
+        if (static_cast<uint8_t>(level) > static_cast<uint8_t>(alertStats_.highestLevel)) {
+            alertStats_.highestLevel = level;
+        }
+        
+        // Update tracking based on alert type
+        switch (type) {
+            case AlertType::BUFFER_WARNING:
+            case AlertType::BUFFER_CRITICAL:
+                alertStats_.bufferWarning = true;
+                ESP_LOGW("GpuCmd", "GPU ALERT [%s] %s: buffer %lu/%lu (%.1f%%)",
+                         alertLevelToString(level), alertTypeToString(type),
+                         value1, value2, (value1 * 100.0f) / value2);
+                break;
+                
+            case AlertType::BUFFER_OVERFLOW:
+                alertStats_.bufferOverflows++;
+                alertStats_.bufferWarning = true;
+                ESP_LOGE("GpuCmd", "GPU ALERT [%s] %s: lost ~%lu bytes, total overflows: %lu",
+                         alertLevelToString(level), alertTypeToString(type),
+                         value1, alertStats_.bufferOverflows);
+                break;
+                
+            case AlertType::FRAME_DROP:
+            case AlertType::FRAME_DROP_SEVERE:
+                alertStats_.droppedFrames = value2;  // value2 is total dropped
+                ESP_LOGW("GpuCmd", "GPU ALERT [%s] %s: dropped %lu frames this sec, %lu total",
+                         alertLevelToString(level), alertTypeToString(type),
+                         value1, alertStats_.droppedFrames);
+                break;
+                
+            case AlertType::HEAP_LOW:
+            case AlertType::HEAP_CRITICAL:
+                alertStats_.heapWarning = true;
+                ESP_LOGW("GpuCmd", "GPU ALERT [%s] %s: free heap %lu bytes, min %lu bytes",
+                         alertLevelToString(level), alertTypeToString(type),
+                         value1, value2);
+                break;
+                
+            case AlertType::RECOVERED:
+                if (static_cast<AlertType>(value1) == AlertType::BUFFER_WARNING ||
+                    static_cast<AlertType>(value1) == AlertType::BUFFER_CRITICAL) {
+                    alertStats_.bufferWarning = false;
+                    ESP_LOGI("GpuCmd", "GPU: Buffer recovered, now at %lu bytes", value2);
+                } else if (static_cast<AlertType>(value1) == AlertType::HEAP_LOW ||
+                           static_cast<AlertType>(value1) == AlertType::HEAP_CRITICAL) {
+                    alertStats_.heapWarning = false;
+                    ESP_LOGI("GpuCmd", "GPU: Heap recovered, now at %lu bytes", value2);
+                }
+                break;
+                
+            default:
+                ESP_LOGW("GpuCmd", "GPU ALERT [%s] %s: val1=%lu val2=%lu",
+                         alertLevelToString(level), alertTypeToString(type),
+                         value1, value2);
+                break;
+        }
+    }
+
+public:
     /** Reset GPU state (clears shaders, sprites, buffers) */
     void reset() {
         sendCmd(CmdType::RESET, nullptr, 0);
@@ -676,6 +987,149 @@ public:
     void hub75Present() {
         setTarget(0);
         sendCmd(CmdType::PRESENT, nullptr, 0);
+    }
+    
+    // ============================================================
+    // Sprite Commands (Upload and Blit)
+    // ============================================================
+    
+    /**
+     * Upload sprite data to GPU memory
+     * @param id Sprite ID (0-255)
+     * @param data RGB888 pixel data (width * height * 3 bytes)
+     * @param width Sprite width in pixels (max 255)
+     * @param height Sprite height in pixels (max 255)
+     * @return true if upload successful
+     * 
+     * Note: GPU has limited sprite slots (16 max). Max sprite size is 512 bytes.
+     * Protocol: UPLOAD_SPRITE [id:1][w:1][h:1][fmt:1][data:w*h*3]
+     * Format: 0 = RGB888 (3 bytes/pixel), 1 = 1bpp mono
+     */
+    bool uploadSprite(uint8_t id, const uint8_t* data, uint16_t width, uint16_t height) {
+        if (!data || width == 0 || height == 0) {
+            ESP_LOGW("GpuCmd", "uploadSprite: invalid parameters");
+            return false;
+        }
+        
+        // GPU supports max 255x255 sprites (8-bit dimensions)
+        if (width > 255 || height > 255) {
+            ESP_LOGW("GpuCmd", "uploadSprite: dimensions too large (%d x %d, max 255)", width, height);
+            return false;
+        }
+        
+        uint32_t dataSize = width * height * 3;  // RGB888
+        
+        // GPU has MAX_SPRITE_SIZE = 8192 bytes limit (52x52 RGB max)
+        if (dataSize > 8192) {
+            ESP_LOGW("GpuCmd", "uploadSprite: sprite data too large for GPU (%lu bytes, max 8192)", dataSize);
+            // Try anyway - GPU will reject it but at least we log the issue
+        }
+        
+        // Prepare header: [id:1][width:1][height:1][format:1]
+        // Format 0 = RGB888
+        uint8_t header[4];
+        header[0] = id;
+        header[1] = (uint8_t)width;
+        header[2] = (uint8_t)height;
+        header[3] = 0;  // Format: 0 = RGB888
+        
+        // Send command with header + pixel data
+        uint32_t totalSize = 4 + dataSize;
+        uint8_t* payload = (uint8_t*)malloc(totalSize);
+        if (!payload) {
+            ESP_LOGW("GpuCmd", "uploadSprite: out of memory");
+            return false;
+        }
+        
+        memcpy(payload, header, 4);
+        memcpy(payload + 4, data, dataSize);
+        
+        sendCmd(CmdType::UPLOAD_SPRITE, payload, totalSize);
+        
+        // Wait for transmission to complete (important for large sprites)
+        uart_wait_tx_done(port_, pdMS_TO_TICKS(100));
+        
+        free(payload);
+        
+        ESP_LOGI("GpuCmd", "Uploaded sprite %d (%dx%d fmt=0, %lu bytes)", 
+                 id, width, height, dataSize);
+        return true;
+    }
+    
+    /**
+     * Blit (draw) uploaded sprite to framebuffer
+     * @param id Sprite ID (0-255)
+     * @param x X position on display
+     * @param y Y position on display
+     * 
+     * Protocol: BLIT_SPRITE [id:1][x:2][y:2]
+     */
+    void blitSprite(uint8_t id, int16_t x, int16_t y) {
+        uint8_t payload[5];
+        payload[0] = id;
+        encodeI16(payload, 1, x);
+        encodeI16(payload, 3, y);
+        sendCmd(CmdType::BLIT_SPRITE, payload, 5);
+    }
+    
+    /**
+     * Convenience: Upload and immediately blit sprite
+     */
+    bool uploadAndBlitSprite(uint8_t id, const uint8_t* data, 
+                            uint16_t width, uint16_t height,
+                            int16_t x, int16_t y) {
+        if (uploadSprite(id, data, width, height)) {
+            blitSprite(id, x, y);
+            return true;
+        }
+        return false;
+    }
+    
+    /**
+     * Delete a sprite from GPU cache
+     * @param id Sprite ID to delete (0-255)
+     */
+    void deleteSprite(uint8_t id) {
+        sendCmd(CmdType::DELETE_SPRITE, &id, 1);
+        ESP_LOGI("GpuCmd", "Deleted sprite %d from GPU cache", id);
+    }
+    
+    /**
+     * Clear all sprite slots from GPU cache using efficient single command
+     * Call this on boot to ensure clean state
+     */
+    void clearAllSprites() {
+        ESP_LOGI("GpuCmd", "Clearing GPU sprite cache (all slots)...");
+        // Use efficient single command instead of 16 individual commands
+        sendCmd(CmdType::CLEAR_ALL_SPRITES, nullptr, 0);
+        vTaskDelay(pdMS_TO_TICKS(10));  // Small delay for GPU to process
+        ESP_LOGI("GpuCmd", "GPU sprite cache cleared");
+    }
+    
+    /**
+     * Full GPU boot initialization - clear displays and sprite cache
+     * Call this after init() to ensure clean state
+     */
+    void bootClean() {
+        ESP_LOGI("GpuCmd", "GPU boot clean - clearing all state...");
+        
+        // Send reset to clear GPU state
+        reset();
+        vTaskDelay(pdMS_TO_TICKS(50));
+        
+        // Clear sprite cache
+        clearAllSprites();
+        
+        // Clear HUB75 to black
+        hub75Clear(0, 0, 0);
+        hub75Present();
+        
+        // Clear OLED  
+        oledClear();
+        oledPresent();
+        
+        vTaskDelay(pdMS_TO_TICKS(20));
+        ESP_LOGI("GpuCmd", "GPU boot clean complete");
     }
     
     // ============================================================

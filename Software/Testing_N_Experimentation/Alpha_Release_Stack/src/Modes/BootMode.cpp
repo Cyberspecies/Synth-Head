@@ -11,6 +11,7 @@
 #include "SystemAPI/Security/SecurityDriver.hpp"
 #include "SystemAPI/Web/CaptivePortal.hpp"
 #include "SystemAPI/Misc/SyncState.hpp"
+#include "SystemAPI/Utils/FileSystemService.hpp"
 #include "HAL/ESP32/Esp32HalDataStore.hpp"
 #include "HAL/ESP32/Esp32HalLog.hpp"
 #include "driver/gpio.h"
@@ -210,6 +211,26 @@ bool BootMode::onBoot() {
         }
         printf("\n");
     }
+    
+    // Initialize SD Card BEFORE CaptivePortal so sprites can be loaded from SD
+    printf("  ┌────────────────────────────────────┐\n");
+    printf("  │   STORAGE INITIALIZATION          │\n");
+    printf("  └────────────────────────────────────┘\n");
+    auto& sdCard = SystemAPI::Utils::FileSystemService::instance();
+    SystemAPI::Utils::SdCardPins sdPins = {
+        .miso = 14,
+        .mosi = 47,
+        .clk = 21,
+        .cs = 48
+    };
+    if (sdCard.init(sdPins)) {
+        printf("  SD Card: Ready (%llu MB total, %llu MB free)\n", 
+               sdCard.getTotalBytes() / (1024 * 1024),
+               sdCard.getFreeBytes() / (1024 * 1024));
+    } else {
+        printf("  SD Card: Not available (using SPIFFS fallback)\n");
+    }
+    printf("\n");
     
     // Initialize Captive Portal with security credentials
     auto& portal = SystemAPI::Web::CaptivePortal::instance();

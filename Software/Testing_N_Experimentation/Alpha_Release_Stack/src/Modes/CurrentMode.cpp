@@ -12,6 +12,8 @@
 #include "SystemAPI/Security/SecurityDriver.hpp"
 #include "SystemAPI/Misc/SyncState.hpp"
 #include "SystemAPI/Utils/FileSystemService.hpp"
+#include "Application/Application.hpp"  // Dual-core application layer
+#include "Application/Pipeline/SceneRenderer.hpp"  // Scene renderer for Core 1
 #include "esp_timer.h"
 #include "driver/uart.h"
 #include "driver/i2s_std.h"
@@ -33,7 +35,7 @@ namespace GpsDriver {
     static constexpr int GPS_TX_PIN = 43;  // ESP TX -> GPS RX
     static constexpr int GPS_RX_PIN = 44;  // ESP RX <- GPS TX  
     static constexpr int GPS_BAUD = 9600;
-    static constexpr uart_port_t GPS_UART = UART_NUM_1;
+    static constexpr uart_port_t GPS_UART = UART_NUM_2;  // Changed from UART_NUM_1 to avoid conflict with GPU
     
     static bool initialized = false;
     static char nmeaBuffer[256];
@@ -605,6 +607,58 @@ namespace ImuDriver {
 }
 
 //=============================================================================
+// Fan Driver - Simple GPIO On/Off Control
+//=============================================================================
+namespace FanDriver {
+    // Fan pins (from PIN_MAPPING_CPU.md)
+    static constexpr gpio_num_t FAN_1_PIN = GPIO_NUM_17;
+    static constexpr gpio_num_t FAN_2_PIN = GPIO_NUM_36;
+
+    static bool initialized = false;
+    static bool currentState = false;  // Track current fan state
+
+    bool init() {
+        if (initialized) return true;
+
+        // Configure fan pins as outputs
+        gpio_config_t io_conf = {};
+        io_conf.intr_type = GPIO_INTR_DISABLE;
+        io_conf.mode = GPIO_MODE_OUTPUT;
+        io_conf.pin_bit_mask = (1ULL << FAN_1_PIN) | (1ULL << FAN_2_PIN);
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+
+        esp_err_t err = gpio_config(&io_conf);
+        if (err != ESP_OK) {
+            printf("  FAN: GPIO config failed: %d\n", err);
+            return false;
+        }
+
+        // Start with fans off
+        gpio_set_level(FAN_1_PIN, 0);
+        gpio_set_level(FAN_2_PIN, 0);
+        currentState = false;
+
+        initialized = true;
+        printf("  FAN: Initialized (GPIO %d, %d)\n", FAN_1_PIN, FAN_2_PIN);
+        return true;
+    }
+
+    // Update fan state based on SyncState - call this in main loop
+    void update(bool enabled) {
+        if (!initialized) return;
+
+        // Only change GPIO if state changed
+        if (enabled != currentState) {
+            currentState = enabled;
+            gpio_set_level(FAN_1_PIN, enabled ? 1 : 0);
+            gpio_set_level(FAN_2_PIN, enabled ? 1 : 0);
+            printf("  FAN: %s\n", enabled ? "ON" : "OFF");
+        }
+    }
+}
+
+//=============================================================================
 // GPU UART Driver - ESP-to-ESP Communication (Proper Protocol)
 //=============================================================================
 #include "GpuDriver/GpuCommands.hpp"
@@ -637,8 +691,8 @@ namespace GpuDriver {
     bool init() {
         if (initialized) return true;
         
-        // Initialize using GpuCommands (10Mbps)
-        if (!gpu.init(UART_NUM_2, GPU_TX_PIN, GPU_RX_PIN)) {
+        // Initialize using GpuCommands (10Mbps) - MUST use UART_NUM_1 (same as working PolygonDemo)
+        if (!gpu.init(UART_NUM_1, GPU_TX_PIN, GPU_RX_PIN)) {
             printf("  GPU: Init failed\n");
             return false;
         }
@@ -647,12 +701,22 @@ namespace GpuDriver {
         lastPingTime = 0;
         connected = false;
         printf("  GPU: UART initialized via GpuCommands (TX:%d, RX:%d @ 10Mbps)\n", GPU_TX_PIN, GPU_RX_PIN);
+        
+        // Clean boot - clear GPU displays and sprite cache
+        printf("  GPU: Cleaning boot state (clearing displays and sprite cache)...\n");
+        gpu.bootClean();
+        printf("  GPU: Boot clean complete\n");
+        
         return true;
     }
     
-    // Non-blocking update - periodically ping GPU and fetch stats
+    // Non-blocking update - periodically ping GPU, check alerts, and fetch stats
     void update(uint32_t currentTimeMs) {
         if (!initialized) return;
+        
+        // IMPORTANT: Always check for alerts first (non-blocking)
+        // This processes any GPU->CPU alerts like buffer warnings, frame drops, etc.
+        gpu.checkForAlerts();
         
         // Send periodic ping with response
         if (currentTimeMs - lastPingTime >= PING_INTERVAL_MS) {
@@ -689,6 +753,11 @@ namespace GpuDriver {
     // Getters
     GpuCommands& getGpu() { return gpu; }
     uint32_t getGpuUptime() { return gpuUptimeMs; }
+    
+    // Alert getters
+    const GpuCommands::GpuAlertStats& getAlertStats() { return gpu.getAlertStats(); }
+    bool hasActiveWarnings() { return gpu.hasActiveWarnings(); }
+    bool hasCriticalAlerts() { return gpu.hasCriticalAlerts(); }
 }
 
 // Simulated sensor values (for sensors not yet implemented)
@@ -726,7 +795,14 @@ void CurrentMode::onStart() {
     } else {
         printf("  IMU: Init failed - will use simulation\n");
     }
-    
+
+    // Initialize Fan driver
+    if (FanDriver::init()) {
+        printf("  FAN: Ready\n");
+    } else {
+        printf("  FAN: Init failed\n");
+    }
+
     // Initialize GPU UART driver
     if (GpuDriver::init()) {
         printf("  GPU: UART Ready - waiting for connection\n");
@@ -748,6 +824,160 @@ void CurrentMode::onStart() {
                sdCard.getFreeBytes() / (1024 * 1024));
     } else {
         printf("  SD Card: Not available\n");
+    }
+    
+    // =====================================================
+    // Initialize Dual-Core Application Layer
+    // Core 0: This task - sensors, network, web, input
+    // Core 1: GPU Pipeline - animation rendering
+    // =====================================================
+    printf("\n  ┌────────────────────────────────────┐\n");
+    printf("  │   DUAL-CORE APPLICATION LAYER     │\n");
+    printf("  └────────────────────────────────────┘\n");
+    
+    if (Application::init()) {
+        printf("  App Layer: Initialized\n");
+        
+        // Configure eye controller
+        auto& eye = Application::eye();
+        Application::EyeControllerConfig eyeConfig;
+        eyeConfig.autoBlinkEnabled = true;
+        eyeConfig.autoBlinkIntervalMin = 2.5f;
+        eyeConfig.autoBlinkIntervalMax = 5.0f;
+        eyeConfig.idleLookEnabled = true;
+        eyeConfig.idleLookRange = 0.3f;
+        eyeConfig.imuLookEnabled = true;  // Enable IMU-driven eye movement
+        eyeConfig.imuSensitivity = 0.03f;
+        eyeConfig.imuDeadzone = 8.0f;
+        eyeConfig.defaultShader = 1;      // Rainbow
+        eyeConfig.defaultBrightness = 80;
+        eyeConfig.mirrorMode = true;
+        eye.configure(eyeConfig);
+        printf("  Eye Controller: Configured\n");
+        
+        // Start dual-core execution (GPU task on Core 1)
+        if (Application::start()) {
+            printf("  Core 1 GPU Task: Started\n");
+            printf("  Animation Pipeline: Running at 60 FPS\n");
+        } else {
+            printf("  Core 1 GPU Task: FAILED TO START\n");
+        }
+    } else {
+        printf("  App Layer: INIT FAILED\n");
+    }
+    
+    // =====================================================
+    // Set up Web -> GPU Pipeline Callbacks
+    // These connect web UI actions to GPU rendering
+    // =====================================================
+    auto& httpServer = SystemAPI::Web::HttpServer::instance();
+    
+    // Callback for displaying a sprite scene on HUB75
+    // This sets the scene config which Core 1's SceneRenderer will render at 60fps
+    httpServer.setSpriteDisplayCallback([](const SystemAPI::Web::StaticSpriteSceneConfig& config) {
+        printf("\n  ========================================\n");
+        printf("  SPRITE DISPLAY - Setting Scene Config\n");
+        printf("  Sprite ID: %d\n", config.spriteId);
+        printf("  Position: (%d, %d)\n", config.posX, config.posY);
+        printf("  Background: RGB(%d, %d, %d)\n", config.bgR, config.bgG, config.bgB);
+        
+        // Look up the sprite to get pixel data
+        auto* sprite = SystemAPI::Web::HttpServer::findSpriteById(config.spriteId);
+        if (sprite) {
+            printf("  Sprite found: '%s' (%dx%d), pixels=%s\n", 
+                   sprite->name.c_str(), sprite->width, sprite->height,
+                   sprite->pixelData.empty() ? "NO" : "YES");
+            
+            // Always re-upload sprite to GPU to ensure fresh data
+            // (GPU cache may have been cleared on boot or by other operations)
+            if (!sprite->pixelData.empty()) {
+                printf("  Uploading sprite to GPU cache...\n");
+                // Use a fixed GPU sprite ID (e.g., 0) for web sprites
+                // We map web sprite IDs to GPU cache slot 0 for now
+                uint8_t gpuSpriteId = 0;  // Use slot 0 for web-uploaded sprites
+                
+                // Delete old sprite first to ensure clean state
+                GpuDriver::getGpu().deleteSprite(gpuSpriteId);
+                vTaskDelay(pdMS_TO_TICKS(5));  // Small delay
+                
+                if (GpuDriver::getGpu().uploadSprite(gpuSpriteId, 
+                                                      sprite->pixelData.data(), 
+                                                      sprite->width, 
+                                                      sprite->height)) {
+                    SystemAPI::Web::HttpServer::markSpriteUploaded(config.spriteId);
+                    printf("  Sprite uploaded to GPU slot %d (%zu bytes)\n", 
+                           gpuSpriteId, sprite->pixelData.size());
+                } else {
+                    printf("  ERROR: Failed to upload sprite to GPU!\n");
+                }
+            } else {
+                printf("  WARNING: No pixel data - showing test pattern\n");
+            }
+        } else {
+            printf("  WARNING: Sprite ID %d not found!\n", config.spriteId);
+        }
+        printf("  ========================================\n\n");
+        
+        // Configure the scene for Core 1's SceneRenderer
+        // Use STATIC_SPRITE type to blit the cached sprite at given position
+        Application::SceneConfig sceneConfig;
+        sceneConfig.type = Application::SceneType::STATIC_SPRITE;
+        sceneConfig.bgR = config.bgR;
+        sceneConfig.bgG = config.bgG;
+        sceneConfig.bgB = config.bgB;
+        // Use GPU sprite slot 0 (where we uploaded the sprite)
+        sceneConfig.spriteId = 0;  // GPU cache slot, not web sprite ID
+        sceneConfig.posX = static_cast<float>(config.posX);
+        sceneConfig.posY = static_cast<float>(config.posY);
+        sceneConfig.width = sprite ? sprite->width : 32;
+        sceneConfig.height = sprite ? sprite->height : 32;
+        sceneConfig.spriteR = 0;
+        sceneConfig.spriteG = 255;
+        sceneConfig.spriteB = 128;
+        sceneConfig.useSmoothing = false;  // Static = no smoothing
+        
+        // Set the scene - SceneRenderer on Core 1 will render it at 60fps
+        Application::getSceneRenderer().setScene(sceneConfig);
+        
+        printf("  Scene Config sent to Core 1 SceneRenderer (STATIC_SPRITE)\n\n");
+    });
+    
+    // Callback for clearing the display (returns to animation mode)
+    httpServer.setDisplayClearCallback([]() {
+        printf("  Clearing scene - returning to animation mode\n");
+        
+        // Clear the scene - SceneRenderer will stop, AnimationPipeline resumes
+        Application::getSceneRenderer().clearScene();
+        
+        printf("  Scene cleared, animation resumed\n");
+    });
+    
+    printf("  Web-GPU Callbacks: Registered\n");
+    
+    // Print sprite storage summary
+    {
+        auto& httpServer = SystemAPI::Web::HttpServer::instance();
+        const auto& sprites = httpServer.getSprites();
+        printf("\n  ┌────────────────────────────────────┐\n");
+        printf("  │   SPRITE STORAGE SUMMARY           │\n");
+        printf("  └────────────────────────────────────┘\n");
+        printf("  Total Sprites Loaded: %zu\n", sprites.size());
+        int builtIn = 0, storage = 0;
+        for (const auto& sp : sprites) {
+            if (sp.id < 100) builtIn++;  // IDs 0-99 are built-in
+            else storage++;               // IDs 100+ are from storage
+        }
+        printf("  Built-in Sprites: %d\n", builtIn);
+        printf("  From Storage: %d\n", storage);
+        if (!sprites.empty()) {
+            printf("  Sprite List:\n");
+            for (const auto& sp : sprites) {
+                printf("    [%d] %s (%dx%d, %zu bytes)%s\n", 
+                       sp.id, sp.name.c_str(), sp.width, sp.height, sp.pixelData.size(),
+                       sp.id >= 100 ? " [SAVED]" : "");
+            }
+        }
+        printf("\n");
     }
     
     // Print initial credentials
@@ -783,9 +1013,12 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
     MicDriver::update();
     ImuDriver::update();
     GpuDriver::update(currentTimeMs);
-    
+
     // Get SyncState reference
     auto& state = SystemAPI::SYNC_STATE.state();
+
+    // Update fan based on web UI state
+    FanDriver::update(state.fanEnabled);
     
     // Update system stats
     state.uptime = esp_timer_get_time() / 1000000; // seconds
@@ -864,6 +1097,64 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
     state.gpuHub75Ok = GpuDriver::gpuHub75Ok;
     state.gpuOledOk = GpuDriver::gpuOledOk;
     
+    // Update GPU alert stats
+    const auto& alertStats = GpuDriver::getAlertStats();
+    state.gpuAlertsReceived = alertStats.alertsReceived;
+    state.gpuDroppedFrames = alertStats.droppedFrames;
+    state.gpuBufferOverflows = alertStats.bufferOverflows;
+    state.gpuBufferWarning = alertStats.bufferWarning;
+    state.gpuHeapWarning = alertStats.heapWarning;
+    
+    // =====================================================
+    // Update Dual-Core Application Layer
+    // =====================================================
+    
+    // Update eye controller with IMU data for look tracking
+    auto& eye = Application::eye();
+    
+    // Calculate pitch and roll from accelerometer for eye tracking
+    // accelX, accelY, accelZ are in milli-g
+    float ax = state.accelX / 1000.0f;
+    float ay = state.accelY / 1000.0f;
+    float az = state.accelZ / 1000.0f;
+    
+    // Calculate pitch and roll angles (simplified)
+    float pitch = atan2f(-ax, sqrtf(ay * ay + az * az)) * 180.0f / 3.14159f;
+    float roll = atan2f(ay, az) * 180.0f / 3.14159f;
+    
+    // Update eye controller from IMU
+    eye.updateFromIMU(pitch, roll);
+    
+    // Update eye controller from audio (for reactive effects)
+    eye.updateFromAudio(state.micDb);
+    
+    // Update application layer (publishes to Core 1)
+    Application::update(deltaMs);
+    
+    // Also publish sensor data to the application buffer
+    Application::SensorData sensorData;
+    sensorData.accelX = ax;
+    sensorData.accelY = ay;
+    sensorData.accelZ = az;
+    sensorData.gyroX = state.gyroX;
+    sensorData.gyroY = state.gyroY;
+    sensorData.gyroZ = state.gyroZ;
+    sensorData.pitch = pitch;
+    sensorData.roll = roll;
+    sensorData.temperature = state.temperature;
+    sensorData.humidity = state.humidity;
+    sensorData.pressure = state.pressure;
+    sensorData.latitude = state.latitude;
+    sensorData.longitude = state.longitude;
+    sensorData.altitude = state.altitude;
+    sensorData.speed = state.gpsSpeed;
+    sensorData.satellites = state.satellites;
+    sensorData.gpsValid = state.gpsValid;
+    sensorData.audioLevel = state.micDb;
+    sensorData.audioLevelPercent = state.micLevel;
+    sensorData.timestampMs = currentTimeMs;
+    Application::publishSensorData(sensorData);
+    
     // Print credentials every 10 seconds
     if (m_credentialPrintTime >= 10000) {
         auto& security = arcos::security::SecurityDriver::instance();
@@ -877,6 +1168,29 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
                (unsigned long)GpsDriver::bytesReceived);
         printf("  GPU: %s\n", GpuDriver::connected ? "Connected" : "N/C");
         printf("  MIC: %.1f dB (avg)\n", MicDriver::avgDb);
+        
+        // Print sprite summary once (first time after boot) so it's visible in serial
+        static bool spriteSummaryPrinted = false;
+        if (!spriteSummaryPrinted) {
+            spriteSummaryPrinted = true;
+            auto& httpServer = SystemAPI::Web::HttpServer::instance();
+            const auto& sprites = httpServer.getSprites();
+            printf("  ---- SPRITES ----\n");
+            printf("  Total: %zu (Built-in: ", sprites.size());
+            int builtIn = 0, storage = 0;
+            for (const auto& sp : sprites) {
+                if (sp.id < 100) builtIn++; else storage++;
+            }
+            printf("%d, From SD: %d)\n", builtIn, storage);
+            if (storage > 0) {
+                printf("  Saved sprites from storage:\n");
+                for (const auto& sp : sprites) {
+                    if (sp.id >= 100) {
+                        printf("    [%d] %s (%dx%d)\n", sp.id, sp.name.c_str(), sp.width, sp.height);
+                    }
+                }
+            }
+        }
         printf("  ----------------------------------------\n");
         m_credentialPrintTime = 0;
     }
@@ -892,6 +1206,11 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
 
 void CurrentMode::onStop() {
     printf("  Current mode stopped after %lu updates\n", (unsigned long)m_updateCount);
+    
+    // Stop and shutdown application layer
+    Application::stop();
+    Application::shutdown();
+    printf("  Application layer shutdown complete\n");
 }
 
 } // namespace Modes

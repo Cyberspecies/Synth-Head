@@ -125,7 +125,49 @@ inline const char PAGE_SYSTEM[] = R"rawliteral(
           </div>
         </div>
       </div>
-      
+
+      <div class="card">
+        <div class="card-header"><h2>Device IMU (Calibrated)</h2></div>
+        <div class="card-body compact">
+          <div class="imu-section">
+            <span class="imu-section-label">Accelerometer</span>
+            <div class="imu-bar-row">
+              <span class="axis-label">X</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="dev-accel-x-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="dev-ax">0.00</span>
+            </div>
+            <div class="imu-bar-row">
+              <span class="axis-label">Y</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="dev-accel-y-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="dev-ay">0.00</span>
+            </div>
+            <div class="imu-bar-row">
+              <span class="axis-label">Z</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="dev-accel-z-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="dev-az">0.00</span>
+            </div>
+          </div>
+          <div class="imu-section">
+            <span class="imu-section-label">Gyroscope</span>
+            <div class="imu-bar-row">
+              <span class="axis-label">X</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="dev-gyro-x-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="dev-gx">0.00</span>
+            </div>
+            <div class="imu-bar-row">
+              <span class="axis-label">Y</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="dev-gyro-y-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="dev-gy">0.00</span>
+            </div>
+            <div class="imu-bar-row">
+              <span class="axis-label">Z</span>
+              <div class="imu-bar"><div class="imu-bar-fill" id="dev-gyro-z-bar"></div><div class="imu-bar-center"></div></div>
+              <span class="imu-value" id="dev-gz">0.00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header"><h2>GPS</h2></div>
         <div class="card-body compact">
@@ -151,6 +193,18 @@ inline const char PAGE_SYSTEM[] = R"rawliteral(
               <div class="mic-level-fill" id="mic-level-fill"></div>
             </div>
             <span class="mic-db" id="mic-db">-- dB</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h2>Controls</h2></div>
+        <div class="card-body compact">
+          <div class="sys-row">
+            <span>Cooling Fans</span>
+            <button class="toggle-btn" id="fan-toggle-btn" onclick="toggleFan()">
+              <span id="fan-status-text">OFF</span>
+            </button>
           </div>
         </div>
       </div>
@@ -180,9 +234,44 @@ inline const char PAGE_SYSTEM[] = R"rawliteral(
   .imu-bar-fill { position: absolute; height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%); transition: left 0.1s ease-out, width 0.1s ease-out; border-radius: 6px; }
   .imu-bar-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #444; transform: translateX(-50%); }
   .imu-value { min-width: 50px; text-align: right; font-family: 'SF Mono', Monaco, monospace; font-size: 0.8rem; color: #fff; }
+
+  /* Toggle Button Styles */
+  .toggle-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #444; background: #2a2a2a; color: #888; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s ease; min-width: 60px; }
+  .toggle-btn:hover { background: #333; border-color: #555; }
+  .toggle-btn.active { background: #22c55e; border-color: #22c55e; color: #fff; }
+  .toggle-btn.active:hover { background: #16a34a; border-color: #16a34a; }
   </style>
   
   <script>
+  function toggleFan() {
+    var btn = document.getElementById('fan-toggle-btn');
+    btn.disabled = true;
+    fetch('/api/fan/toggle', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          updateFanUI(data.fanEnabled);
+        }
+        btn.disabled = false;
+      })
+      .catch(err => {
+        console.error('Fan toggle error:', err);
+        btn.disabled = false;
+      });
+  }
+
+  function updateFanUI(enabled) {
+    var btn = document.getElementById('fan-toggle-btn');
+    var text = document.getElementById('fan-status-text');
+    if (enabled) {
+      btn.classList.add('active');
+      text.textContent = 'ON';
+    } else {
+      btn.classList.remove('active');
+      text.textContent = 'OFF';
+    }
+  }
+
   function formatUptime(seconds) {
     var h = Math.floor(seconds / 3600);
     var m = Math.floor((seconds % 3600) / 60);
@@ -217,7 +306,31 @@ inline const char PAGE_SYSTEM[] = R"rawliteral(
       bar.style.background = 'linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%)';
     }
   }
-  
+
+  // Update Device IMU bar - similar to updateImuBar but displays floats with 2 decimal places
+  function updateDeviceImuBar(barId, valueId, value, maxVal) {
+    var bar = document.getElementById(barId);
+    var valueEl = document.getElementById(valueId);
+    if (!bar || !valueEl) return;
+
+    valueEl.textContent = value.toFixed(2);
+
+    // Square root scale for visual representation
+    var absVal = Math.abs(value);
+    var pct = Math.sqrt(absVal) / Math.sqrt(maxVal) * 50;
+    pct = Math.min(pct, 50);
+
+    if (value >= 0) {
+      bar.style.left = '50%';
+      bar.style.width = pct + '%';
+      bar.style.background = 'linear-gradient(90deg, #10b981 0%, #34d399 100%)';
+    } else {
+      bar.style.left = (50 - pct) + '%';
+      bar.style.width = pct + '%';
+      bar.style.background = 'linear-gradient(90deg, #8b5cf6 0%, #a78bfa 100%)';
+    }
+  }
+
   var pollDelay = 200;
   function fetchState() {
     fetch('/api/state')
@@ -283,7 +396,23 @@ inline const char PAGE_SYSTEM[] = R"rawliteral(
           updateImuBar('gyro-y-bar', 'imu-gy', data.imu.gyroY, GYRO_MAX);
           updateImuBar('gyro-z-bar', 'imu-gz', data.imu.gyroZ, GYRO_MAX);
         }
-        
+
+        // Device IMU (calibrated values - floats in g and deg/s)
+        if (data.deviceImu) {
+          var DEV_ACCEL_MAX = 2.0;   // Max 2g for device accel
+          var DEV_GYRO_MAX = 250.0;  // Max 250 deg/s for device gyro
+
+          // Update device accelerometer
+          updateDeviceImuBar('dev-accel-x-bar', 'dev-ax', data.deviceImu.accelX, DEV_ACCEL_MAX);
+          updateDeviceImuBar('dev-accel-y-bar', 'dev-ay', data.deviceImu.accelY, DEV_ACCEL_MAX);
+          updateDeviceImuBar('dev-accel-z-bar', 'dev-az', data.deviceImu.accelZ, DEV_ACCEL_MAX);
+
+          // Update device gyroscope
+          updateDeviceImuBar('dev-gyro-x-bar', 'dev-gx', data.deviceImu.gyroX, DEV_GYRO_MAX);
+          updateDeviceImuBar('dev-gyro-y-bar', 'dev-gy', data.deviceImu.gyroY, DEV_GYRO_MAX);
+          updateDeviceImuBar('dev-gyro-z-bar', 'dev-gz', data.deviceImu.gyroZ, DEV_GYRO_MAX);
+        }
+
         // GPS
         if (data.gps) {
           var g = data.gps;
@@ -314,6 +443,11 @@ inline const char PAGE_SYSTEM[] = R"rawliteral(
             document.getElementById('mic-level-fill').style.width = '0%';
             document.getElementById('mic-db').textContent = '-- dB';
           }
+        }
+
+        // Fan state
+        if (data.fanEnabled !== undefined) {
+          updateFanUI(data.fanEnabled);
         }
         setTimeout(fetchState, pollDelay);
       })

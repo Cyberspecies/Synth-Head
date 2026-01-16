@@ -10,13 +10,13 @@
  *   /system            -> System page (PageSystem.hpp)
  *   /advanced          -> Advanced menu (PageAdvancedMenu.hpp)
  *   /advanced/sprites  -> Sprite manager (PageSprite.hpp)
- *   /advanced/configs  -> Config editor (PageAdvanced.hpp)
+ *   /advanced/scenes   -> Scene manager (PageScenes.hpp)
  *   /advanced/equations -> Equation editor (PageEquations.hpp)
  *   /settings          -> Settings page (PageSettings.hpp)
  *   /style.css         -> Shared stylesheet
  * 
  * @author ARCOS
- * @version 2.2
+ * @version 2.3
  *****************************************************************/
 
 #pragma once
@@ -25,9 +25,9 @@
 #include "PageBasic.hpp"
 #include "PageSystem.hpp"
 #include "PageAdvancedMenu.hpp"
-#include "PageAdvanced.hpp"
 #include "PageSprite.hpp"
 #include "PageEquations.hpp"
+#include "PageScenes.hpp"
 #include "PageSettings.hpp"
 
 namespace SystemAPI {

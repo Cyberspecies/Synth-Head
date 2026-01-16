@@ -47,6 +47,52 @@ static std::atomic<uint32_t> dbg_oled_cmd_count{0};
 static std::atomic<int64_t> dbg_last_hub75_present{0};
 static std::atomic<int64_t> dbg_last_oled_present{0};
 
+// Frame rate limiter - prevent overwhelming the display hardware
+static int64_t lastPresentTime = 0;
+static const int64_t MIN_PRESENT_INTERVAL_US = 8000;  // 8ms = 120 FPS max
+static uint32_t droppedFrames = 0;
+
+// ============================================================
+// GPU Alert/Feedback System
+// ============================================================
+// Alert severity levels
+enum class AlertLevel : uint8_t {
+  INFO = 0,      // Informational
+  WARNING = 1,   // Recoverable issue
+  ERROR = 2,     // Serious problem
+  CRITICAL = 3,  // System failing
+};
+
+// Alert types
+enum class AlertType : uint8_t {
+  NONE = 0x00,
+  BUFFER_WARNING = 0x01,    // RX buffer filling up (>50%)
+  BUFFER_CRITICAL = 0x02,   // RX buffer almost full (>75%)
+  BUFFER_OVERFLOW = 0x03,   // RX buffer overflowed, data lost
+  FRAME_DROP = 0x10,        // Frames being dropped
+  FRAME_DROP_SEVERE = 0x11, // Many frames dropped (>10/sec)
+  HEAP_LOW = 0x20,          // Heap memory low (<50KB)
+  HEAP_CRITICAL = 0x21,     // Heap memory critical (<20KB)
+  HUB75_ERROR = 0x30,       // HUB75 display error
+  OLED_ERROR = 0x31,        // OLED display error
+  UART_ERROR = 0x40,        // UART communication error
+  PARSER_ERROR = 0x41,      // Command parser error
+  RECOVERED = 0xF0,         // Previously reported issue resolved
+};
+
+// Alert tracking state
+static uint32_t alertsSent = 0;
+static int64_t lastAlertTime = 0;
+static constexpr int64_t MIN_ALERT_INTERVAL_US = 100000;  // 100ms between alerts
+static AlertType lastAlertType = AlertType::NONE;
+static uint32_t bufferWarningCount = 0;
+static uint32_t bufferOverflowTotal = 0;
+static uint32_t parserErrorCount = 0;
+static uint32_t frameDropsThisSecond = 0;
+static int64_t lastFrameDropReset = 0;
+static bool bufferWarningActive = false;
+static bool heapWarningActive = false;
+
 // ============================================================
 // Hardware Configuration
 // ============================================================
@@ -63,7 +109,7 @@ constexpr int OLED_HEIGHT = 128;
 constexpr uart_port_t UART_PORT = UART_NUM_1;
 constexpr int UART_RX_PIN = 13;
 constexpr int UART_TX_PIN = 12;
-constexpr int UART_BAUD = 10000000;
+constexpr int UART_BAUD = 10000000;  // 10 Mbps
 
 // ============================================================
 // GPU Memory Limits
@@ -71,7 +117,7 @@ constexpr int UART_BAUD = 10000000;
 constexpr int MAX_SHADERS = 8;
 constexpr int MAX_SHADER_SIZE = 1024;      // 1KB bytecode per shader
 constexpr int MAX_SPRITES = 16;
-constexpr int MAX_SPRITE_SIZE = 512;       // 512 bytes per sprite
+constexpr int MAX_SPRITE_SIZE = 8192;      // 8KB per sprite (supports up to 52x52 RGB)
 constexpr int MAX_VARIABLES = 256;
 constexpr int MAX_REGISTERS = 16;
 constexpr int MAX_STACK = 16;              // Loop stack depth
@@ -1057,6 +1103,54 @@ static void fillPolygon(int n, int16_t* vx, int16_t* vy, uint8_t r, uint8_t g, u
   }
 }
 
+// Helper: Accumulate color to a pixel with weight (for splatting)
+// Uses additive blending to accumulate contributions from multiple sprite pixels
+static float splat_r[TOTAL_WIDTH * TOTAL_HEIGHT];
+static float splat_g[TOTAL_WIDTH * TOTAL_HEIGHT];
+static float splat_b[TOTAL_WIDTH * TOTAL_HEIGHT];
+static float splat_w[TOTAL_WIDTH * TOTAL_HEIGHT];
+
+static inline void splatPixel(int x, int y, float r, float g, float b, float weight) {
+  if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
+  int idx = y * TOTAL_WIDTH + x;
+  splat_r[idx] += r * weight;
+  splat_g[idx] += g * weight;
+  splat_b[idx] += b * weight;
+  splat_w[idx] += weight;
+}
+
+static inline void clearSplatBuffer() {
+  memset(splat_r, 0, sizeof(splat_r));
+  memset(splat_g, 0, sizeof(splat_g));
+  memset(splat_b, 0, sizeof(splat_b));
+  memset(splat_w, 0, sizeof(splat_w));
+}
+
+static inline void flushSplatBuffer(int minX, int minY, int maxX, int maxY) {
+  for (int y = minY; y <= maxY; y++) {
+    for (int x = minX; x <= maxX; x++) {
+      if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) continue;
+      int idx = y * TOTAL_WIDTH + x;
+      if (splat_w[idx] > 0.001f) {
+        // Normalize accumulated color by total weight
+        uint8_t r = (uint8_t)fminf(255.0f, splat_r[idx] / splat_w[idx]);
+        uint8_t g = (uint8_t)fminf(255.0f, splat_g[idx] / splat_w[idx]);
+        uint8_t b = (uint8_t)fminf(255.0f, splat_b[idx] / splat_w[idx]);
+        
+        // Alpha based on coverage (clamped to 1.0)
+        float coverage = fminf(1.0f, splat_w[idx]);
+        uint8_t alpha = (uint8_t)(coverage * 255.0f);
+        
+        if (alpha > 250) {
+          setPixelHUB75(x, y, r, g, b);
+        } else if (alpha > 4) {
+          blendPixelHUB75(x, y, r, g, b, alpha);
+        }
+      }
+    }
+  }
+}
+
 // Bilinear sample from RGB sprite (for supersampling)
 static void sampleSpriteRGB(Sprite& s, float fx, float fy, uint8_t& r, uint8_t& g, uint8_t& b) {
   int x0 = (int)floorf(fx);
@@ -1135,6 +1229,268 @@ static void blitSprite(int id, int dx, int dy) {
         int bit = 7 - (x % 8);
         bool on = (s.data[byte_idx] >> bit) & 1;
         setPixelOLED(dx + x, dy + y, on);
+      }
+    }
+  }
+}
+
+// Filled rectangle with AA edges (sub-pixel precision)
+static void fillRectF(float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b) {
+  if (w <= 0 || h <= 0) return;
+  
+  // Compute bounds with 1 pixel margin for AA edges
+  int minX = (int)floorf(x);
+  int maxX = (int)ceilf(x + w);
+  int minY = (int)floorf(y);
+  int maxY = (int)ceilf(y + h);
+  
+  // Clamp to screen
+  if (minX < 0) minX = 0;
+  if (minY < 0) minY = 0;
+  if (maxX >= TOTAL_WIDTH) maxX = TOTAL_WIDTH - 1;
+  if (maxY >= TOTAL_HEIGHT) maxY = TOTAL_HEIGHT - 1;
+  
+  float x1 = x, y1 = y, x2 = x + w, y2 = y + h;
+  
+  for (int py = minY; py <= maxY; py++) {
+    for (int px = minX; px <= maxX; px++) {
+      // Calculate pixel center coverage for AA
+      float pxc = px + 0.5f;
+      float pyc = py + 0.5f;
+      
+      // Distance from each edge (positive = inside)
+      float dLeft   = pxc - x1;
+      float dRight  = x2 - pxc;
+      float dTop    = pyc - y1;
+      float dBottom = y2 - pyc;
+      
+      // Minimum distance to any edge (clamped to [-0.5, 0.5])
+      float coverage = fminf(fminf(dLeft, dRight), fminf(dTop, dBottom));
+      
+      if (aa_enabled && gpu.target == 0) {
+        if (coverage >= 0.5f) {
+          // Fully inside
+          setPixelHUB75(px, py, r, g, b);
+        } else if (coverage > -0.5f) {
+          // Partial coverage for AA edge
+          uint8_t alpha = (uint8_t)((coverage + 0.5f) * 255.0f);
+          blendPixelHUB75(px, py, r, g, b, alpha);
+        }
+      } else {
+        // No AA: simple threshold
+        if (coverage >= 0) {
+          setPixel(px, py, r, g, b);
+        }
+      }
+    }
+  }
+}
+
+// Sprite blit with sub-pixel positioning using BILINEAR SPLATTING
+// Each sprite pixel "splats" its color to the 4 screen pixels it overlaps
+// This creates smooth sub-pixel movement with proper AA
+static void blitSpriteF(int id, float dx, float dy) {
+  if (id < 0 || id >= MAX_SPRITES || !gpu.sprites[id].valid) return;
+  
+  Sprite& s = gpu.sprites[id];
+  
+  if (s.format == 0 && gpu.target == 0) {
+    if (aa_enabled) {
+      // BILINEAR SPLATTING: Each sprite pixel distributes to 4 screen pixels
+      // based on fractional position overlap
+      
+      // Screen bounds for the sprite
+      int screenMinX = (int)floorf(dx);
+      int screenMaxX = (int)ceilf(dx + s.width);
+      int screenMinY = (int)floorf(dy);
+      int screenMaxY = (int)ceilf(dy + s.height);
+      
+      // Clamp to screen
+      if (screenMinX < 0) screenMinX = 0;
+      if (screenMinY < 0) screenMinY = 0;
+      if (screenMaxX >= TOTAL_WIDTH) screenMaxX = TOTAL_WIDTH - 1;
+      if (screenMaxY >= TOTAL_HEIGHT) screenMaxY = TOTAL_HEIGHT - 1;
+      
+      // Clear the splat accumulation buffer (only the region we'll use)
+      for (int y = screenMinY; y <= screenMaxY; y++) {
+        for (int x = screenMinX; x <= screenMaxX; x++) {
+          int idx = y * TOTAL_WIDTH + x;
+          splat_r[idx] = splat_g[idx] = splat_b[idx] = splat_w[idx] = 0;
+        }
+      }
+      
+      // For each sprite pixel, splat to screen pixels
+      for (int sy = 0; sy < s.height; sy++) {
+        for (int sx = 0; sx < s.width; sx++) {
+          // Get sprite pixel color
+          int sidx = (sy * s.width + sx) * 3;
+          float pr = s.data[sidx + 0];
+          float pg = s.data[sidx + 1];
+          float pb = s.data[sidx + 2];
+          
+          // Screen position of this sprite pixel (floating point)
+          float screenX = dx + sx;
+          float screenY = dy + sy;
+          
+          // Integer screen position and fractional offset
+          int ix = (int)floorf(screenX);
+          int iy = (int)floorf(screenY);
+          float fx = screenX - ix;  // 0.0 to 1.0 fractional X
+          float fy = screenY - iy;  // 0.0 to 1.0 fractional Y
+          
+          // Bilinear weights for the 4 destination pixels
+          // The sprite pixel overlaps 4 screen pixels with these weights:
+          float w00 = (1.0f - fx) * (1.0f - fy);  // top-left
+          float w10 = fx * (1.0f - fy);           // top-right
+          float w01 = (1.0f - fx) * fy;           // bottom-left
+          float w11 = fx * fy;                    // bottom-right
+          
+          // Splat to the 4 overlapping screen pixels
+          splatPixel(ix,     iy,     pr, pg, pb, w00);
+          splatPixel(ix + 1, iy,     pr, pg, pb, w10);
+          splatPixel(ix,     iy + 1, pr, pg, pb, w01);
+          splatPixel(ix + 1, iy + 1, pr, pg, pb, w11);
+        }
+      }
+      
+      // Flush accumulated colors to screen
+      flushSplatBuffer(screenMinX, screenMinY, screenMaxX, screenMaxY);
+      
+    } else {
+      // No AA: Direct integer blit (nearest neighbor)
+      int ix = (int)roundf(dx);
+      int iy = (int)roundf(dy);
+      for (int y = 0; y < s.height; y++) {
+        for (int x = 0; x < s.width; x++) {
+          int idx = (y * s.width + x) * 3;
+          setPixelHUB75(ix + x, iy + y, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+        }
+      }
+    }
+  } else {
+    // For OLED or non-RGB, fall back to integer blit
+    blitSprite(id, (int)roundf(dx), (int)roundf(dy));
+  }
+}
+
+// Sprite blit with rotation using BILINEAR SPLATTING
+// Each sprite pixel is rotated and "splats" to overlapping screen pixels
+// This creates smooth rotation AND sub-pixel movement with proper AA
+static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
+  if (id < 0 || id >= MAX_SPRITES || !gpu.sprites[id].valid) return;
+  
+  Sprite& s = gpu.sprites[id];
+  
+  if (s.format != 0 || gpu.target != 0) {
+    // For OLED or mono sprites, fall back to non-rotated blit
+    blitSprite(id, (int)roundf(dx), (int)roundf(dy));
+    return;
+  }
+  
+  // Convert angle to radians
+  float angleRad = angleDeg * (3.14159265f / 180.0f);
+  float cosA = cosf(angleRad);
+  float sinA = sinf(angleRad);
+  
+  // Sprite center (pivot point for rotation)
+  float cx = s.width / 2.0f;
+  float cy = s.height / 2.0f;
+  
+  // Calculate bounding box of rotated sprite
+  float corners[4][2] = {
+    {-cx, -cy},
+    {s.width - cx, -cy},
+    {s.width - cx, s.height - cy},
+    {-cx, s.height - cy}
+  };
+  
+  float minX = 9999, maxX = -9999, minY = 9999, maxY = -9999;
+  for (int i = 0; i < 4; i++) {
+    float rx = corners[i][0] * cosA - corners[i][1] * sinA + dx;
+    float ry = corners[i][0] * sinA + corners[i][1] * cosA + dy;
+    if (rx < minX) minX = rx;
+    if (rx > maxX) maxX = rx;
+    if (ry < minY) minY = ry;
+    if (ry > maxY) maxY = ry;
+  }
+  
+  // Screen bounds with margin
+  int pMinX = (int)floorf(minX) - 1;
+  int pMaxX = (int)ceilf(maxX) + 1;
+  int pMinY = (int)floorf(minY) - 1;
+  int pMaxY = (int)ceilf(maxY) + 1;
+  if (pMinX < 0) pMinX = 0;
+  if (pMinY < 0) pMinY = 0;
+  if (pMaxX >= TOTAL_WIDTH) pMaxX = TOTAL_WIDTH - 1;
+  if (pMaxY >= TOTAL_HEIGHT) pMaxY = TOTAL_HEIGHT - 1;
+  
+  if (aa_enabled) {
+    // BILINEAR SPLATTING with rotation
+    // Clear the splat buffer for the affected region
+    for (int y = pMinY; y <= pMaxY; y++) {
+      for (int x = pMinX; x <= pMaxX; x++) {
+        int idx = y * TOTAL_WIDTH + x;
+        splat_r[idx] = splat_g[idx] = splat_b[idx] = splat_w[idx] = 0;
+      }
+    }
+    
+    // For each sprite pixel, rotate and splat to screen
+    for (int sy = 0; sy < s.height; sy++) {
+      for (int sx = 0; sx < s.width; sx++) {
+        // Get sprite pixel color
+        int sidx = (sy * s.width + sx) * 3;
+        float pr = s.data[sidx + 0];
+        float pg = s.data[sidx + 1];
+        float pb = s.data[sidx + 2];
+        
+        // Position relative to sprite center
+        float relX = sx - cx + 0.5f;  // +0.5 for pixel center
+        float relY = sy - cy + 0.5f;
+        
+        // Rotate around center and translate to screen position
+        float screenX = relX * cosA - relY * sinA + dx;
+        float screenY = relX * sinA + relY * cosA + dy;
+        
+        // Integer screen position and fractional offset
+        int ix = (int)floorf(screenX);
+        int iy = (int)floorf(screenY);
+        float fx = screenX - ix;
+        float fy = screenY - iy;
+        
+        // Bilinear splat weights
+        float w00 = (1.0f - fx) * (1.0f - fy);
+        float w10 = fx * (1.0f - fy);
+        float w01 = (1.0f - fx) * fy;
+        float w11 = fx * fy;
+        
+        // Splat to 4 overlapping screen pixels
+        splatPixel(ix,     iy,     pr, pg, pb, w00);
+        splatPixel(ix + 1, iy,     pr, pg, pb, w10);
+        splatPixel(ix,     iy + 1, pr, pg, pb, w01);
+        splatPixel(ix + 1, iy + 1, pr, pg, pb, w11);
+      }
+    }
+    
+    // Flush accumulated colors to screen
+    flushSplatBuffer(pMinX, pMinY, pMaxX, pMaxY);
+    
+  } else {
+    // No AA: Inverse mapping with nearest neighbor
+    for (int py = pMinY; py <= pMaxY; py++) {
+      for (int px = pMinX; px <= pMaxX; px++) {
+        float screenX = (float)px - dx;
+        float screenY = (float)py - dy;
+        
+        // Inverse rotation
+        float spriteX = screenX * cosA + screenY * sinA + cx;
+        float spriteY = -screenX * sinA + screenY * cosA + cy;
+        
+        if (spriteX >= 0 && spriteX < s.width && spriteY >= 0 && spriteY < s.height) {
+          int sx = (int)spriteX;
+          int sy = (int)spriteY;
+          int idx = (sy * s.width + sx) * 3;
+          setPixelHUB75(px, py, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+        }
       }
     }
   }
@@ -1512,6 +1868,7 @@ enum class CmdType : uint8_t {
   
   UPLOAD_SPRITE = 0x20,
   DELETE_SPRITE = 0x21,
+  CLEAR_ALL_SPRITES = 0x22,  // Clear all sprites in one command
   
   SET_VAR = 0x30,
   SET_VARS = 0x31,       // Set multiple variables
@@ -1526,9 +1883,13 @@ enum class CmdType : uint8_t {
   CLEAR = 0x47,
   
   // Float coordinate versions (sub-pixel precision for smooth animation)
-  DRAW_LINE_F = 0x48,    // Float coords: x0,y0,x1,y1 as 16.16 fixed point
-  DRAW_CIRCLE_F = 0x49,  // Float coords: cx,cy,r as 16.16 fixed point
-  DRAW_RECT_F = 0x4A,    // Float coords: x,y,w,h as 16.16 fixed point
+  DRAW_LINE_F = 0x48,    // Float coords: x0,y0,x1,y1 as 8.8 fixed point
+  DRAW_CIRCLE_F = 0x49,  // Float coords: cx,cy,r as 8.8 fixed point
+  DRAW_RECT_F = 0x4A,    // Float coords: x,y,w,h as 8.8 fixed point
+  DRAW_FILL_F = 0x4B,    // Filled rect with AA edges: x,y,w,h as 8.8 fixed point
+  BLIT_SPRITE_F = 0x4C,  // Sprite with sub-pixel position: id, x, y as 8.8 fixed point
+  BLIT_SPRITE_ROT = 0x4D,// Sprite with rotation: id, x, y (8.8), angle (8.8 fixed = degrees)
+  SET_AA = 0x4E,         // Toggle anti-aliasing: 0=off, 1=on (default on)
   
   SET_TARGET = 0x50,     // 0=HUB75, 1=OLED
   PRESENT = 0x51,        // Push framebuffer to display
@@ -1552,6 +1913,13 @@ enum class CmdType : uint8_t {
   CONFIG_RESPONSE = 0xF3,// GPU configuration response
   REQUEST_STATS = 0xF4,  // Request GPU performance stats
   STATS_RESPONSE = 0xF5, // GPU stats response (FPS, RAM, load)
+  
+  // GPU->CPU Alert System (GPU sends these automatically)
+  ALERT = 0xF6,          // GPU alert notification
+  CLEAR_ALERT = 0xF7,    // Clear specific alert condition
+  REQUEST_ALERTS = 0xF8, // Request current alert status
+  ALERTS_RESPONSE = 0xF9,// Response with all active alerts
+  
   RESET = 0xFF,
 };
 
@@ -1571,6 +1939,157 @@ constexpr uint8_t SYNC1 = 0x55;
 // ============================================================
 static uint8_t cmd_buffer[2048];
 
+// ============================================================
+// GPU Alert Sending Functions
+// ============================================================
+
+/**
+ * Send an alert to the CPU
+ * Alert packet format:
+ *   Header: [0xAA][0x55][0xF6][len_lo][len_hi]
+ *   Payload (16 bytes):
+ *     [0]     AlertLevel (0=INFO, 1=WARNING, 2=ERROR, 3=CRITICAL)
+ *     [1]     AlertType (specific alert code)
+ *     [2-5]   value1 (uint32_t) - context-specific value
+ *     [6-9]   value2 (uint32_t) - context-specific value  
+ *     [10-13] timestamp_ms (uint32_t) - uptime when alert occurred
+ *     [14-15] alert_count (uint16_t) - total alerts sent
+ */
+static void sendAlert(AlertLevel level, AlertType type, uint32_t value1 = 0, uint32_t value2 = 0) {
+  // Rate limit alerts to prevent flooding the CPU
+  int64_t now = esp_timer_get_time();
+  if (now - lastAlertTime < MIN_ALERT_INTERVAL_US && type == lastAlertType) {
+    return;  // Skip duplicate alerts that are too frequent
+  }
+  lastAlertTime = now;
+  lastAlertType = type;
+  alertsSent++;
+  
+  uint32_t uptime_ms = (now - gpu.startTime) / 1000;
+  
+  // Build alert packet
+  uint8_t header[5] = {
+    0xAA, 0x55,
+    static_cast<uint8_t>(CmdType::ALERT),
+    16, 0  // Payload length = 16 bytes
+  };
+  
+  uint8_t payload[16];
+  payload[0] = static_cast<uint8_t>(level);
+  payload[1] = static_cast<uint8_t>(type);
+  // value1 (little-endian)
+  payload[2] = (value1 >>  0) & 0xFF;
+  payload[3] = (value1 >>  8) & 0xFF;
+  payload[4] = (value1 >> 16) & 0xFF;
+  payload[5] = (value1 >> 24) & 0xFF;
+  // value2 (little-endian)
+  payload[6] = (value2 >>  0) & 0xFF;
+  payload[7] = (value2 >>  8) & 0xFF;
+  payload[8] = (value2 >> 16) & 0xFF;
+  payload[9] = (value2 >> 24) & 0xFF;
+  // timestamp (little-endian)
+  payload[10] = (uptime_ms >>  0) & 0xFF;
+  payload[11] = (uptime_ms >>  8) & 0xFF;
+  payload[12] = (uptime_ms >> 16) & 0xFF;
+  payload[13] = (uptime_ms >> 24) & 0xFF;
+  // alert count (little-endian)
+  payload[14] = (alertsSent >>  0) & 0xFF;
+  payload[15] = (alertsSent >>  8) & 0xFF;
+  
+  uart_write_bytes(UART_PORT, header, sizeof(header));
+  uart_write_bytes(UART_PORT, payload, sizeof(payload));
+  
+  // Log locally too
+  const char* levelStr = (level == AlertLevel::INFO) ? "INFO" :
+                         (level == AlertLevel::WARNING) ? "WARN" :
+                         (level == AlertLevel::ERROR) ? "ERROR" : "CRIT";
+  ESP_LOGW(TAG, "ALERT [%s] type=0x%02X val1=%lu val2=%lu", 
+           levelStr, (int)type, (unsigned long)value1, (unsigned long)value2);
+}
+
+/**
+ * Check various conditions and send alerts as needed
+ * Called periodically from the UART task
+ */
+static void checkAndSendAlerts(size_t bufferUsed, size_t bufferSize) {
+  int64_t now = esp_timer_get_time();
+  
+  // --- Buffer level alerts ---
+  float bufferPercent = (bufferUsed * 100.0f) / bufferSize;
+  
+  if (bufferPercent > 75.0f) {
+    if (!bufferWarningActive || bufferPercent > 90.0f) {
+      sendAlert(AlertLevel::ERROR, AlertType::BUFFER_CRITICAL, 
+                (uint32_t)bufferUsed, (uint32_t)bufferSize);
+      bufferWarningActive = true;
+    }
+  } else if (bufferPercent > 50.0f) {
+    if (!bufferWarningActive) {
+      sendAlert(AlertLevel::WARNING, AlertType::BUFFER_WARNING,
+                (uint32_t)bufferUsed, (uint32_t)bufferSize);
+      bufferWarningActive = true;
+      bufferWarningCount++;
+    }
+  } else if (bufferWarningActive && bufferPercent < 25.0f) {
+    // Buffer recovered
+    sendAlert(AlertLevel::INFO, AlertType::RECOVERED,
+              (uint32_t)AlertType::BUFFER_WARNING, (uint32_t)bufferUsed);
+    bufferWarningActive = false;
+  }
+  
+  // --- Frame drop rate alerts (per second) ---
+  if (now - lastFrameDropReset > 1000000) {  // Every second
+    if (frameDropsThisSecond > 10) {
+      sendAlert(AlertLevel::WARNING, AlertType::FRAME_DROP_SEVERE,
+                frameDropsThisSecond, droppedFrames);
+    } else if (frameDropsThisSecond > 0) {
+      // Only send occasional frame drop alerts (every 5 drops)
+      if ((droppedFrames % 5) == 0) {
+        sendAlert(AlertLevel::INFO, AlertType::FRAME_DROP,
+                  frameDropsThisSecond, droppedFrames);
+      }
+    }
+    frameDropsThisSecond = 0;
+    lastFrameDropReset = now;
+  }
+  
+  // --- Heap memory alerts ---
+  uint32_t freeHeap = esp_get_free_heap_size();
+  if (freeHeap < 20000) {
+    sendAlert(AlertLevel::CRITICAL, AlertType::HEAP_CRITICAL,
+              freeHeap, esp_get_minimum_free_heap_size());
+    heapWarningActive = true;
+  } else if (freeHeap < 50000) {
+    if (!heapWarningActive) {
+      sendAlert(AlertLevel::WARNING, AlertType::HEAP_LOW,
+                freeHeap, esp_get_minimum_free_heap_size());
+      heapWarningActive = true;
+    }
+  } else if (heapWarningActive && freeHeap > 80000) {
+    sendAlert(AlertLevel::INFO, AlertType::RECOVERED,
+              (uint32_t)AlertType::HEAP_LOW, freeHeap);
+    heapWarningActive = false;
+  }
+}
+
+/**
+ * Send buffer overflow alert (called when overflow detected)
+ */
+static void sendBufferOverflowAlert(size_t bytesLost) {
+  bufferOverflowTotal++;
+  sendAlert(AlertLevel::CRITICAL, AlertType::BUFFER_OVERFLOW,
+            bytesLost, bufferOverflowTotal);
+}
+
+/**
+ * Send parser error alert
+ */
+static void sendParserErrorAlert(uint8_t badByte, uint8_t state) {
+  parserErrorCount++;
+  sendAlert(AlertLevel::WARNING, AlertType::PARSER_ERROR,
+            (badByte << 8) | state, parserErrorCount);
+}
+
 // Check if command type is a display command (affects display content)
 static bool isDisplayCommand(CmdType type) {
   switch (type) {
@@ -1581,6 +2100,10 @@ static bool isDisplayCommand(CmdType type) {
     case CmdType::CONFIG_RESPONSE:
     case CmdType::REQUEST_STATS:
     case CmdType::STATS_RESPONSE:
+    case CmdType::ALERT:
+    case CmdType::CLEAR_ALERT:
+    case CmdType::REQUEST_ALERTS:
+    case CmdType::ALERTS_RESPONSE:
     case CmdType::NOP:
       return false;
     // All other commands affect display content
@@ -1664,10 +2187,33 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
       if (hdr->length >= 1) {
         uint8_t id = payload[0];
         if (id < MAX_SPRITES) {
+          // Clear sprite data to prevent glitchy residual images
+          if (gpu.sprites[id].data != nullptr) {
+            memset(gpu.sprites[id].data, 0, MAX_SPRITE_SIZE);
+          }
+          gpu.sprites[id].width = 0;
+          gpu.sprites[id].height = 0;
+          gpu.sprites[id].format = 0;
           gpu.sprites[id].valid = false;
-          ESP_LOGI(TAG, "Sprite %d deleted", id);
+          ESP_LOGI(TAG, "Sprite %d deleted and cleared", id);
         }
       }
+      break;
+    }
+    
+    case CmdType::CLEAR_ALL_SPRITES: {
+      // Clear ALL sprite slots in one efficient command
+      ESP_LOGI(TAG, "CLEAR_ALL_SPRITES - clearing all %d sprite slots", MAX_SPRITES);
+      for (int i = 0; i < MAX_SPRITES; i++) {
+        if (gpu.sprites[i].data != nullptr) {
+          memset(gpu.sprites[i].data, 0, MAX_SPRITE_SIZE);
+        }
+        gpu.sprites[i].width = 0;
+        gpu.sprites[i].height = 0;
+        gpu.sprites[i].format = 0;
+        gpu.sprites[i].valid = false;
+      }
+      ESP_LOGI(TAG, "All sprites cleared");
       break;
     }
     
@@ -1780,6 +2326,45 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
       break;
     }
     
+    case CmdType::DRAW_FILL_F: {
+      if (hdr->length >= 11) {
+        float x = (int8_t)payload[1] + (payload[0] / 256.0f);
+        float y = (int8_t)payload[3] + (payload[2] / 256.0f);
+        float w = (int8_t)payload[5] + (payload[4] / 256.0f);
+        float h = (int8_t)payload[7] + (payload[6] / 256.0f);
+        fillRectF(x, y, w, h, payload[8], payload[9], payload[10]);
+      }
+      break;
+    }
+    
+    case CmdType::BLIT_SPRITE_F: {
+      if (hdr->length >= 5) {
+        uint8_t id = payload[0];
+        float x = (int8_t)payload[2] + (payload[1] / 256.0f);
+        float y = (int8_t)payload[4] + (payload[3] / 256.0f);
+        blitSpriteF(id, x, y);
+      }
+      break;
+    }
+    
+    case CmdType::BLIT_SPRITE_ROT: {
+      if (hdr->length >= 7) {
+        uint8_t id = payload[0];
+        float x = (int8_t)payload[2] + (payload[1] / 256.0f);
+        float y = (int8_t)payload[4] + (payload[3] / 256.0f);
+        float angle = (int16_t)(payload[5] | (payload[6] << 8)) / 256.0f;  // 8.8 fixed point degrees
+        blitSpriteRotated(id, x, y, angle);
+      }
+      break;
+    }
+    
+    case CmdType::SET_AA: {
+      if (hdr->length >= 1) {
+        aa_enabled = (payload[0] != 0);
+      }
+      break;
+    }
+    
     case CmdType::DRAW_POLY: {
       if (hdr->length >= 4) {
         uint8_t n = payload[0];
@@ -1830,8 +2415,24 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     }
     
     case CmdType::PRESENT: {
+      // Frame rate limiter - drop frames if coming too fast
+      int64_t now = esp_timer_get_time();
+      int64_t elapsed = now - lastPresentTime;
+      if (elapsed < MIN_PRESENT_INTERVAL_US) {
+        // Too soon - skip this frame to let GPU catch up
+        droppedFrames++;
+        frameDropsThisSecond++;  // Track for alert system
+        if ((droppedFrames % 100) == 0) {
+          ESP_LOGW(TAG, "Frame rate limiting: dropped %lu frames (last interval: %lld us)",
+                   droppedFrames, elapsed);
+        }
+        break;  // Skip this present
+      }
+      lastPresentTime = now;
+      
       if (gpu.target == 0 && hub75_ok) {
-        // Copy internal buffer to HUB75 display
+        // Optimized: use setPixel which is still needed for the driver,
+        // but we batch all pixels before calling show()
         for (int y = 0; y < TOTAL_HEIGHT; y++) {
           for (int x = 0; x < TOTAL_WIDTH; x++) {
             int idx = (y * TOTAL_WIDTH + x) * 3;
@@ -1841,7 +2442,7 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         hub75->show();
         dbg_hub75_presents.fetch_add(1, std::memory_order_relaxed);
         // Use release semantics so Core 0 sees this update
-        dbg_last_hub75_present.store(esp_timer_get_time(), std::memory_order_release);
+        dbg_last_hub75_present.store(now, std::memory_order_release);
       } else if (gpu.target == 1 && oled_ok) {
         // Copy to update buffer and signal Core 0 task (non-blocking)
         memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
@@ -2085,6 +2686,7 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
       response[8] = (uptime_ms >> 24) & 0xFF;
       
       uart_write_bytes(UART_PORT, response, sizeof(response));
+      uart_wait_tx_done(UART_PORT, pdMS_TO_TICKS(50));  // Ensure response is fully sent
       ESP_LOGI(TAG, "PONG sent: uptime=%lu ms", (unsigned long)uptime_ms);
       break;
     }
@@ -2252,16 +2854,130 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
       break;
     }
     
+    case CmdType::REQUEST_ALERTS: {
+      ESP_LOGI(TAG, "REQUEST_ALERTS received - sending alert status");
+      
+      // Build ALERTS_RESPONSE
+      // Payload structure (32 bytes):
+      //   [0-3]   total_alerts_sent (uint32_t)
+      //   [4-7]   dropped_frames (uint32_t)
+      //   [8-11]  buffer_warnings (uint32_t)
+      //   [12-15] buffer_overflows (uint32_t)
+      //   [16-19] parser_errors (uint32_t)
+      //   [20]    buffer_warning_active (bool)
+      //   [21]    heap_warning_active (bool)
+      //   [22]    last_alert_type (AlertType)
+      //   [23]    current_buffer_percent (0-100)
+      //   [24-27] free_heap (uint32_t)
+      //   [28-31] frames_dropped_this_sec (uint32_t)
+      
+      uint8_t payload[32];
+      memset(payload, 0, sizeof(payload));
+      
+      // Total alerts sent
+      payload[0] = (alertsSent >>  0) & 0xFF;
+      payload[1] = (alertsSent >>  8) & 0xFF;
+      payload[2] = (alertsSent >> 16) & 0xFF;
+      payload[3] = (alertsSent >> 24) & 0xFF;
+      
+      // Dropped frames
+      payload[4] = (droppedFrames >>  0) & 0xFF;
+      payload[5] = (droppedFrames >>  8) & 0xFF;
+      payload[6] = (droppedFrames >> 16) & 0xFF;
+      payload[7] = (droppedFrames >> 24) & 0xFF;
+      
+      // Buffer warnings
+      payload[8]  = (bufferWarningCount >>  0) & 0xFF;
+      payload[9]  = (bufferWarningCount >>  8) & 0xFF;
+      payload[10] = (bufferWarningCount >> 16) & 0xFF;
+      payload[11] = (bufferWarningCount >> 24) & 0xFF;
+      
+      // Buffer overflows
+      payload[12] = (bufferOverflowTotal >>  0) & 0xFF;
+      payload[13] = (bufferOverflowTotal >>  8) & 0xFF;
+      payload[14] = (bufferOverflowTotal >> 16) & 0xFF;
+      payload[15] = (bufferOverflowTotal >> 24) & 0xFF;
+      
+      // Parser errors
+      payload[16] = (parserErrorCount >>  0) & 0xFF;
+      payload[17] = (parserErrorCount >>  8) & 0xFF;
+      payload[18] = (parserErrorCount >> 16) & 0xFF;
+      payload[19] = (parserErrorCount >> 24) & 0xFF;
+      
+      // Status flags
+      payload[20] = bufferWarningActive ? 1 : 0;
+      payload[21] = heapWarningActive ? 1 : 0;
+      payload[22] = static_cast<uint8_t>(lastAlertType);
+      
+      // Current buffer percent
+      size_t buffered = 0;
+      uart_get_buffered_data_len(UART_PORT, &buffered);
+      payload[23] = (uint8_t)((buffered * 100) / 16384);
+      
+      // Free heap
+      uint32_t freeHeap = esp_get_free_heap_size();
+      payload[24] = (freeHeap >>  0) & 0xFF;
+      payload[25] = (freeHeap >>  8) & 0xFF;
+      payload[26] = (freeHeap >> 16) & 0xFF;
+      payload[27] = (freeHeap >> 24) & 0xFF;
+      
+      // Frames dropped this second
+      payload[28] = (frameDropsThisSecond >>  0) & 0xFF;
+      payload[29] = (frameDropsThisSecond >>  8) & 0xFF;
+      payload[30] = (frameDropsThisSecond >> 16) & 0xFF;
+      payload[31] = (frameDropsThisSecond >> 24) & 0xFF;
+      
+      // Build response header
+      uint8_t header[5];
+      header[0] = 0xAA;
+      header[1] = 0x55;
+      header[2] = static_cast<uint8_t>(CmdType::ALERTS_RESPONSE);
+      header[3] = sizeof(payload) & 0xFF;
+      header[4] = (sizeof(payload) >> 8) & 0xFF;
+      
+      uart_write_bytes(UART_PORT, header, sizeof(header));
+      uart_write_bytes(UART_PORT, payload, sizeof(payload));
+      
+      ESP_LOGI(TAG, "ALERTS_RESPONSE sent: alerts=%lu, drops=%lu, overflows=%lu",
+               alertsSent, droppedFrames, bufferOverflowTotal);
+      break;
+    }
+    
     case CmdType::RESET: {
-      ESP_LOGI(TAG, "RESET received");
-      // Clear all state
-      for (int i = 0; i < MAX_SHADERS; i++) gpu.shaders[i].valid = false;
-      for (int i = 0; i < MAX_SPRITES; i++) gpu.sprites[i].valid = false;
+      ESP_LOGI(TAG, "RESET received - clearing all GPU state");
+      
+      // Clear all shaders
+      for (int i = 0; i < MAX_SHADERS; i++) {
+        gpu.shaders[i].valid = false;
+        gpu.shaders[i].length = 0;
+        memset(gpu.shaders[i].bytecode, 0, MAX_SHADER_SIZE);
+      }
+      
+      // Clear all sprites - zero out data buffers to prevent glitchy images
+      for (int i = 0; i < MAX_SPRITES; i++) {
+        if (gpu.sprites[i].data != nullptr) {
+          memset(gpu.sprites[i].data, 0, MAX_SPRITE_SIZE);
+        }
+        gpu.sprites[i].width = 0;
+        gpu.sprites[i].height = 0;
+        gpu.sprites[i].format = 0;
+        gpu.sprites[i].valid = false;
+      }
+      
+      // Clear variables
       memset(gpu.variables, 0, sizeof(gpu.variables));
+      
+      // Clear both framebuffers completely
       memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
       memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      
+      // Reset state
       gpu.target = 0;
       gpu.frameCount = 0;
+      gpu.randSeed = 0;
+      gpu.loopSP = 0;
+      
+      ESP_LOGI(TAG, "GPU RESET complete - all caches cleared");
       break;
     }
     
@@ -2273,6 +2989,9 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
 // ============================================================
 // UART Receive Task
 // ============================================================
+static uint32_t totalBytesReceived = 0;
+static int64_t lastRxLogTime = 0;
+
 static void uartTask(void* arg) {
   uint8_t rx_buffer[256];  // Bulk read buffer
   int state = 0;  // 0=sync0, 1=sync1, 2=type, 3=len_lo, 4=len_hi, 5=payload
@@ -2282,7 +3001,8 @@ static void uartTask(void* arg) {
   int64_t lastBufferCheck = esp_timer_get_time();
   uint32_t overflowCount = 0;
   
-  ESP_LOGI(TAG, "UART RX task started");
+  ESP_LOGI(TAG, "UART RX task started on UART%d (RX=%d, TX=%d, baud=%d)", 
+           UART_PORT, UART_RX_PIN, UART_TX_PIN, UART_BAUD);
   
   while (true) {
     // Periodic buffer overflow check (every 500ms)
@@ -2292,11 +3012,22 @@ static void uartTask(void* arg) {
       size_t buffered = 0;
       uart_get_buffered_data_len(UART_PORT, &buffered);
       
+      // Log RX stats every 5 seconds
+      if (now - lastRxLogTime > 5000000) {
+        lastRxLogTime = now;
+        ESP_LOGI(TAG, "UART RX: total=%lu bytes, buffered=%d, alerts=%lu", 
+                 totalBytesReceived, (int)buffered, alertsSent);
+      }
+      
+      // Check and send alerts for buffer levels, heap, etc.
+      checkAndSendAlerts(buffered, 16384);  // 16KB buffer
+      
       // If buffer is getting full (>75%), flush it to recover
-      if (buffered > 6144) {  // 75% of 8KB
+      if (buffered > 12288) {  // 75% of 16KB
         overflowCount++;
         ESP_LOGW(TAG, "UART RX buffer overflow detected (%d bytes), flushing... (count: %lu)", 
                  (int)buffered, overflowCount);
+        sendBufferOverflowAlert(buffered);  // Alert CPU before flushing
         uart_flush_input(UART_PORT);
         state = 0;  // Reset parser state
         continue;
@@ -2317,6 +3048,7 @@ static void uartTask(void* arg) {
       continue;
     }
     
+    totalBytesReceived += len;
     lastByteTime = esp_timer_get_time();
     
     // Process all received bytes
@@ -2515,9 +3247,9 @@ static bool initUART() {
   
   uart_param_config(UART_PORT, &uart_cfg);
   uart_set_pin(UART_PORT, UART_TX_PIN, UART_RX_PIN, -1, -1);
-  uart_driver_install(UART_PORT, 8192, 1024, 0, nullptr, 0);  // Larger RX buffer
+  uart_driver_install(UART_PORT, 16384, 2048, 0, nullptr, 0);  // 16KB RX buffer for high throughput
   
-  ESP_LOGI(TAG, "UART OK: %d baud, RX=%d, TX=%d, RX_BUF=8KB", UART_BAUD, UART_RX_PIN, UART_TX_PIN);
+  ESP_LOGI(TAG, "UART OK: %d baud, RX=%d, TX=%d, RX_BUF=16KB", UART_BAUD, UART_RX_PIN, UART_TX_PIN);
   return true;
 }
 
