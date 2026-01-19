@@ -3091,8 +3091,24 @@ private:
             for (auto it = savedSprites_.begin(); it != savedSprites_.end(); ++it) {
                 if (it->id == spriteId) {
                     ESP_LOGI(HTTP_TAG, "Deleted sprite %d ('%s')", spriteId, it->name.c_str());
+                    
+                    // Actually delete the files from SD card to prevent recovery
+                    auto& fs = Utils::FileSystemService::instance();
+                    if (fs.isReady() && fs.isMounted()) {
+                        char pixelPath[64];
+                        char previewPath[64];
+                        snprintf(pixelPath, sizeof(pixelPath), "/sprites/sprite_%d.bin", spriteId);
+                        snprintf(previewPath, sizeof(previewPath), "/sprites/preview_%d.txt", spriteId);
+                        
+                        ESP_LOGI(HTTP_TAG, "Deleting sprite files: %s, %s", pixelPath, previewPath);
+                        fs.deleteFile(pixelPath);
+                        fs.deleteFile(previewPath);
+                        vTaskDelay(pdMS_TO_TICKS(100));  // Let filesystem sync
+                        SystemAPI::Utils::syncFilesystem();
+                    }
+                    
                     savedSprites_.erase(it);
-                    saveSpritesToStorage();  // Persist to flash
+                    saveSpritesToStorage();  // Persist updated index
                     success = true;
                     break;
                 }

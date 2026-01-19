@@ -408,56 +408,9 @@ void CurrentMode::onStart() {
         // Look up the sprite to get pixel data
         auto* sprite = SystemAPI::Web::HttpServer::findSpriteById(config.spriteId);
         if (sprite) {
-            printf("  Sprite found: '%s' (%dx%d), pixels=%s\n", 
+            printf("  Sprite found: '%s' (%dx%d), %zu bytes\n", 
                    sprite->name.c_str(), sprite->width, sprite->height,
-                   sprite->pixelData.empty() ? "NO" : "YES");
-            
-            // ====== DEBUG: Print sprite as ASCII art ======
-            if (!sprite->pixelData.empty()) {
-                printf("\n  ====== SPRITE PIXEL DATA DEBUG ======\n");
-                printf("  Size: %d x %d = %d pixels\n", sprite->width, sprite->height, sprite->width * sprite->height);
-                printf("  Data size: %zu bytes (expected: %d for RGB888)\n", 
-                       sprite->pixelData.size(), sprite->width * sprite->height * 3);
-                
-                // Print first 24 bytes as hex
-                printf("  First 24 bytes: ");
-                for (int i = 0; i < 24 && i < (int)sprite->pixelData.size(); i++) {
-                    printf("%02X ", sprite->pixelData[i]);
-                }
-                printf("\n");
-                
-                // Print ASCII visualization (use brightness to determine character)
-                printf("\n  ASCII Preview (. = dark, # = bright):\n");
-                printf("  ");
-                for (int x = 0; x < sprite->width && x < 64; x++) printf("-");
-                printf("\n");
-                
-                for (int y = 0; y < sprite->height && y < 32; y++) {
-                    printf("  ");
-                    for (int x = 0; x < sprite->width && x < 64; x++) {
-                        int idx = (y * sprite->width + x) * 3;  // RGB888
-                        if (idx + 2 < (int)sprite->pixelData.size()) {
-                            uint8_t r = sprite->pixelData[idx];
-                            uint8_t g = sprite->pixelData[idx + 1];
-                            uint8_t b = sprite->pixelData[idx + 2];
-                            int brightness = (r + g + b) / 3;
-                            
-                            if (brightness > 200) printf("@");
-                            else if (brightness > 150) printf("#");
-                            else if (brightness > 100) printf("*");
-                            else if (brightness > 50) printf("+");
-                            else if (brightness > 20) printf(".");
-                            else printf(" ");
-                        } else {
-                            printf("?");  // Out of bounds
-                        }
-                    }
-                    printf("\n");
-                }
-                printf("  ");
-                for (int x = 0; x < sprite->width && x < 64; x++) printf("-");
-                printf("\n  ====== END SPRITE DEBUG ======\n\n");
-            }
+                   sprite->pixelData.size());
             
             // Always re-upload sprite to GPU to ensure fresh data
             if (!sprite->pixelData.empty()) {
