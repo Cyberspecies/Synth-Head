@@ -7,7 +7,7 @@
  *    Complete Sprite System Driver with full debug tracing.
  *    Handles the entire sprite pipeline:
  *    
- *    1. SD Card Loading   - Find and read BMP files from /sdcard/sprites/
+ *    1. SD Card Loading   - Find and read BMP files from /sdcard/Sprites/
  *    2. RAM Storage       - Decode BMP to RGB888 and cache in memory
  *    3. Inter-Core Queue  - Transfer sprite data from Core 0 to Core 1
  *    4. GPU Upload        - Core 1 uploads sprite to GPU cache
@@ -49,7 +49,7 @@ static const char* TAG_BLIT    = "SPRITE-BLIT";    // Stage 5: GPU blit/render
 // ============================================================
 // Configuration Constants
 // ============================================================
-static constexpr const char* SPRITES_PATH = "/sdcard/sprites";
+static constexpr const char* SPRITES_PATH = "/sdcard/Sprites";
 static constexpr uint8_t MAX_SPRITES = 32;         // Max sprites in RAM cache
 static constexpr uint8_t MAX_GPU_SPRITES = 16;     // Max sprites in GPU cache
 static constexpr uint32_t MAX_SPRITE_SIZE = 64*64; // Max 64x64 pixels

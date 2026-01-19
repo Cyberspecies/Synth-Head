@@ -161,7 +161,7 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
             </a>
             
             <a href="/sdcard" class="submenu-card">
-              <span class="submenu-icon">&#x1F4BE;</span>
+              <span class="submenu-icon">&#x2261;</span>
               <div class="submenu-title">SD Card Browser</div>
               <div class="submenu-desc">Browse SD card filesystem. View files, check storage status, and manage saved data.</div>
               <div class="submenu-stats">

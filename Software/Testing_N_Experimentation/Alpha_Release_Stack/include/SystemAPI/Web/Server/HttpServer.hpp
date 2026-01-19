@@ -148,18 +148,18 @@ inline bool spiffs_initialized_ = false;  // Still used for legacy SPIFFS
 inline bool sdcard_storage_ready_ = false;
 
 // SD Card paths (primary storage)
-static const char* SPRITE_DIR = "/sdcard/sprites";
-static const char* SPRITE_INDEX_FILE = "/sdcard/sprites/index.dat";
-static const char* EQUATION_DIR = "/sdcard/equations";
-static const char* EQUATION_INDEX_FILE = "/sdcard/equations/index.json";
-static const char* SCENE_DIR = "/sdcard/scenes";
-static const char* SCENE_INDEX_FILE = "/sdcard/scenes/index.json";
+static const char* SPRITE_DIR = "/sdcard/Sprites";
+static const char* SPRITE_INDEX_FILE = "/sdcard/Sprites/index.dat";
+static const char* EQUATION_DIR = "/sdcard/Equations";
+static const char* EQUATION_INDEX_FILE = "/sdcard/Equations/index.json";
+static const char* SCENE_DIR = "/sdcard/Scenes";
+static const char* SCENE_INDEX_FILE = "/sdcard/Scenes/index.json";
 
 // Legacy SPIFFS paths (fallback)
-static const char* SPRITE_DIR_SPIFFS = "/spiffs/sprites";
-static const char* SPRITE_INDEX_FILE_SPIFFS = "/spiffs/sprites/index.json";
-static const char* EQUATION_INDEX_FILE_SPIFFS = "/spiffs/equations.json";
-static const char* SCENE_INDEX_FILE_SPIFFS = "/spiffs/scenes.json";
+static const char* SPRITE_DIR_SPIFFS = "/spiffs/Sprites";
+static const char* SPRITE_INDEX_FILE_SPIFFS = "/spiffs/Sprites/index.json";
+static const char* EQUATION_INDEX_FILE_SPIFFS = "/spiffs/Equations.json";
+static const char* SCENE_INDEX_FILE_SPIFFS = "/spiffs/Scenes.json";
 
 /**
  * @brief HTTP Server for Web Portal
@@ -563,8 +563,8 @@ private:
         }
         
         // Use relative paths for FileSystemService (it adds /sdcard prefix)
-        const char* spritesRelDir = "/sprites";
-        const char* indexRelPath = "/sprites/index.dat";
+        const char* spritesRelDir = "/Sprites";
+        const char* indexRelPath = "/Sprites/index.dat";
         
         // Ensure directory exists
         if (!fs.dirExists(spritesRelDir)) {
@@ -580,7 +580,7 @@ private:
             // Save pixel file first
             if (!sprite.pixelData.empty()) {
                 char pixelRelPath[64];
-                snprintf(pixelRelPath, sizeof(pixelRelPath), "/sprites/sprite_%d.bin", sprite.id);
+                snprintf(pixelRelPath, sizeof(pixelRelPath), "/Sprites/sprite_%d.bin", sprite.id);
                 
                 ESP_LOGI(HTTP_TAG, "Saving pixel file: sprite_%d.bin (%zu bytes)", 
                          sprite.id, sprite.pixelData.size());
@@ -599,7 +599,7 @@ private:
             // Save preview file (after full sync from pixel file)
             if (!sprite.preview.empty()) {
                 char previewRelPath[64];
-                snprintf(previewRelPath, sizeof(previewRelPath), "/sprites/preview_%d.txt", sprite.id);
+                snprintf(previewRelPath, sizeof(previewRelPath), "/Sprites/preview_%d.txt", sprite.id);
                 
                 ESP_LOGI(HTTP_TAG, "Saving preview: preview_%d.txt (%zu bytes)", 
                          sprite.id, sprite.preview.size());
@@ -705,7 +705,7 @@ private:
             return;
         }
         
-        const char* spritesRelDir = "/sprites";
+        const char* spritesRelDir = "/Sprites";
         
         std::vector<int> foundIds;
         
@@ -734,7 +734,7 @@ private:
             if (exists) continue;
             
             char pixelRelPath[64];
-            snprintf(pixelRelPath, sizeof(pixelRelPath), "/sprites/sprite_%d.bin", id);
+            snprintf(pixelRelPath, sizeof(pixelRelPath), "/Sprites/sprite_%d.bin", id);
             
             uint64_t fileSize = fs.getFileSize(pixelRelPath);
             if (fileSize == 0 || fileSize > 1024*1024) continue;
@@ -895,7 +895,7 @@ private:
                 
                 // Try to load pixel data
                 char pixelRelPath[64];
-                snprintf(pixelRelPath, sizeof(pixelRelPath), "/sprites/sprite_%d.bin", sprite.id);
+                snprintf(pixelRelPath, sizeof(pixelRelPath), "/Sprites/sprite_%d.bin", sprite.id);
                 
                 if (fs.fileExists(pixelRelPath)) {
                     uint64_t fileSize = fs.getFileSize(pixelRelPath);
@@ -918,7 +918,7 @@ private:
                 
                 // Try to load preview file
                 char previewRelPath[64];
-                snprintf(previewRelPath, sizeof(previewRelPath), "/sprites/preview_%d.txt", sprite.id);
+                snprintf(previewRelPath, sizeof(previewRelPath), "/Sprites/preview_%d.txt", sprite.id);
                 
                 if (fs.fileExists(previewRelPath)) {
                     char* previewBuf = nullptr;
@@ -3097,8 +3097,8 @@ private:
                     if (fs.isReady() && fs.isMounted()) {
                         char pixelPath[64];
                         char previewPath[64];
-                        snprintf(pixelPath, sizeof(pixelPath), "/sprites/sprite_%d.bin", spriteId);
-                        snprintf(previewPath, sizeof(previewPath), "/sprites/preview_%d.txt", spriteId);
+                        snprintf(pixelPath, sizeof(pixelPath), "/Sprites/sprite_%d.bin", spriteId);
+                        snprintf(previewPath, sizeof(previewPath), "/Sprites/preview_%d.txt", spriteId);
                         
                         ESP_LOGI(HTTP_TAG, "Deleting sprite files: %s, %s", pixelPath, previewPath);
                         fs.deleteFile(pixelPath);
@@ -3277,7 +3277,7 @@ private:
         
         // List sprite binary files for debugging
         cJSON* spriteFiles = cJSON_CreateArray();
-        const char* dataDir = sdcard_storage_ready_ ? "/sdcard/sprites" : "/spiffs/sprites";
+        const char* dataDir = sdcard_storage_ready_ ? "/sdcard/Sprites" : "/spiffs/Sprites";
         DIR* dir = opendir(dataDir);
         if (dir) {
             struct dirent* entry;
@@ -3987,6 +3987,8 @@ public:
         
         auto& sdCard = Utils::FileSystemService::instance();
         
+        ESP_LOGI(HTTP_TAG, "SD Card list: mounted=%d, ready=%d", sdCard.isMounted(), sdCard.isReady());
+        
         if (!sdCard.isMounted()) {
             httpd_resp_set_type(req, "application/json");
             httpd_resp_send(req, "{\"success\":false,\"error\":\"SD card not mounted\"}", HTTPD_RESP_USE_STRLEN);
@@ -3999,9 +4001,26 @@ public:
         if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
             char value[128];
             if (httpd_query_key_value(query, "path", value, sizeof(value)) == ESP_OK) {
-                strncpy(path, value, sizeof(path) - 1);
+                // URL decode the path
+                char* src = value;
+                char* dst = path;
+                while (*src && (dst - path) < 126) {
+                    if (*src == '%' && src[1] && src[2]) {
+                        char hex[3] = {src[1], src[2], 0};
+                        *dst++ = (char)strtol(hex, nullptr, 16);
+                        src += 3;
+                    } else if (*src == '+') {
+                        *dst++ = ' ';
+                        src++;
+                    } else {
+                        *dst++ = *src++;
+                    }
+                }
+                *dst = '\0';
             }
         }
+        
+        ESP_LOGI(HTTP_TAG, "Listing directory: '%s'", path);
         
         cJSON* root = cJSON_CreateObject();
         cJSON_AddBoolToObject(root, "success", true);
@@ -4009,7 +4028,7 @@ public:
         
         cJSON* files = cJSON_AddArrayToObject(root, "files");
         
-        sdCard.listDir(path, [&](const Utils::FileInfo& info) -> bool {
+        int count = sdCard.listDir(path, [&](const Utils::FileInfo& info) -> bool {
             cJSON* item = cJSON_CreateObject();
             cJSON_AddStringToObject(item, "name", info.name);
             cJSON_AddStringToObject(item, "path", info.path);
@@ -4018,6 +4037,8 @@ public:
             cJSON_AddItemToArray(files, item);
             return true;
         });
+        
+        ESP_LOGI(HTTP_TAG, "Directory '%s' has %d entries", path, count);
         
         char* json = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);

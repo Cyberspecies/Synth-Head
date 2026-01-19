@@ -75,9 +75,9 @@ struct SpriteData {
  */
 class SpriteStorage {
 private:
-    static constexpr const char* SPRITES_DIR = "/sdcard/sprites";
-    static constexpr const char* INDEX_FILE = "/sdcard/sprites/index.json";
-    static constexpr const char* TEMP_INDEX = "/sdcard/sprites/index_new.json";
+    static constexpr const char* SPRITES_DIR = "/sdcard/Sprites";
+    static constexpr const char* INDEX_FILE = "/sdcard/Sprites/index.json";
+    static constexpr const char* TEMP_INDEX = "/sdcard/Sprites/index_new.json";
     
     std::vector<SpriteData> sprites_;
     int nextId_ = 1;

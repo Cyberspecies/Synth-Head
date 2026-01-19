@@ -46,23 +46,23 @@ static const char* STORAGE_TAG = "StorageManager";
 
 namespace Paths {
     // Root directories
-    static const char* CALIBRATION_DIR = "/sdcard/calibration";
-    static const char* SPRITES_DIR = "/sdcard/sprites";
-    static const char* ANIMATIONS_DIR = "/sdcard/animations";
-    static const char* CONFIGS_DIR = "/sdcard/configs";
-    static const char* EQUATIONS_DIR = "/sdcard/equations";
-    static const char* CACHE_DIR = "/sdcard/cache";
+    static const char* CALIBRATION_DIR = "/sdcard/Calibration";
+    static const char* SPRITES_DIR = "/sdcard/Sprites";
+    static const char* ANIMATIONS_DIR = "/sdcard/Animations";
+    static const char* CONFIGS_DIR = "/sdcard/Configs";
+    static const char* EQUATIONS_DIR = "/sdcard/Equations";
+    static const char* CACHE_DIR = "/sdcard/Cache";
     
     // Index files
-    static const char* SPRITE_INDEX = "/sdcard/sprites/index.json";
-    static const char* ANIMATION_INDEX = "/sdcard/animations/index.json";
-    static const char* CONFIG_INDEX = "/sdcard/configs/index.json";
-    static const char* EQUATION_INDEX = "/sdcard/equations/index.json";
+    static const char* SPRITE_INDEX = "/sdcard/Sprites/index.json";
+    static const char* ANIMATION_INDEX = "/sdcard/Animations/index.json";
+    static const char* CONFIG_INDEX = "/sdcard/Configs/index.json";
+    static const char* EQUATION_INDEX = "/sdcard/Equations/index.json";
     
     // Calibration files
-    static const char* IMU_CALIBRATION = "/sdcard/calibration/imu.json";
-    static const char* BME_CALIBRATION = "/sdcard/calibration/bme.json";
-    static const char* DISPLAY_CALIBRATION = "/sdcard/calibration/display.json";
+    static const char* IMU_CALIBRATION = "/sdcard/Calibration/imu.json";
+    static const char* BME_CALIBRATION = "/sdcard/Calibration/bme.json";
+    static const char* DISPLAY_CALIBRATION = "/sdcard/Calibration/display.json";
 }
 
 // ============================================================
