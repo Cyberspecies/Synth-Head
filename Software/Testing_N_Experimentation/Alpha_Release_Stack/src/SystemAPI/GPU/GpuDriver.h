@@ -69,6 +69,12 @@ enum class GpuCommand : uint8_t {
     // Sprites
     UPLOAD_SPRITE   = 0x20,
     DELETE_SPRITE   = 0x21,
+    CLEAR_ALL_SPRITES = 0x22,
+    
+    // Chunked sprite upload protocol
+    SPRITE_BEGIN    = 0x23,  // Begin chunked upload: id, w, h, fmt, totalSize
+    SPRITE_CHUNK    = 0x24,  // Data chunk: id, chunkIdx, data...
+    SPRITE_END      = 0x25,  // Finalize: id, expectedChunks
     
     // Variables
     SET_VAR         = 0x30,

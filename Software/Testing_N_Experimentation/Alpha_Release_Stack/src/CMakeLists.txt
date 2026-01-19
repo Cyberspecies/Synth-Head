@@ -69,11 +69,17 @@ elseif(CPU_WIFI_UART_TEST)
     set(SOURCE_FILE "CPU_WifiUartTest.cpp")
     message(STATUS "Building CPU WiFi+UART Test")
 elseif(CPU_GPU_DRIVER_TEST)
-    set(SOURCE_FILES 
+    set(SOURCE_FILES
         "CPU_GpuDriverTest.cpp"
         "SystemAPI/GPU/GpuDriver.cpp"
     )
     message(STATUS "Building CPU GPU Driver Test")
+elseif(CPU_WIFI_SPRITE_UPLOAD_TEST)
+    set(SOURCE_FILES
+        "CPU_WifiSpriteUploadTest.cpp"
+        "SystemAPI/GPU/GpuDriver.cpp"
+    )
+    message(STATUS "Building CPU WiFi Sprite Upload Test")
 # GPU Build selections
 elseif(BAUD_TEST_MODE)
     set(SOURCE_FILE "GPU_BaudTest.cpp")

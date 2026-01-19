@@ -117,7 +117,7 @@ constexpr int UART_BAUD = 10000000;  // 10 Mbps
 constexpr int MAX_SHADERS = 8;
 constexpr int MAX_SHADER_SIZE = 1024;      // 1KB bytecode per shader
 constexpr int MAX_SPRITES = 16;
-constexpr int MAX_SPRITE_SIZE = 8192;      // 8KB per sprite (supports up to 52x52 RGB)
+constexpr int MAX_SPRITE_SIZE = 16384;     // 16KB per sprite (supports up to 128x32 RGB or 73x73 RGB)
 constexpr int MAX_VARIABLES = 256;
 constexpr int MAX_REGISTERS = 16;
 constexpr int MAX_STACK = 16;              // Loop stack depth
@@ -1364,7 +1364,14 @@ static void blitSpriteF(int id, float dx, float dy) {
 // Each sprite pixel is rotated and "splats" to overlapping screen pixels
 // This creates smooth rotation AND sub-pixel movement with proper AA
 static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
-  if (id < 0 || id >= MAX_SPRITES || !gpu.sprites[id].valid) return;
+  if (id < 0 || id >= MAX_SPRITES || !gpu.sprites[id].valid) {
+    static int invalid_count = 0;
+    if (++invalid_count <= 5) {
+      ESP_LOGW(TAG, "blitSpriteRotated: invalid sprite id=%d valid=%d", id, 
+               (id >= 0 && id < MAX_SPRITES) ? gpu.sprites[id].valid : -1);
+    }
+    return;
+  }
   
   Sprite& s = gpu.sprites[id];
   
@@ -1857,6 +1864,11 @@ enum class CmdType : uint8_t {
   DELETE_SPRITE = 0x21,
   CLEAR_ALL_SPRITES = 0x22,  // Clear all sprites in one command
   
+  // Chunked sprite upload protocol
+  SPRITE_BEGIN = 0x23,     // Begin chunked upload: id, w, h, fmt, totalSize (2 bytes)
+  SPRITE_CHUNK = 0x24,     // Data chunk: id, chunkIdx, data... (up to 256 bytes)
+  SPRITE_END = 0x25,       // Finalize upload: id, expectedChunks
+  
   SET_VAR = 0x30,
   SET_VARS = 0x31,       // Set multiple variables
   
@@ -1924,7 +1936,22 @@ constexpr uint8_t SYNC1 = 0x55;
 // ============================================================
 // Command Processing
 // ============================================================
-static uint8_t cmd_buffer[2048];
+static uint8_t cmd_buffer[512];  // Max single command payload (chunks are small)
+
+// Chunked sprite upload state
+struct ChunkedUpload {
+  bool active = false;
+  uint8_t spriteId = 0;
+  uint8_t width = 0;
+  uint8_t height = 0;
+  uint8_t format = 0;
+  uint16_t totalSize = 0;
+  uint16_t receivedSize = 0;
+  uint16_t expectedChunks = 0;
+  uint16_t receivedChunks = 0;
+  uint8_t* buffer = nullptr;
+};
+static ChunkedUpload chunkedUpload;
 
 // ============================================================
 // GPU Alert Sending Functions
@@ -2164,8 +2191,31 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
           gpu.sprites[id].height = h;
           gpu.sprites[id].format = fmt;
           gpu.sprites[id].valid = true;
-          ESP_LOGI(TAG, "Sprite %d uploaded: %dx%d fmt=%d", id, w, h, fmt);
+          ESP_LOGI(TAG, "Sprite %d uploaded: %dx%d fmt=%d dataSize=%d", id, w, h, fmt, dataSize);
+          
+          // ASCII art debug output (RGB888 only)
+          if (fmt == 0 && w <= 64 && h <= 64) {
+            ESP_LOGI(TAG, "=== GPU SPRITE ASCII (%dx%d) ===", w, h);
+            for (int y = 0; y < h; y++) {
+              char rowBuf[128] = {0};
+              int bufIdx = 0;
+              for (int x = 0; x < w && bufIdx < 120; x++) {
+                int pixelIdx = (y * w + x) * 3;
+                uint8_t r = gpu.sprites[id].data[pixelIdx];
+                uint8_t g = gpu.sprites[id].data[pixelIdx + 1];
+                uint8_t b = gpu.sprites[id].data[pixelIdx + 2];
+                int brightness = (r + g + b) / 3;
+                rowBuf[bufIdx++] = (brightness > 127) ? 'O' : '_';
+              }
+              rowBuf[bufIdx] = '\0';
+              ESP_LOGI(TAG, "Row %02d: %s", y, rowBuf);
+            }
+            ESP_LOGI(TAG, "=== END GPU SPRITE ===");
+          }
         }
+      } else {
+        ESP_LOGW(TAG, "Sprite upload rejected: id=%d w=%d h=%d fmt=%d len=%d need=%d", 
+                 id, w, h, fmt, hdr->length, 4 + dataSize);
       }
       break;
     }
@@ -2204,6 +2254,170 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
       break;
     }
     
+    // ============ CHUNKED SPRITE UPLOAD PROTOCOL ============
+    case CmdType::SPRITE_BEGIN: {
+      // Begin chunked upload: id, w, h, fmt, totalSize_lo, totalSize_hi
+      if (hdr->length >= 6) {
+        uint8_t id = payload[0];
+        uint8_t w = payload[1];
+        uint8_t h = payload[2];
+        uint8_t fmt = payload[3];
+        uint16_t totalSize = payload[4] | (payload[5] << 8);
+        
+        if (id >= MAX_SPRITES || totalSize > MAX_SPRITE_SIZE) {
+          ESP_LOGW(TAG, "SPRITE_BEGIN rejected: id=%d size=%d", id, totalSize);
+          break;
+        }
+        
+        // Allocate sprite buffer if needed
+        if (gpu.sprites[id].data == nullptr) {
+          gpu.sprites[id].data = (uint8_t*)heap_caps_malloc(MAX_SPRITE_SIZE, MALLOC_CAP_DEFAULT);
+          if (!gpu.sprites[id].data) {
+            ESP_LOGE(TAG, "SPRITE_BEGIN: malloc failed for sprite %d", id);
+            break;
+          }
+        }
+        
+        // Also allocate chunked upload buffer if first time
+        if (chunkedUpload.buffer == nullptr) {
+          chunkedUpload.buffer = (uint8_t*)heap_caps_malloc(MAX_SPRITE_SIZE, MALLOC_CAP_DEFAULT);
+          if (!chunkedUpload.buffer) {
+            ESP_LOGE(TAG, "SPRITE_BEGIN: malloc failed for chunk buffer");
+            break;
+          }
+        }
+        
+        // Initialize chunked upload state
+        chunkedUpload.active = true;
+        chunkedUpload.spriteId = id;
+        chunkedUpload.width = w;
+        chunkedUpload.height = h;
+        chunkedUpload.format = fmt;
+        chunkedUpload.totalSize = totalSize;
+        chunkedUpload.receivedSize = 0;
+        chunkedUpload.receivedChunks = 0;
+        chunkedUpload.expectedChunks = (totalSize + 255) / 256;  // 256 bytes per chunk
+        memset(chunkedUpload.buffer, 0, MAX_SPRITE_SIZE);
+        
+        ESP_LOGI(TAG, "SPRITE_BEGIN: id=%d %dx%d fmt=%d size=%d chunks=%d", 
+                 id, w, h, fmt, totalSize, chunkedUpload.expectedChunks);
+      }
+      break;
+    }
+    
+    case CmdType::SPRITE_CHUNK: {
+      // Data chunk: id, chunkIdx_lo, chunkIdx_hi, data...
+      if (hdr->length >= 3 && chunkedUpload.active) {
+        uint8_t id = payload[0];
+        uint16_t chunkIdx = payload[1] | (payload[2] << 8);
+        uint16_t dataLen = hdr->length - 3;
+        
+        if (id != chunkedUpload.spriteId) {
+          ESP_LOGW(TAG, "SPRITE_CHUNK: wrong sprite id=%d expected=%d", id, chunkedUpload.spriteId);
+          break;
+        }
+        
+        // Calculate offset and copy data
+        uint32_t offset = chunkIdx * 256;
+        if (offset + dataLen > MAX_SPRITE_SIZE) {
+          ESP_LOGW(TAG, "SPRITE_CHUNK: overflow chunk=%d dataLen=%d", chunkIdx, dataLen);
+          break;
+        }
+        
+        memcpy(chunkedUpload.buffer + offset, payload + 3, dataLen);
+        chunkedUpload.receivedSize += dataLen;
+        chunkedUpload.receivedChunks++;
+        
+        // Log progress every 4 chunks
+        if ((chunkedUpload.receivedChunks % 4) == 0 || chunkedUpload.receivedChunks == chunkedUpload.expectedChunks) {
+          ESP_LOGI(TAG, "SPRITE_CHUNK: %d/%d chunks, %d/%d bytes", 
+                   chunkedUpload.receivedChunks, chunkedUpload.expectedChunks,
+                   chunkedUpload.receivedSize, chunkedUpload.totalSize);
+        }
+      }
+      break;
+    }
+    
+    case CmdType::SPRITE_END: {
+      // Finalize upload: id, expectedChunks_lo, expectedChunks_hi
+      if (hdr->length >= 3 && chunkedUpload.active) {
+        uint8_t id = payload[0];
+        uint16_t expectedChunks = payload[1] | (payload[2] << 8);
+        
+        if (id != chunkedUpload.spriteId) {
+          ESP_LOGW(TAG, "SPRITE_END: wrong sprite id=%d expected=%d", id, chunkedUpload.spriteId);
+          chunkedUpload.active = false;
+          break;
+        }
+        
+        if (chunkedUpload.receivedChunks < expectedChunks) {
+          ESP_LOGW(TAG, "SPRITE_END: incomplete upload, got %d/%d chunks", 
+                   chunkedUpload.receivedChunks, expectedChunks);
+          // Still finalize with what we have
+        }
+        
+        // Copy assembled data to sprite
+        memcpy(gpu.sprites[id].data, chunkedUpload.buffer, chunkedUpload.totalSize);
+        gpu.sprites[id].width = chunkedUpload.width;
+        gpu.sprites[id].height = chunkedUpload.height;
+        gpu.sprites[id].format = chunkedUpload.format;
+        gpu.sprites[id].valid = true;
+        
+        ESP_LOGI(TAG, "SPRITE_END: sprite %d complete! %dx%d, %d bytes in %d chunks",
+                 id, chunkedUpload.width, chunkedUpload.height, 
+                 chunkedUpload.receivedSize, chunkedUpload.receivedChunks);
+        
+        // Debug: Check middle rows (15-17) for 32-height sprites
+        if (chunkedUpload.format == 0 && chunkedUpload.height == 32) {
+          ESP_LOGI(TAG, "=== MIDDLE ROW DEBUG (rows 14-17) ===");
+          for (int y = 14; y <= 17 && y < chunkedUpload.height; y++) {
+            // Sample first 32 pixels of each row
+            char rowBuf[96] = {0};
+            int bufIdx = 0;
+            int nonZeroCount = 0;
+            for (int x = 0; x < 32 && x < chunkedUpload.width; x++) {
+              int pixelIdx = (y * chunkedUpload.width + x) * 3;
+              uint8_t r = gpu.sprites[id].data[pixelIdx];
+              uint8_t g = gpu.sprites[id].data[pixelIdx + 1];
+              uint8_t b = gpu.sprites[id].data[pixelIdx + 2];
+              int brightness = (r + g + b) / 3;
+              if (brightness > 0) nonZeroCount++;
+              rowBuf[bufIdx++] = (brightness > 127) ? 'O' : (brightness > 0) ? '.' : '_';
+            }
+            rowBuf[bufIdx] = '\0';
+            // Also check bytes at row start in the buffer
+            int rowStart = y * chunkedUpload.width * 3;
+            ESP_LOGI(TAG, "Row %02d: %s (nonzero=%d, byte[%d]=%02X)", y, rowBuf, nonZeroCount, rowStart, gpu.sprites[id].data[rowStart]);
+          }
+          ESP_LOGI(TAG, "=== END MIDDLE ROW DEBUG ===");
+        }
+        
+        // ASCII art debug output (RGB888 only, small sprites)
+        if (chunkedUpload.format == 0 && chunkedUpload.width <= 64 && chunkedUpload.height <= 64) {
+          ESP_LOGI(TAG, "=== GPU SPRITE ASCII (%dx%d) ===", chunkedUpload.width, chunkedUpload.height);
+          for (int y = 0; y < chunkedUpload.height; y++) {
+            char rowBuf[128] = {0};
+            int bufIdx = 0;
+            for (int x = 0; x < chunkedUpload.width && bufIdx < 120; x++) {
+              int pixelIdx = (y * chunkedUpload.width + x) * 3;
+              uint8_t r = gpu.sprites[id].data[pixelIdx];
+              uint8_t g = gpu.sprites[id].data[pixelIdx + 1];
+              uint8_t b = gpu.sprites[id].data[pixelIdx + 2];
+              int brightness = (r + g + b) / 3;
+              rowBuf[bufIdx++] = (brightness > 127) ? 'O' : '_';
+            }
+            rowBuf[bufIdx] = '\0';
+            ESP_LOGI(TAG, "Row %02d: %s", y, rowBuf);
+          }
+          ESP_LOGI(TAG, "=== END GPU SPRITE ===");
+        }
+        
+        chunkedUpload.active = false;
+      }
+      break;
+    }
+    // ============ END CHUNKED SPRITE UPLOAD ============
+
     case CmdType::SET_VAR: {
       if (hdr->length >= 3) {
         uint8_t var = payload[0];
@@ -3079,8 +3293,9 @@ static void uartTask(void* arg) {
           if (hdr.length == 0) {
             processCommand(&hdr, nullptr);
             state = 0;
-          } else if (hdr.length > 512) {  // More conservative limit
-            // Likely corrupt - flush UART and resync
+          } else if (hdr.length > 300) {  // Max chunk size ~256 + header
+            // Likely corrupt - flush UART and resync  
+            ESP_LOGW(TAG, "Rejecting oversized command: type=0x%02X len=%d", (uint8_t)hdr.type, hdr.length);
             uint8_t flush[64];
             while (uart_read_bytes(UART_PORT, flush, sizeof(flush), 0) > 0) {}
             state = 0;

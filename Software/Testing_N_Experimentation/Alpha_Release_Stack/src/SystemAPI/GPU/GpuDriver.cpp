@@ -12,6 +12,8 @@
 
 #include "GpuDriver.h"
 #include <cmath>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace SystemAPI {
 
@@ -265,6 +267,9 @@ void GpuDriver::drawFilledPolygon(const int16_t* xPoints, const int16_t* yPoints
 }
 
 // ============== Sprite Operations ==============
+// Chunk size for sprite uploads (must match GPU's CHUNK_SIZE)
+static constexpr size_t CHUNK_SIZE = 256;
+
 bool GpuDriver::uploadSprite(uint8_t spriteId, uint8_t width, uint8_t height,
                               const uint8_t* pixelData, SpriteFormat format) {
     if (spriteId > 63) {
@@ -280,25 +285,62 @@ bool GpuDriver::uploadSprite(uint8_t spriteId, uint8_t width, uint8_t height,
         dataSize = ((width + 7) / 8) * height;  // 1bpp packed
     }
     
-    // Build payload: spriteId, width, height, format, data
-    size_t payloadSize = 4 + dataSize;
-    uint8_t* payload = new uint8_t[payloadSize];
-    if (!payload) {
-        ESP_LOGE(TAG, "Failed to allocate sprite payload");
-        return false;
+    ESP_LOGI(TAG, "Uploading sprite %d: %dx%d, %zu bytes (chunked)", spriteId, width, height, dataSize);
+    
+    // Step 1: Send SPRITE_BEGIN
+    // Payload: spriteId, width, height, format, totalSize (2 bytes little-endian)
+    uint8_t beginPayload[6] = {
+        spriteId,
+        width,
+        height,
+        static_cast<uint8_t>(format),
+        static_cast<uint8_t>(dataSize & 0xFF),
+        static_cast<uint8_t>((dataSize >> 8) & 0xFF)
+    };
+    sendCommand(GpuCommand::SPRITE_BEGIN, beginPayload, 6);
+    vTaskDelay(pdMS_TO_TICKS(5));  // Give GPU time to prepare
+    
+    // Step 2: Send SPRITE_CHUNK for each chunk
+    size_t offset = 0;
+    uint16_t chunkIdx = 0;
+    uint16_t totalChunks = (dataSize + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    
+    // Buffer for chunk payload: spriteId, chunkIdx (2 bytes), data
+    uint8_t chunkPayload[3 + CHUNK_SIZE];
+    
+    while (offset < dataSize) {
+        size_t remaining = dataSize - offset;
+        size_t thisChunkSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
+        
+        chunkPayload[0] = spriteId;
+        chunkPayload[1] = static_cast<uint8_t>(chunkIdx & 0xFF);
+        chunkPayload[2] = static_cast<uint8_t>((chunkIdx >> 8) & 0xFF);
+        memcpy(chunkPayload + 3, pixelData + offset, thisChunkSize);
+        
+        sendCommand(GpuCommand::SPRITE_CHUNK, chunkPayload, 3 + thisChunkSize);
+        
+        offset += thisChunkSize;
+        chunkIdx++;
+        
+        // Small delay between chunks to prevent GPU buffer overflow
+        vTaskDelay(pdMS_TO_TICKS(2));
+        
+        // Progress every 4 chunks
+        if (chunkIdx % 4 == 0) {
+            ESP_LOGI(TAG, "Chunk %d/%d sent", chunkIdx, totalChunks);
+        }
     }
     
-    payload[0] = spriteId;
-    payload[1] = width;
-    payload[2] = height;
-    payload[3] = static_cast<uint8_t>(format);
-    memcpy(payload + 4, pixelData, dataSize);
+    // Step 3: Send SPRITE_END
+    // Payload: spriteId, expectedChunks (2 bytes little-endian)
+    uint8_t endPayload[3] = {
+        spriteId,
+        static_cast<uint8_t>(chunkIdx & 0xFF),
+        static_cast<uint8_t>((chunkIdx >> 8) & 0xFF)
+    };
+    sendCommand(GpuCommand::SPRITE_END, endPayload, 3);
     
-    sendCommand(GpuCommand::UPLOAD_SPRITE, payload, payloadSize);
-    
-    delete[] payload;
-    
-    ESP_LOGI(TAG, "Uploaded sprite %d: %dx%d, %zu bytes", spriteId, width, height, dataSize);
+    ESP_LOGI(TAG, "Sprite %d upload complete: %d chunks sent", spriteId, chunkIdx);
     return true;
 }
 
