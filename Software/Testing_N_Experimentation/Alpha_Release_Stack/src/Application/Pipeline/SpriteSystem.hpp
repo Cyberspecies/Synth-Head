@@ -29,6 +29,7 @@
 #include "freertos/semphr.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "GpuDriver/GpuUartMutex.hpp"  // Thread-safe UART access
 
 namespace Application {
 
@@ -82,9 +83,17 @@ public:
     
     bool isInitialized() const { return initialized_; }
     
-    // Send raw command
+    // Send raw command (thread-safe with GPU UART mutex)
     void sendCmd(Cmd cmd, const uint8_t* payload = nullptr, uint16_t len = 0) {
         if (!initialized_) return;
+        
+        // Acquire mutex to prevent race conditions with other cores
+        GpuUart::GpuUartLock lock;
+        if (!lock.isAcquired()) {
+            ESP_LOGW("SpriteGpu", "sendCmd: mutex timeout, command 0x%02X dropped", cmd);
+            return;
+        }
+        
         uint8_t header[5] = {
             SYNC0, SYNC1, cmd,
             (uint8_t)(len & 0xFF),

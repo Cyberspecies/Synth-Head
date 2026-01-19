@@ -81,10 +81,15 @@ public:
         initialized_ = true;
         ESP_LOGI(TAG, "SPI bus initialized");
         
-        // Attempt to mount
+        // Attempt to mount - return failure if mount fails
         HalResult mountResult = mount();
         if (mountResult != HalResult::OK) {
-            ESP_LOGW(TAG, "Auto-mount failed, card may not be inserted");
+            ESP_LOGE(TAG, "Auto-mount failed (result=%d), SD card not usable", 
+                     static_cast<int>(mountResult));
+            // Clean up SPI bus since we can't use the card
+            spi_bus_free(spiHost_);
+            initialized_ = false;
+            return mountResult;
         }
         
         return HalResult::OK;
@@ -134,11 +139,27 @@ public:
         sdmmc_host_t host = SDSPI_HOST_DEFAULT();
         host.slot = spiHost_;
         
-        ESP_LOGI(TAG, "Mounting SD card...");
-        esp_err_t ret = esp_vfs_fat_sdspi_mount(MOUNT_POINT, &host, &slot_config, &mount_config, &card_);
+        // Retry mount up to 3 times with delays (SD card may need time at boot)
+        esp_err_t ret = ESP_FAIL;
+        const int maxRetries = 3;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            ESP_LOGI(TAG, "Mounting SD card (attempt %d/%d)...", attempt, maxRetries);
+            ret = esp_vfs_fat_sdspi_mount(MOUNT_POINT, &host, &slot_config, &mount_config, &card_);
+            
+            if (ret == ESP_OK) {
+                break;  // Success!
+            }
+            
+            ESP_LOGW(TAG, "Mount attempt %d failed: %s", attempt, esp_err_to_name(ret));
+            
+            if (attempt < maxRetries) {
+                // Wait a bit before retrying
+                vTaskDelay(pdMS_TO_TICKS(500));
+            }
+        }
         
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Mount failed: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Mount failed after %d attempts: %s", maxRetries, esp_err_to_name(ret));
             return HalResult::HARDWARE_FAULT;
         }
         

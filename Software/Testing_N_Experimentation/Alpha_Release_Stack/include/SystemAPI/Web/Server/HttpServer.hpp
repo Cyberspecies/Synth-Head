@@ -570,11 +570,14 @@ private:
         if (!fs.dirExists(spritesRelDir)) {
             ESP_LOGI(HTTP_TAG, "Creating sprites directory");
             fs.createDir(spritesRelDir);
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(200));  // Long delay after mkdir
+            SystemAPI::Utils::syncFilesystem();  // Force sync
         }
         
-        // First, save all pixel files and preview files
+        // Save files ONE AT A TIME with full sync between each operation
+        // This is slower but much more reliable for FAT filesystem
         for (const auto& sprite : savedSprites_) {
+            // Save pixel file first
             if (!sprite.pixelData.empty()) {
                 char pixelRelPath[64];
                 snprintf(pixelRelPath, sizeof(pixelRelPath), "/sprites/sprite_%d.bin", sprite.id);
@@ -582,24 +585,30 @@ private:
                 ESP_LOGI(HTTP_TAG, "Saving pixel file: sprite_%d.bin (%zu bytes)", 
                          sprite.id, sprite.pixelData.size());
                 
-                // Use FileSystemService writeFile - handles path building internally
                 if (fs.writeFile(pixelRelPath, sprite.pixelData.data(), sprite.pixelData.size())) {
                     ESP_LOGI(HTTP_TAG, "Saved pixel data for sprite %d", sprite.id);
                 } else {
                     ESP_LOGE(HTTP_TAG, "Failed to save pixel file for sprite %d", sprite.id);
                 }
                 
-                // Small delay between file writes to allow FAT sync
-                vTaskDelay(pdMS_TO_TICKS(50));
+                // CRITICAL: Long delay and sync after each file write
+                vTaskDelay(pdMS_TO_TICKS(300));
+                SystemAPI::Utils::syncFilesystem();
             }
             
-            // Save preview as separate file (base64 PNG string)
+            // Save preview file (after full sync from pixel file)
             if (!sprite.preview.empty()) {
                 char previewRelPath[64];
                 snprintf(previewRelPath, sizeof(previewRelPath), "/sprites/preview_%d.txt", sprite.id);
                 
-                ESP_LOGI(HTTP_TAG, "Saving preview file: preview_%d.txt (%zu bytes)", 
+                ESP_LOGI(HTTP_TAG, "Saving preview: preview_%d.txt (%zu bytes)", 
                          sprite.id, sprite.preview.size());
+                
+                // Explicitly delete existing file first  
+                fs.deleteFile(previewRelPath);
+                vTaskDelay(pdMS_TO_TICKS(200));
+                SystemAPI::Utils::syncFilesystem();
+                vTaskDelay(pdMS_TO_TICKS(100));
                 
                 if (fs.writeFile(previewRelPath, sprite.preview.c_str(), sprite.preview.size())) {
                     ESP_LOGI(HTTP_TAG, "Saved preview for sprite %d", sprite.id);
@@ -607,7 +616,9 @@ private:
                     ESP_LOGE(HTTP_TAG, "Failed to save preview file for sprite %d", sprite.id);
                 }
                 
-                vTaskDelay(pdMS_TO_TICKS(50));
+                // CRITICAL: Long delay and sync after preview write
+                vTaskDelay(pdMS_TO_TICKS(300));
+                SystemAPI::Utils::syncFilesystem();
             }
         }
         
@@ -796,9 +807,9 @@ private:
         ESP_LOGI(HTTP_TAG, "Listing /sprites directory:");
         int fileCount = 0;
         fs.listDir("/sprites", [&](const Utils::FileInfo& info) -> bool {
-            ESP_LOGI(HTTP_TAG, "  [%s] %s (%llu bytes)", 
+            ESP_LOGI(HTTP_TAG, "  [%s] %s (%lu bytes)", 
                      info.isDirectory ? "DIR" : "FILE", 
-                     info.name, info.size);
+                     info.name, (unsigned long)info.size);
             fileCount++;
             return true;
         });

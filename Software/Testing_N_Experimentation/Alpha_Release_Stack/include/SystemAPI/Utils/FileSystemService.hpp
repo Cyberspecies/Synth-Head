@@ -24,10 +24,33 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <cerrno>
+#include <fcntl.h>
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace SystemAPI {
 namespace Utils {
+
+/**
+ * @brief Sync filesystem by opening and fsync-ing a sentinel file
+ * ESP-IDF doesn't have global sync(), so we force a flush via fsync
+ */
+inline void syncFilesystem(const char* mountPoint = "/sdcard") {
+    char syncPath[64];
+    snprintf(syncPath, sizeof(syncPath), "%s/.sync", mountPoint);
+    
+    int fd = open(syncPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        write(fd, ".", 1);
+        fsync(fd);
+        close(fd);
+        unlink(syncPath);
+    }
+    
+    // Give FAT table time to flush
+    vTaskDelay(pdMS_TO_TICKS(50));
+}
 
 // ============================================================
 // File Info Structure
@@ -113,6 +136,21 @@ public:
             hal_.deinit();
             ready_ = false;
         }
+    }
+    
+    /**
+     * @brief Retry initialization if it previously failed
+     * @param pins SD card SPI pins
+     * @return true if initialization and mount succeeded
+     */
+    bool reinit(const SdCardPins& pins = SdCardPins{}) {
+        // Deinit first if partially initialized
+        if (hal_.isInitialized()) {
+            hal_.deinit();
+            ready_ = false;
+        }
+        
+        return init(pins);
     }
     
     // ========== Status ==========
@@ -259,7 +297,8 @@ public:
     }
     
     /**
-     * @brief Write data to file with proper sync
+     * @brief Write data to file with proper sync - ROBUST VERSION
+     * Uses multiple fallback strategies for FAT filesystem reliability
      * @return true on success
      */
     bool writeFile(const char* path, const void* data, size_t size) {
@@ -271,7 +310,7 @@ public:
         char fullPath[160];
         hal_.buildFullPath(fullPath, sizeof(fullPath), path);
         
-        // Ensure parent directory exists
+        // Step 1: Ensure parent directory exists
         char dirPath[160];
         strncpy(dirPath, fullPath, sizeof(dirPath));
         char* lastSlash = strrchr(dirPath, '/');
@@ -281,44 +320,123 @@ public:
             if (stat(dirPath, &st) != 0 || !S_ISDIR(st.st_mode)) {
                 ESP_LOGI("FSService", "Creating directory: %s", dirPath);
                 mkdir(dirPath, 0755);
-                vTaskDelay(pdMS_TO_TICKS(20));
+                vTaskDelay(pdMS_TO_TICKS(100));  // Long delay after mkdir
             }
         }
         
-        // Remove existing file first
+        // Step 2: Remove existing file first (avoid FAT table conflicts)
         struct stat fst;
         if (stat(fullPath, &fst) == 0) {
             ESP_LOGI("FSService", "Removing existing file: %s", fullPath);
-            remove(fullPath);
-            vTaskDelay(pdMS_TO_TICKS(20));
+            int unlinkResult = unlink(fullPath);
+            if (unlinkResult != 0) {
+                ESP_LOGW("FSService", "unlink failed (errno=%d), trying remove()", errno);
+                remove(fullPath);
+            }
+            // Long delay after file deletion for FAT table update
+            vTaskDelay(pdMS_TO_TICKS(200));
+            
+            // Force sync to flush FAT table
+            syncFilesystem();
         }
         
-        // Open file for writing
-        ESP_LOGI("FSService", "Opening file: %s", fullPath);
-        FILE* f = fopen(fullPath, "wb");
-        if (!f) {
-            ESP_LOGE("FSService", "Failed to open file for writing: %s (errno=%d)", fullPath, errno);
-            return false;
+        // Step 3: Try writing with multiple strategies
+        ESP_LOGI("FSService", "Opening file for write: %s (%zu bytes)", fullPath, size);
+        
+        // Check for potential issues
+        if (strlen(fullPath) > 100) {
+            ESP_LOGW("FSService", "Path length warning: %d chars", strlen(fullPath));
         }
         
-        size_t written = fwrite(data, 1, size, f);
+        // Log directory state
+        char checkDir[160];
+        strncpy(checkDir, fullPath, sizeof(checkDir));
+        char* lastDirSlash = strrchr(checkDir, '/');
+        if (lastDirSlash) {
+            *lastDirSlash = '\0';
+            DIR* d = opendir(checkDir);
+            if (d) {
+                int fileCount = 0;
+                struct dirent* entry;
+                while ((entry = readdir(d)) != nullptr) {
+                    fileCount++;
+                }
+                closedir(d);
+                ESP_LOGI("FSService", "Directory %s has %d entries", checkDir, fileCount);
+            }
+        }
         
-        // Flush and sync to ensure data is written to SD card
-        fflush(f);
-        int fd = fileno(f);
+        // Strategy A: Standard fopen with extended retry and longer delays
+        for (int attempt = 0; attempt < 5; attempt++) {
+            if (attempt > 0) {
+                ESP_LOGW("FSService", "Retry attempt %d for %s", attempt + 1, fullPath);
+                // Progressive delay: 200, 400, 600, 800ms
+                vTaskDelay(pdMS_TO_TICKS(200 * attempt));
+                syncFilesystem();  // Force filesystem sync between retries
+            }
+            
+            FILE* f = fopen(fullPath, "wb");
+            if (f) {
+                size_t written = fwrite(data, 1, size, f);
+                fflush(f);
+                
+                int fd = fileno(f);
+                if (fd >= 0) {
+                    fsync(fd);
+                }
+                
+                int closeResult = fclose(f);
+                
+                if (written == size && closeResult == 0) {
+                    // Verify write by checking file size
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                    struct stat verifySt;
+                    if (stat(fullPath, &verifySt) == 0 && (size_t)verifySt.st_size == size) {
+                        ESP_LOGI("FSService", "Successfully wrote %zu bytes to %s", size, fullPath);
+                        return true;
+                    } else {
+                        ESP_LOGW("FSService", "Write verification failed, size mismatch");
+                        unlink(fullPath);  // Delete corrupt file
+                        vTaskDelay(pdMS_TO_TICKS(100));
+                    }
+                } else {
+                    ESP_LOGW("FSService", "Write failed: wrote %zu/%zu, close=%d", written, size, closeResult);
+                    unlink(fullPath);  // Delete corrupt file
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                }
+            } else {
+                int savedErrno = errno;
+                ESP_LOGW("FSService", "fopen attempt %d failed (errno=%d: %s)", 
+                         attempt + 1, savedErrno, strerror(savedErrno));
+            }
+        }
+        
+        // Strategy B: Try using low-level open() instead of fopen()
+        ESP_LOGW("FSService", "fopen failed, trying low-level open() for %s", fullPath);
+        
+        // Sync and wait before low-level attempt
+        syncFilesystem();
+        vTaskDelay(pdMS_TO_TICKS(200));
+        
+        int fd = open(fullPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) {
+            ssize_t written = write(fd, data, size);
             fsync(fd);
+            int closeResult = close(fd);
+            
+            if (written == (ssize_t)size && closeResult == 0) {
+                ESP_LOGI("FSService", "Successfully wrote %zu bytes via open() to %s", size, fullPath);
+                return true;
+            } else {
+                ESP_LOGE("FSService", "Low-level write failed: wrote %zd/%zu", written, size);
+                unlink(fullPath);
+            }
+        } else {
+            ESP_LOGE("FSService", "Low-level open() also failed (errno=%d: %s)", errno, strerror(errno));
         }
         
-        fclose(f);
-        
-        if (written != size) {
-            ESP_LOGE("FSService", "Write size mismatch: expected %zu, wrote %zu", size, written);
-            return false;
-        }
-        
-        ESP_LOGI("FSService", "Successfully wrote %zu bytes to %s", size, fullPath);
-        return true;
+        ESP_LOGE("FSService", "All write strategies failed for %s", fullPath);
+        return false;
     }
     
     /**

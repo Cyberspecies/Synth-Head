@@ -27,6 +27,7 @@
 #include "freertos/semphr.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "GpuDriver/GpuUartMutex.hpp"  // Thread-safe UART access
 
 namespace Application {
 
@@ -139,9 +140,16 @@ public:
     /** Check if initialized */
     bool isInitialized() const { return initialized_; }
     
-    // Send raw command
+    // Send raw command (thread-safe with GPU UART mutex)
     void sendCmd(Cmd cmd, const uint8_t* payload = nullptr, uint16_t len = 0) {
         if (!initialized_) return;
+        
+        // Acquire mutex to prevent race conditions with Core 0 operations
+        GpuUart::GpuUartLock lock;
+        if (!lock.isAcquired()) {
+            ESP_LOGW("GpuProto", "sendCmd: mutex timeout, command 0x%02X dropped", cmd);
+            return;
+        }
         
         uint8_t header[5] = {
             SYNC0, SYNC1, cmd,
@@ -379,29 +387,27 @@ private:
     void renderScene(const SceneConfig& config) {
         static uint32_t renderCount = 0;
         static uint32_t lastVersion = 0;
-        static bool staticRendered = false;
+        static uint32_t skipCounter = 0;
         
         renderCount++;
         
-        // For static content, only render once when config changes
-        if (config.type == SceneType::STATIC_SPRITE || config.type == SceneType::SOLID_COLOR) {
-            if (config.version == lastVersion && staticRendered) {
-                // Static scene already rendered, skip to save bandwidth
-                return;
-            }
-            // New config or first render - will render below
-            ESP_LOGI(TAG, "Static scene render: type=%d ver=%lu (prev=%lu)", 
+        // Throttle to ~30fps (skip every other frame) to prevent GPU buffer overflow
+        // The GPU can only process so many commands per second
+        skipCounter++;
+        if (skipCounter < 2) {
+            return;  // Skip this frame
+        }
+        skipCounter = 0;
+        
+        // Log when config changes for debugging
+        if (config.version != lastVersion) {
+            ESP_LOGI(TAG, "Scene render: type=%d ver=%lu (prev=%lu)", 
                      (int)config.type, config.version, lastVersion);
-            staticRendered = true;
-            lastVersion = config.version;
-        } else {
-            // Animated content - always render, reset static flag
-            staticRendered = false;
             lastVersion = config.version;
         }
         
-        // Log every 60 frames (once per second) for animated content
-        if (!staticRendered && renderCount % 60 == 0) {
+        // Log every 30 actual renders (once per second at 30fps) for debugging
+        if (renderCount % 60 == 0) {
             ESP_LOGI(TAG, "renderScene: frame=%lu type=%d spriteId=%d", 
                      renderCount, (int)config.type, config.spriteId);
         }

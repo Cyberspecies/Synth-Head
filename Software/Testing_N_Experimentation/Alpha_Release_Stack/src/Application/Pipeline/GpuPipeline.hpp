@@ -30,6 +30,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "driver/uart.h"
+#include "GpuDriver/GpuUartMutex.hpp"  // Thread-safe UART access
 
 namespace Application {
 
@@ -436,6 +437,13 @@ private:
   // ========================================================
   
   void sendCommand(GpuCmd cmd, const uint8_t* payload, uint16_t len) {
+    // Acquire mutex to prevent race conditions with Core 0 operations
+    GpuUart::GpuUartLock lock;
+    if (!lock.isAcquired()) {
+      ESP_LOGW(TAG, "sendCommand: mutex timeout, command 0x%02X dropped", (uint8_t)cmd);
+      return;
+    }
+    
     uint8_t header[5] = {
       GPU_SYNC0, GPU_SYNC1,
       static_cast<uint8_t>(cmd),

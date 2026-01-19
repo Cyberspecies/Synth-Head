@@ -2192,26 +2192,6 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
           gpu.sprites[id].format = fmt;
           gpu.sprites[id].valid = true;
           ESP_LOGI(TAG, "Sprite %d uploaded: %dx%d fmt=%d dataSize=%d", id, w, h, fmt, dataSize);
-          
-          // ASCII art debug output (RGB888 only)
-          if (fmt == 0 && w <= 64 && h <= 64) {
-            ESP_LOGI(TAG, "=== GPU SPRITE ASCII (%dx%d) ===", w, h);
-            for (int y = 0; y < h; y++) {
-              char rowBuf[128] = {0};
-              int bufIdx = 0;
-              for (int x = 0; x < w && bufIdx < 120; x++) {
-                int pixelIdx = (y * w + x) * 3;
-                uint8_t r = gpu.sprites[id].data[pixelIdx];
-                uint8_t g = gpu.sprites[id].data[pixelIdx + 1];
-                uint8_t b = gpu.sprites[id].data[pixelIdx + 2];
-                int brightness = (r + g + b) / 3;
-                rowBuf[bufIdx++] = (brightness > 127) ? 'O' : '_';
-              }
-              rowBuf[bufIdx] = '\0';
-              ESP_LOGI(TAG, "Row %02d: %s", y, rowBuf);
-            }
-            ESP_LOGI(TAG, "=== END GPU SPRITE ===");
-          }
         }
       } else {
         ESP_LOGW(TAG, "Sprite upload rejected: id=%d w=%d h=%d fmt=%d len=%d need=%d", 
@@ -2367,51 +2347,6 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
                  id, chunkedUpload.width, chunkedUpload.height, 
                  chunkedUpload.receivedSize, chunkedUpload.receivedChunks);
         
-        // Debug: Check middle rows (15-17) for 32-height sprites
-        if (chunkedUpload.format == 0 && chunkedUpload.height == 32) {
-          ESP_LOGI(TAG, "=== MIDDLE ROW DEBUG (rows 14-17) ===");
-          for (int y = 14; y <= 17 && y < chunkedUpload.height; y++) {
-            // Sample first 32 pixels of each row
-            char rowBuf[96] = {0};
-            int bufIdx = 0;
-            int nonZeroCount = 0;
-            for (int x = 0; x < 32 && x < chunkedUpload.width; x++) {
-              int pixelIdx = (y * chunkedUpload.width + x) * 3;
-              uint8_t r = gpu.sprites[id].data[pixelIdx];
-              uint8_t g = gpu.sprites[id].data[pixelIdx + 1];
-              uint8_t b = gpu.sprites[id].data[pixelIdx + 2];
-              int brightness = (r + g + b) / 3;
-              if (brightness > 0) nonZeroCount++;
-              rowBuf[bufIdx++] = (brightness > 127) ? 'O' : (brightness > 0) ? '.' : '_';
-            }
-            rowBuf[bufIdx] = '\0';
-            // Also check bytes at row start in the buffer
-            int rowStart = y * chunkedUpload.width * 3;
-            ESP_LOGI(TAG, "Row %02d: %s (nonzero=%d, byte[%d]=%02X)", y, rowBuf, nonZeroCount, rowStart, gpu.sprites[id].data[rowStart]);
-          }
-          ESP_LOGI(TAG, "=== END MIDDLE ROW DEBUG ===");
-        }
-        
-        // ASCII art debug output (RGB888 only, small sprites)
-        if (chunkedUpload.format == 0 && chunkedUpload.width <= 64 && chunkedUpload.height <= 64) {
-          ESP_LOGI(TAG, "=== GPU SPRITE ASCII (%dx%d) ===", chunkedUpload.width, chunkedUpload.height);
-          for (int y = 0; y < chunkedUpload.height; y++) {
-            char rowBuf[128] = {0};
-            int bufIdx = 0;
-            for (int x = 0; x < chunkedUpload.width && bufIdx < 120; x++) {
-              int pixelIdx = (y * chunkedUpload.width + x) * 3;
-              uint8_t r = gpu.sprites[id].data[pixelIdx];
-              uint8_t g = gpu.sprites[id].data[pixelIdx + 1];
-              uint8_t b = gpu.sprites[id].data[pixelIdx + 2];
-              int brightness = (r + g + b) / 3;
-              rowBuf[bufIdx++] = (brightness > 127) ? 'O' : '_';
-            }
-            rowBuf[bufIdx] = '\0';
-            ESP_LOGI(TAG, "Row %02d: %s", y, rowBuf);
-          }
-          ESP_LOGI(TAG, "=== END GPU SPRITE ===");
-        }
-        
         chunkedUpload.active = false;
       }
       break;
@@ -2554,6 +2489,17 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         float x = (int8_t)payload[2] + (payload[1] / 256.0f);
         float y = (int8_t)payload[4] + (payload[3] / 256.0f);
         float angle = (int16_t)(payload[5] | (payload[6] << 8)) / 256.0f;  // 8.8 fixed point degrees
+        
+        // DEBUG: Log blit command reception (first few times only)
+        static int blit_debug_count = 0;
+        if (blit_debug_count < 5) {
+          blit_debug_count++;
+          ESP_LOGI(TAG, "BLIT_SPRITE_ROT: id=%d pos=(%.1f,%.1f) angle=%.1f valid=%d target=%d", 
+                   id, x, y, angle, 
+                   (id < MAX_SPRITES) ? gpu.sprites[id].valid : -1,
+                   gpu.target);
+        }
+        
         blitSpriteRotated(id, x, y, angle);
       }
       break;
@@ -2630,6 +2576,14 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         break;  // Skip this present
       }
       lastPresentTime = now;
+      
+      // DEBUG: Log PRESENT command (first few times only)
+      static int present_debug_count = 0;
+      if (present_debug_count < 5) {
+        present_debug_count++;
+        ESP_LOGI(TAG, "PRESENT: target=%d hub75_ok=%d frame=%lu", 
+                 gpu.target, hub75_ok, gpu.frameCount);
+      }
       
       if (gpu.target == 0 && hub75_ok) {
         // Optimized: use setPixel which is still needed for the driver,

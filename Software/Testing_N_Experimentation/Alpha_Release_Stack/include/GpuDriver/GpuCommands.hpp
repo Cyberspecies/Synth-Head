@@ -46,6 +46,7 @@
 #include "driver/uart.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "GpuDriver/GpuUartMutex.hpp"  // Thread-safe UART access
 
 class GpuCommands {
 public:
@@ -81,6 +82,9 @@ private:
         UPLOAD_SPRITE = 0x20,
         DELETE_SPRITE = 0x21,
         CLEAR_ALL_SPRITES = 0x22,  // Clear all sprites in one command
+        SPRITE_BEGIN = 0x23,       // Begin chunked upload: id, w, h, fmt, totalSize (2 bytes)
+        SPRITE_CHUNK = 0x24,       // Data chunk: id, chunkIdx (2 bytes), data
+        SPRITE_END = 0x25,         // End chunked upload: id, expectedChunks (2 bytes)
         
         // Variable commands
         SET_VAR = 0x30,
@@ -285,8 +289,8 @@ private:
         {0x10, 0x08, 0x08, 0x10, 0x08}, // ~
     };
     
-    // Send raw command
-    void sendCmd(CmdType type, const uint8_t* payload, uint16_t len) {
+    // Internal send command - no mutex, caller must hold mutex
+    void sendCmdInternal(CmdType type, const uint8_t* payload, uint16_t len) {
         uint8_t header[5] = {
             SYNC0, SYNC1,
             static_cast<uint8_t>(type),
@@ -299,6 +303,18 @@ private:
             written += uart_write_bytes(port_, payload, len);
         }
         uart_wait_tx_done(port_, pdMS_TO_TICKS(50));
+    }
+    
+    // Send raw command (thread-safe with GPU UART mutex)
+    void sendCmd(CmdType type, const uint8_t* payload, uint16_t len) {
+        // Acquire mutex to prevent race conditions with Core 1 render loop
+        GpuUart::GpuUartLock lock;
+        if (!lock.isAcquired()) {
+            ESP_LOGW("GpuCmd", "sendCmd: mutex timeout, command 0x%02X dropped", (uint8_t)type);
+            return;
+        }
+        
+        sendCmdInternal(type, payload, len);
     }
     
     // Encode int16 to payload
@@ -440,12 +456,19 @@ public:
      * 3. See CPU_PolygonDemo.cpp for working reference implementation
      */
     bool pingWithResponse(uint32_t& uptimeMs, uint32_t timeoutMs = 500) {
+        // Hold mutex for entire ping/response sequence
+        GpuUart::GpuUartLock lock(timeoutMs + 100);
+        if (!lock.isAcquired()) {
+            ESP_LOGW("GpuCmd", "pingWithResponse: mutex timeout");
+            return false;
+        }
+        
         // Flush any pending data before ping
         uart_flush_input(port_);
         vTaskDelay(pdMS_TO_TICKS(5));  // Small delay to let flush complete
         
-        // Send PING and wait for TX to complete
-        sendCmd(CmdType::PING, nullptr, 0);
+        // Send PING and wait for TX to complete (use internal version, mutex already held)
+        sendCmdInternal(CmdType::PING, nullptr, 0);
         uart_wait_tx_done(port_, pdMS_TO_TICKS(20));
         
         // Wait for PONG response
@@ -510,11 +533,18 @@ public:
      * @return true if config received, false on timeout
      */
     bool requestConfig(GpuConfigResponse& config, uint32_t timeoutMs = 500) {
+        // Hold mutex for entire request/response sequence
+        GpuUart::GpuUartLock lock(timeoutMs + 100);
+        if (!lock.isAcquired()) {
+            ESP_LOGW("GpuCmd", "requestConfig: mutex timeout");
+            return false;
+        }
+        
         // Flush any pending data
         uart_flush_input(port_);
         
-        // Send REQUEST_CONFIG
-        sendCmd(CmdType::REQUEST_CONFIG, nullptr, 0);
+        // Send REQUEST_CONFIG (use internal version, mutex already held)
+        sendCmdInternal(CmdType::REQUEST_CONFIG, nullptr, 0);
         
         // Wait for CONFIG_RESPONSE
         uint8_t header[5];
@@ -599,11 +629,18 @@ public:
      * @return true if stats received, false on timeout
      */
     bool requestStats(GpuStatsResponse& stats, uint32_t timeoutMs = 500) {
+        // Hold mutex for entire request/response sequence
+        GpuUart::GpuUartLock lock(timeoutMs + 100);
+        if (!lock.isAcquired()) {
+            ESP_LOGW("GpuCmd", "requestStats: mutex timeout");
+            return false;
+        }
+        
         // Flush any pending data
         uart_flush_input(port_);
         
-        // Send REQUEST_STATS
-        sendCmd(CmdType::REQUEST_STATS, nullptr, 0);
+        // Send REQUEST_STATS (use internal version, mutex already held)
+        sendCmdInternal(CmdType::REQUEST_STATS, nullptr, 0);
         
         // Wait for STATS_RESPONSE
         uint8_t header[5];
@@ -993,16 +1030,22 @@ public:
     // Sprite Commands (Upload and Blit)
     // ============================================================
     
+    // Chunk size for sprite uploads (must match GPU's CHUNK_SIZE)
+    static constexpr size_t CHUNK_SIZE = 256;
+    
     /**
-     * Upload sprite data to GPU memory
+     * Upload sprite data to GPU memory using chunked protocol
      * @param id Sprite ID (0-255)
      * @param data RGB888 pixel data (width * height * 3 bytes)
      * @param width Sprite width in pixels (max 255)
      * @param height Sprite height in pixels (max 255)
      * @return true if upload successful
      * 
-     * Note: GPU has limited sprite slots (16 max). Max sprite size is 512 bytes.
-     * Protocol: UPLOAD_SPRITE [id:1][w:1][h:1][fmt:1][data:w*h*3]
+     * Uses chunked upload protocol to handle sprites larger than 512 bytes:
+     * - SPRITE_BEGIN: id, w, h, fmt, totalSize (2 bytes)
+     * - SPRITE_CHUNK: id, chunkIdx (2 bytes), data (up to 256 bytes)
+     * - SPRITE_END: id, expectedChunks (2 bytes)
+     * 
      * Format: 0 = RGB888 (3 bytes/pixel), 1 = 1bpp mono
      */
     bool uploadSprite(uint8_t id, const uint8_t* data, uint16_t width, uint16_t height) {
@@ -1019,40 +1062,68 @@ public:
         
         uint32_t dataSize = width * height * 3;  // RGB888
         
-        // GPU has MAX_SPRITE_SIZE = 8192 bytes limit (52x52 RGB max)
-        if (dataSize > 8192) {
-            ESP_LOGW("GpuCmd", "uploadSprite: sprite data too large for GPU (%lu bytes, max 8192)", dataSize);
-            // Try anyway - GPU will reject it but at least we log the issue
-        }
-        
-        // Prepare header: [id:1][width:1][height:1][format:1]
-        // Format 0 = RGB888
-        uint8_t header[4];
-        header[0] = id;
-        header[1] = (uint8_t)width;
-        header[2] = (uint8_t)height;
-        header[3] = 0;  // Format: 0 = RGB888
-        
-        // Send command with header + pixel data
-        uint32_t totalSize = 4 + dataSize;
-        uint8_t* payload = (uint8_t*)malloc(totalSize);
-        if (!payload) {
-            ESP_LOGW("GpuCmd", "uploadSprite: out of memory");
+        // GPU has MAX_SPRITE_SIZE limit
+        if (dataSize > 16384) {
+            ESP_LOGW("GpuCmd", "uploadSprite: sprite data too large (%lu bytes, max 16384)", dataSize);
             return false;
         }
         
-        memcpy(payload, header, 4);
-        memcpy(payload + 4, data, dataSize);
+        ESP_LOGI("GpuCmd", "Uploading sprite %d: %dx%d, %lu bytes (chunked)", id, width, height, dataSize);
         
-        sendCmd(CmdType::UPLOAD_SPRITE, payload, totalSize);
+        // Step 1: Send SPRITE_BEGIN
+        // Payload: spriteId, width, height, format, totalSize (2 bytes little-endian)
+        uint8_t beginPayload[6] = {
+            id,
+            static_cast<uint8_t>(width),
+            static_cast<uint8_t>(height),
+            0,  // format: RGB888
+            static_cast<uint8_t>(dataSize & 0xFF),
+            static_cast<uint8_t>((dataSize >> 8) & 0xFF)
+        };
+        sendCmd(CmdType::SPRITE_BEGIN, beginPayload, 6);
+        vTaskDelay(pdMS_TO_TICKS(5));  // Give GPU time to prepare
         
-        // Wait for transmission to complete (important for large sprites)
-        uart_wait_tx_done(port_, pdMS_TO_TICKS(100));
+        // Step 2: Send SPRITE_CHUNK for each chunk
+        size_t offset = 0;
+        uint16_t chunkIdx = 0;
+        uint16_t totalChunks = (dataSize + CHUNK_SIZE - 1) / CHUNK_SIZE;
         
-        free(payload);
+        // Buffer for chunk payload: spriteId, chunkIdx (2 bytes), data
+        uint8_t chunkPayload[3 + CHUNK_SIZE];
         
-        ESP_LOGI("GpuCmd", "Uploaded sprite %d (%dx%d fmt=0, %lu bytes)", 
-                 id, width, height, dataSize);
+        while (offset < dataSize) {
+            size_t remaining = dataSize - offset;
+            size_t thisChunkSize = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
+            
+            chunkPayload[0] = id;
+            chunkPayload[1] = static_cast<uint8_t>(chunkIdx & 0xFF);
+            chunkPayload[2] = static_cast<uint8_t>((chunkIdx >> 8) & 0xFF);
+            memcpy(chunkPayload + 3, data + offset, thisChunkSize);
+            
+            sendCmd(CmdType::SPRITE_CHUNK, chunkPayload, 3 + thisChunkSize);
+            
+            offset += thisChunkSize;
+            chunkIdx++;
+            
+            // Small delay between chunks to prevent GPU buffer overflow
+            vTaskDelay(pdMS_TO_TICKS(2));
+            
+            // Progress every 4 chunks
+            if (chunkIdx % 4 == 0) {
+                ESP_LOGI("GpuCmd", "Chunk %d/%d sent", chunkIdx, totalChunks);
+            }
+        }
+        
+        // Step 3: Send SPRITE_END
+        // Payload: spriteId, expectedChunks (2 bytes little-endian)
+        uint8_t endPayload[3] = {
+            id,
+            static_cast<uint8_t>(chunkIdx & 0xFF),
+            static_cast<uint8_t>((chunkIdx >> 8) & 0xFF)
+        };
+        sendCmd(CmdType::SPRITE_END, endPayload, 3);
+        
+        ESP_LOGI("GpuCmd", "Sprite %d upload complete: %d chunks sent", id, chunkIdx);
         return true;
     }
     

@@ -12,6 +12,11 @@ elseif(CPU_MAIN_MODE)
         "Modes/BootMode.cpp"
         "Modes/CurrentMode.cpp"
         "Application/Core/ApplicationCore.cpp"
+        "Drivers/GpsDriver.cpp"
+        "Drivers/MicDriver.cpp"
+        "Drivers/ImuDriver.cpp"
+        "Drivers/FanDriver.cpp"
+        "SystemAPI/GPU/GpuDriver.cpp"
     )
     message(STATUS "Building CPU Main (Lifecycle Architecture + Dual-Core Application Layer)")
 elseif(CPU_MODE_TOGGLE_MODE)
@@ -80,6 +85,15 @@ elseif(CPU_WIFI_SPRITE_UPLOAD_TEST)
         "SystemAPI/GPU/GpuDriver.cpp"
     )
     message(STATUS "Building CPU WiFi Sprite Upload Test")
+elseif(CPU_SIMPLE_SPRITE_TEST)
+    set(SOURCE_FILES
+        "CPU_SimpleSpriteTest.cpp"
+        "SystemAPI/GPU/GpuDriver.cpp"
+    )
+    message(STATUS "Building CPU Simple Sprite Test")
+elseif(CPU_SDCARD_TEST)
+    set(SOURCE_FILE "CPU_SdCardTest.cpp")
+    message(STATUS "Building CPU SD Card Test")
 # GPU Build selections
 elseif(BAUD_TEST_MODE)
     set(SOURCE_FILE "GPU_BaudTest.cpp")

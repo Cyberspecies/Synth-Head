@@ -32,6 +32,7 @@
 #include "driver/uart.h"
 #include "dirent.h"
 #include "sys/stat.h"
+#include "GpuDriver/GpuUartMutex.hpp"  // Thread-safe UART access
 
 namespace Application {
 namespace Sprites {
@@ -169,6 +170,13 @@ public:
     
     void sendCmd(uint8_t cmd, const uint8_t* payload, uint16_t len) {
         if (!initialized_) return;
+        
+        // Acquire mutex to prevent race conditions with other cores
+        GpuUart::GpuUartLock lock;
+        if (!lock.isAcquired()) {
+            ESP_LOGW(TAG_GPU, "sendCmd: mutex timeout, command 0x%02X dropped", cmd);
+            return;
+        }
         
         uint8_t header[5] = {
             SYNC0, SYNC1, cmd,
