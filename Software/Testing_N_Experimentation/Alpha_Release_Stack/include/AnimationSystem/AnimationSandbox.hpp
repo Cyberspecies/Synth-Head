@@ -228,6 +228,48 @@ struct GyroEyesAnim {
             }
         }
     }
+    
+    // Render a single row of the eye circles with horizontal offset (for glitch effects)
+    void renderRowWithOffset(int py, int offset, FillRectFunc fillRect) {
+        // Calculate final eye positions
+        float leftX = LEFT_EYE_X + leftCircleX;
+        float leftY = leftCircleY;
+        float rightX = RIGHT_EYE_X + rightCircleX;
+        float rightY = rightCircleY;
+        int r = circleRadius;
+        
+        // Check if this row intersects left eye circle
+        {
+            int dy = py - (int)(leftY + 0.5f);
+            if (abs(dy) <= r) {
+                int x = (int)sqrt(r*r - dy*dy);
+                int cx = (int)(leftX + 0.5f);
+                int startX = cx - x + offset;
+                int endX = cx + x + offset;
+                if (startX < 0) startX = 0;
+                if (endX >= DISPLAY_W) endX = DISPLAY_W - 1;
+                if (startX <= endX) {
+                    fillRect(startX, py, endX - startX + 1, 1, eyeR, eyeG, eyeB);
+                }
+            }
+        }
+        
+        // Check if this row intersects right eye circle
+        {
+            int dy = py - (int)(rightY + 0.5f);
+            if (abs(dy) <= r) {
+                int x = (int)sqrt(r*r - dy*dy);
+                int cx = (int)(rightX + 0.5f);
+                int startX = cx - x + offset;
+                int endX = cx + x + offset;
+                if (startX < 0) startX = 0;
+                if (endX >= DISPLAY_W) endX = DISPLAY_W - 1;
+                if (startX <= endX) {
+                    fillRect(startX, py, endX - startX + 1, 1, eyeR, eyeG, eyeB);
+                }
+            }
+        }
+    }
 };
 
 // ================================================================
@@ -245,11 +287,11 @@ struct GlitchShader {
     int scanlineY = 0;
     bool enabled = true;
     
-    // Intensity control (0.0 = off, 1.0 = full)
+    // Intensity control (0.0 = off, 1.0 = full, can go >1 for overdrive)
     float intensity = 1.0f;
     
     // Row glitch state - each row can have its own offset
-    static constexpr int MAX_GLITCH_ROWS = 12;
+    static constexpr int MAX_GLITCH_ROWS = 16;
     struct RowGlitch {
         int y;           // Row Y position
         int height;      // Height of glitch band
@@ -274,7 +316,7 @@ struct GlitchShader {
     }
     
     void setEnabled(bool en) { enabled = en; }
-    void setIntensity(float i) { intensity = (i < 0.0f) ? 0.0f : (i > 1.0f) ? 1.0f : i; }
+    void setIntensity(float i) { intensity = (i < 0.0f) ? 0.0f : (i > 2.0f) ? 2.0f : i; }  // Allow overdrive to 2.0
     
     // Get the current horizontal offset for a given row
     // Animations should use this when drawing to apply row displacement
@@ -293,13 +335,15 @@ struct GlitchShader {
             }
         }
         
-        return (int)(offset * intensity);
+        float clampedIntensity = (intensity > 1.0f) ? 1.0f : intensity;
+        return (int)(offset * clampedIntensity);
     }
     
     // Get chromatic aberration offset (for RGB channel separation)
     int getChromaOffset() const {
         if (!enabled || intensity < 0.01f) return 0;
-        return (int)(chromaOffset * intensity);
+        float clampedIntensity = (intensity > 1.0f) ? 1.0f : intensity;
+        return (int)(chromaOffset * clampedIntensity);
     }
     
     // Check if a row has an active color tint glitch
@@ -310,9 +354,10 @@ struct GlitchShader {
         for (int i = 0; i < activeGlitches; i++) {
             const RowGlitch& gl = rowGlitches[i];
             if (gl.colorTint && y >= gl.y && y < gl.y + gl.height) {
-                r = (uint8_t)(gl.r * intensity);
-                g = (uint8_t)(gl.g * intensity);
-                b = (uint8_t)(gl.b * intensity);
+                float clampedIntensity = (intensity > 1.0f) ? 1.0f : intensity;
+                r = (uint8_t)(gl.r * clampedIntensity);
+                g = (uint8_t)(gl.g * clampedIntensity);
+                b = (uint8_t)(gl.b * clampedIntensity);
                 return true;
             }
         }
@@ -336,20 +381,26 @@ struct GlitchShader {
             }
         }
         
-        // Spawn new row glitches periodically
-        int spawnInterval = 20 + (int)((1.0f - intensity) * 80);  // More intense = more frequent
-        if (glitchTimer > (uint32_t)spawnInterval + (fastRand() % 80)) {
+        // Spawn new row glitches - faster and more intense based on intensity
+        // When intensity > 1.0, spawn much more aggressively
+        int spawnInterval = (intensity > 1.0f) ? 15 : (30 + (int)((1.0f - intensity) * 60));
+        if (glitchTimer > (uint32_t)spawnInterval + (fastRand() % 40)) {
             glitchTimer = 0;
             
-            int maxNew = 2 + (int)(intensity * 3);  // 2-5 based on intensity
-            int newGlitches = 2 + (fastRand() % maxNew);
+            // More glitches when intensity is high
+            int maxNew = (intensity > 1.0f) ? 4 + (int)(intensity * 2) : 2 + (int)(intensity * 2);
+            int newGlitches = 1 + (fastRand() % maxNew);
             for (int i = 0; i < newGlitches && activeGlitches < MAX_GLITCH_ROWS; i++) {
                 RowGlitch& g = rowGlitches[activeGlitches];
                 g.y = fastRand() % DISPLAY_H;
-                g.height = 1 + (fastRand() % 3);
-                g.offsetX = (fastRand() % 50) - 25;
-                g.duration = 1 + (fastRand() % 6);
-                g.colorTint = (fastRand() % 100) < (int)(25 * intensity);
+                g.height = 1 + (fastRand() % 4);
+                // Bigger offsets when intensity > 1
+                int maxOffset = (intensity > 1.0f) ? 60 : 40;
+                g.offsetX = (fastRand() % maxOffset) - (maxOffset / 2);
+                g.duration = 2 + (fastRand() % 8);
+                // More color tints at high intensity
+                int tintChance = (intensity > 1.0f) ? 50 : (int)(30 * intensity);
+                g.colorTint = (fastRand() % 100) < tintChance;
                 if (g.colorTint) {
                     int colorChoice = fastRand() % 7;
                     g.r = (colorChoice & 0x04) ? 255 : 30;
@@ -359,27 +410,30 @@ struct GlitchShader {
                 activeGlitches++;
             }
             
-            if (fastRand() % 3 == 0) {
-                chromaOffset = 1 + (fastRand() % 6);
+            // More frequent chroma changes
+            if (fastRand() % 2 == 0) {
+                chromaOffset = 2 + (fastRand() % 8);
             }
         }
         
-        // Update per-row random offsets
+        // Update per-row random offsets - more aggressive at high intensity
         rowOffsetTimer += deltaMs;
-        if (rowOffsetTimer > 30) {
+        int jitterInterval = (intensity > 1.0f) ? 20 : 40;
+        if (rowOffsetTimer > (uint32_t)jitterInterval) {
             rowOffsetTimer = 0;
-            int numRowsToJitter = 3 + (fastRand() % 6);
+            int numRowsToJitter = (intensity > 1.0f) ? 5 + (fastRand() % 6) : 3 + (fastRand() % 4);
             for (int i = 0; i < numRowsToJitter; i++) {
                 int row = fastRand() % DISPLAY_H;
-                if (fastRand() % 3 == 0) {
+                if (fastRand() % 4 == 0) {
                     rowOffsets[row] = 0;
                 } else {
-                    rowOffsets[row] = (int8_t)((fastRand() % 7) - 3);
+                    int maxJitter = (intensity > 1.0f) ? 6 : 4;
+                    rowOffsets[row] = (int8_t)((fastRand() % (maxJitter * 2 + 1)) - maxJitter);
                 }
             }
         }
         
-        scanlineY = (scanlineY + 1) % DISPLAY_H;
+        scanlineY = (scanlineY + 2) % DISPLAY_H;  // Faster scanline
     }
     
     // Apply overlay effects AFTER the main scene is drawn
@@ -387,29 +441,39 @@ struct GlitchShader {
     void applyOverlay(FillRectFunc fillRect) {
         if (!enabled || !fillRect || intensity < 0.01f) return;
         
+        float clampedIntensity = (intensity > 1.0f) ? 1.0f : intensity;
+        
         // Draw color tint bands (overlay on content)
         for (int i = 0; i < activeGlitches; i++) {
             RowGlitch& g = rowGlitches[i];
             if (g.colorTint) {
                 fillRect(0, g.y, DISPLAY_W, g.height, 
-                        (uint8_t)(g.r * intensity), 
-                        (uint8_t)(g.g * intensity), 
-                        (uint8_t)(g.b * intensity));
+                        (uint8_t)(g.r * clampedIntensity), 
+                        (uint8_t)(g.g * clampedIntensity), 
+                        (uint8_t)(g.b * clampedIntensity));
             }
         }
         
-        // Scanline effect
-        uint8_t scanAlpha = (uint8_t)(255 * intensity * 0.3f);
+        // Scanline effect - thicker at high intensity
+        uint8_t scanAlpha = (uint8_t)(255 * clampedIntensity * 0.4f);
         if (scanAlpha > 5) {
-            fillRect(0, scanlineY, DISPLAY_W, 1, 0, 0, 0);
+            int scanHeight = (intensity > 1.0f) ? 2 : 1;
+            fillRect(0, scanlineY, DISPLAY_W, scanHeight, 0, 0, 0);
         }
         
-        // Edge flashes
-        if (frameCount % 40 < 3 && intensity > 0.3f) {
-            fillRect(0, 0, DISPLAY_W, 1, 100, 100, 120);
+        // More frequent edge flashes at high intensity
+        int flashMod = (intensity > 1.0f) ? 15 : 30;
+        if (frameCount % flashMod < 3 && clampedIntensity > 0.2f) {
+            fillRect(0, 0, DISPLAY_W, 1, 120, 120, 150);
         }
-        if (frameCount % 30 < 2 && intensity > 0.3f) {
-            fillRect(0, DISPLAY_H - 1, DISPLAY_W, 1, 100, 100, 120);
+        if (frameCount % (flashMod + 5) < 3 && clampedIntensity > 0.2f) {
+            fillRect(0, DISPLAY_H - 1, DISPLAY_W, 1, 120, 120, 150);
+        }
+        
+        // At high intensity, add random full-width flash bars
+        if (intensity > 1.2f && (fastRand() % 10) < 3) {
+            int flashY = fastRand() % DISPLAY_H;
+            fillRect(0, flashY, DISPLAY_W, 1, 200, 200, 255);
         }
     }
     
@@ -421,6 +485,256 @@ struct GlitchShader {
         scanlineY = 0;
         glitchTimer = 0;
         rowOffsetTimer = 0;
+    }
+};
+
+// ================================================================
+// PARTICLE TRANSITION SYSTEM - Pixel-based falling particle effect
+// Particles fall OUT from current animation, then fall IN to next animation
+// ================================================================
+struct ParticleTransition {
+    // Particle states
+    static constexpr int MAX_PARTICLES = 256;  // Max active particles
+    static constexpr int GRID_STEP = 2;        // Sample every N pixels (for performance)
+    
+    struct Particle {
+        float x, y;           // Current position
+        float targetX, targetY; // Target position (for incoming particles)
+        float vx, vy;         // Velocity X and Y
+        uint8_t r, g, b;      // Color
+        bool active;
+        bool incoming;        // true = falling into place, false = falling out
+    };
+    Particle particles[MAX_PARTICLES];
+    int numParticles = 0;
+    
+    // Framebuffer to capture animation pixels (1 bit per pixel for memory)
+    // We'll sample sparsely instead of full framebuffer
+    static constexpr int SAMPLE_W = DISPLAY_W / GRID_STEP;
+    static constexpr int SAMPLE_H = DISPLAY_H / GRID_STEP;
+    uint8_t capturedR[SAMPLE_W * SAMPLE_H];
+    uint8_t capturedG[SAMPLE_W * SAMPLE_H];
+    uint8_t capturedB[SAMPLE_W * SAMPLE_H];
+    bool pixelActive[SAMPLE_W * SAMPLE_H];
+    
+    // State
+    bool initialized = false;
+    bool outgoingDone = false;
+    float progress = 0.0f;
+    
+    // Random
+    uint32_t seed = 12345;
+    uint32_t fastRand() {
+        seed = seed * 1103515245 + 12345;
+        return (seed >> 16) & 0x7FFF;
+    }
+    float randFloat() { return (float)(fastRand() % 1000) / 1000.0f; }
+    
+    void reset() {
+        numParticles = 0;
+        initialized = false;
+        outgoingDone = false;
+        progress = 0.0f;
+        for (int i = 0; i < SAMPLE_W * SAMPLE_H; i++) {
+            pixelActive[i] = false;
+        }
+    }
+    
+    // Capture pixels from the current frame (call with drawPixel hooked)
+    // We sample a grid pattern for performance
+    void capturePixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        // Only capture on grid points
+        if (x % GRID_STEP != 0 || y % GRID_STEP != 0) return;
+        int sx = x / GRID_STEP;
+        int sy = y / GRID_STEP;
+        if (sx < 0 || sx >= SAMPLE_W || sy < 0 || sy >= SAMPLE_H) return;
+        
+        int idx = sy * SAMPLE_W + sx;
+        // Only capture if pixel is bright enough (not background)
+        if (r > 10 || g > 10 || b > 10) {
+            capturedR[idx] = r;
+            capturedG[idx] = g;
+            capturedB[idx] = b;
+            pixelActive[idx] = true;
+        }
+    }
+    
+    // Initialize outgoing particles from captured pixels
+    void initOutgoing() {
+        numParticles = 0;
+        
+        for (int sy = 0; sy < SAMPLE_H && numParticles < MAX_PARTICLES; sy++) {
+            for (int sx = 0; sx < SAMPLE_W && numParticles < MAX_PARTICLES; sx++) {
+                int idx = sy * SAMPLE_W + sx;
+                if (!pixelActive[idx]) continue;
+                
+                Particle& p = particles[numParticles];
+                p.x = (float)(sx * GRID_STEP);
+                p.y = (float)(sy * GRID_STEP);
+                p.targetX = p.x;
+                p.targetY = DISPLAY_H + 10;  // Fall off screen
+                p.vx = 0.0f;
+                p.vy = 0.0f;
+                p.r = capturedR[idx];
+                p.g = capturedG[idx];
+                p.b = capturedB[idx];
+                p.active = true;
+                p.incoming = false;
+                numParticles++;
+            }
+        }
+        
+        // Randomize velocities - spread outward from center as they fall
+        float centerX = DISPLAY_W / 2.0f;
+        for (int i = 0; i < numParticles; i++) {
+            Particle& p = particles[i];
+            // Horizontal spread based on distance from center
+            float distFromCenter = (p.x - centerX) / centerX;  // -1 to 1
+            p.vx = distFromCenter * 40.0f + (randFloat() - 0.5f) * 30.0f;  // Spread outward + random
+            p.vy = -1.0f - randFloat() * 2.0f;  // Start with small upward pop
+        }
+        
+        initialized = true;
+        outgoingDone = false;
+    }
+    
+    // Initialize incoming particles (call after capturing new animation)
+    void initIncoming() {
+        numParticles = 0;
+        
+        float centerX = DISPLAY_W / 2.0f;
+        
+        for (int sy = 0; sy < SAMPLE_H && numParticles < MAX_PARTICLES; sy++) {
+            for (int sx = 0; sx < SAMPLE_W && numParticles < MAX_PARTICLES; sx++) {
+                int idx = sy * SAMPLE_W + sx;
+                if (!pixelActive[idx]) continue;
+                
+                Particle& p = particles[numParticles];
+                p.targetX = (float)(sx * GRID_STEP);  // Final X position
+                p.targetY = (float)(sy * GRID_STEP);  // Final Y position
+                
+                // Start spread out from target, above screen
+                float distFromCenter = (p.targetX - centerX) / centerX;
+                p.x = p.targetX + distFromCenter * 40.0f + (randFloat() - 0.5f) * 20.0f;
+                p.y = -10.0f - randFloat() * 40.0f;   // Start above screen, staggered
+                
+                p.vx = 0.0f;  // Will be calculated each frame to home in
+                p.vy = 2.0f + randFloat() * 2.0f;     // Fall down
+                p.r = capturedR[idx];
+                p.g = capturedG[idx];
+                p.b = capturedB[idx];
+                p.active = true;
+                p.incoming = true;
+                numParticles++;
+            }
+        }
+    }
+    
+    // Clear captured pixels for new capture
+    void clearCapture() {
+        for (int i = 0; i < SAMPLE_W * SAMPLE_H; i++) {
+            pixelActive[i] = false;
+        }
+    }
+    
+    // Update particle physics
+    void update(uint32_t deltaMs) {
+        float dt = deltaMs * 0.001f;  // Convert to seconds
+        float gravity = 120.0f;       // Pixels per second^2 (slower)
+        
+        int stillActive = 0;
+        
+        for (int i = 0; i < numParticles; i++) {
+            Particle& p = particles[i];
+            if (!p.active) continue;
+            
+            if (p.incoming) {
+                // Incoming: fall and home in on target X
+                p.vy += gravity * dt;
+                p.y += p.vy * dt;
+                
+                // Gradually steer X toward target (homing)
+                float dx = p.targetX - p.x;
+                p.vx += dx * 8.0f * dt;  // Spring force toward target
+                p.vx *= 0.95f;  // Damping
+                p.x += p.vx * dt;
+                
+                // Stop at target Y
+                if (p.y >= p.targetY) {
+                    p.y = p.targetY;
+                    p.x = p.targetX;  // Snap to exact position
+                    p.vy = 0;
+                    p.vx = 0;
+                }
+                stillActive++;
+            } else {
+                // Outgoing: fall down with gravity and spread
+                p.vy += gravity * dt;
+                p.y += p.vy * dt;
+                p.x += p.vx * dt;
+                
+                // Slight drag on horizontal
+                p.vx *= 0.99f;
+                
+                // Deactivate when off screen
+                if (p.y > DISPLAY_H + 5 || p.x < -20 || p.x > DISPLAY_W + 20) {
+                    p.active = false;
+                } else {
+                    stillActive++;
+                }
+            }
+        }
+        
+        // Check if outgoing phase is done
+        if (!outgoingDone && stillActive == 0) {
+            outgoingDone = true;
+        }
+    }
+    
+    // Check if all outgoing particles have fallen off
+    bool isOutgoingComplete() const {
+        if (numParticles == 0) return true;
+        for (int i = 0; i < numParticles; i++) {
+            if (particles[i].active && !particles[i].incoming) return false;
+        }
+        return true;
+    }
+    
+    // Check if all incoming particles have landed
+    bool isIncomingComplete() const {
+        for (int i = 0; i < numParticles; i++) {
+            if (particles[i].active && particles[i].incoming) {
+                if (particles[i].y < particles[i].targetY - 0.5f) return false;
+            }
+        }
+        return true;
+    }
+    
+    // Draw all active particles
+    void draw(DrawPixelFunc drawPixel, FillRectFunc fillRect) {
+        if (!drawPixel && !fillRect) return;
+        
+        for (int i = 0; i < numParticles; i++) {
+            Particle& p = particles[i];
+            if (!p.active) continue;
+            
+            int px = (int)(p.x + 0.5f);
+            int py = (int)(p.y + 0.5f);
+            
+            if (py >= 0 && py < DISPLAY_H && px >= 0 && px < DISPLAY_W) {
+                // Draw as small blocks for visibility
+                if (fillRect) {
+                    int size = GRID_STEP;
+                    if (px + size > DISPLAY_W) size = DISPLAY_W - px;
+                    if (py + size > DISPLAY_H) size = DISPLAY_H - py;
+                    if (size > 0) {
+                        fillRect(px, py, size, size, p.r, p.g, p.b);
+                    }
+                } else if (drawPixel) {
+                    drawPixel(px, py, p.r, p.g, p.b);
+                }
+            }
+        }
     }
 };
 
@@ -726,6 +1040,7 @@ struct SDFMorphAnim {
         
         // Render both shapes using optimized scanline method
         renderShapeFast(leftCenterX, leftCenterY, leftRotation, fillRect);
+        vTaskDelay(pdMS_TO_TICKS(1));  // Yield between eyes
         renderShapeFast(rightCenterX, rightCenterY, rightRotation, fillRect);
         
         present();
@@ -735,43 +1050,98 @@ struct SDFMorphAnim {
     void renderShapeFast(float cx, float cy, float rotation, FillRectFunc fillRect) {
         if (!fillRect) return;
         
-        int margin = (int)shapeSize + 2;
+        int margin = (int)shapeSize + 1;  // Reduced margin
         int startY = (int)cy - margin;
         int endY = (int)cy + margin;
         
         if (startY < 0) startY = 0;
         if (endY >= DISPLAY_H) endY = DISPLAY_H - 1;
         
+        // Pre-compute rotation
+        float cosA = cosf(-rotation);
+        float sinA = sinf(-rotation);
+        
+        int rowCount = 0;
         for (int py = startY; py <= endY; py++) {
+            // Yield every 3 rows (more frequent)
+            if (++rowCount % 3 == 0) {
+                vTaskDelay(0);  // Yield to watchdog
+            }
+            
             float y = py + 0.5f;
             
-            // Find left edge (first x where SDF < 0)
-            int leftEdge = -1;
-            int rightEdge = -1;
-            
+            // Find left edge using binary search for efficiency
             int scanLeft = (int)cx - margin;
             int scanRight = (int)cx + margin;
             if (scanLeft < 0) scanLeft = 0;
             if (scanRight >= DISPLAY_W) scanRight = DISPLAY_W - 1;
             
-            // Scan from left to find first inside pixel
-            for (int px = scanLeft; px <= scanRight; px++) {
-                float sdf = getSDF(px + 0.5f, y, cx, cy, rotation);
-                if (sdf < 0.5f) {
-                    leftEdge = px;
-                    break;
+            int leftEdge = -1;
+            int rightEdge = -1;
+            
+            // Linear scan from approximate center (faster for small shapes)
+            int centerX = (int)cx;
+            
+            // Tighter scan range based on row distance
+            float rowDistY = fabsf(y - cy);
+            int maxSearchX = (int)(sqrtf(fmaxf(0.0f, (shapeSize + 2) * (shapeSize + 2) - rowDistY * rowDistY)));
+            int searchLeft = centerX - maxSearchX;
+            int searchRight = centerX + maxSearchX;
+            if (searchLeft < scanLeft) searchLeft = scanLeft;
+            if (searchRight > scanRight) searchRight = scanRight;
+            
+            // Search left from center (with early exit optimization)
+            for (int px = centerX; px >= scanLeft; px--) {
+                float dx = px + 0.5f - cx;
+                float dy = y - cy;
+                
+                // Quick distance check before expensive SDF
+                float distSq = dx * dx + dy * dy;
+                if (distSq > (shapeSize + 3) * (shapeSize + 3)) {
+                    if (leftEdge >= 0) break;  // Past the shape
+                    continue;
                 }
+                
+                float rx = dx * cosA - dy * sinA + cx;
+                float ry = dx * sinA + dy * cosA + cy;
+                
+                float sdf1, sdf2;
+                switch (currentShape) {
+                    case 0: sdf1 = sdfSquareInline(rx, ry, cx, cy, shapeSize); sdf2 = sdfTriangleInline(rx, ry, cx, cy, shapeSize); break;
+                    case 1: sdf1 = sdfTriangleInline(rx, ry, cx, cy, shapeSize); sdf2 = sdfCircleInline(rx, ry, cx, cy, shapeSize); break;
+                    default: sdf1 = sdfCircleInline(rx, ry, cx, cy, shapeSize); sdf2 = sdfSquareInline(rx, ry, cx, cy, shapeSize); break;
+                }
+                float sdf = sdf1 + (sdf2 - sdf1) * t;
+                
+                if (sdf < 0.5f) leftEdge = px;
+                else if (leftEdge >= 0) break;  // Found edge, stop searching
             }
             
-            if (leftEdge < 0) continue;  // No intersection on this row
-            
-            // Scan from right to find last inside pixel
-            for (int px = scanRight; px >= leftEdge; px--) {
-                float sdf = getSDF(px + 0.5f, y, cx, cy, rotation);
-                if (sdf < 0.5f) {
-                    rightEdge = px;
-                    break;
+            // Search right from center (with early exit optimization)
+            for (int px = centerX; px <= scanRight; px++) {
+                float dx = px + 0.5f - cx;
+                float dy = y - cy;
+                
+                // Quick distance check before expensive SDF
+                float distSq = dx * dx + dy * dy;
+                if (distSq > (shapeSize + 3) * (shapeSize + 3)) {
+                    if (rightEdge >= 0) break;  // Past the shape
+                    continue;
                 }
+                
+                float rx = dx * cosA - dy * sinA + cx;
+                float ry = dx * sinA + dy * cosA + cy;
+                
+                float sdf1, sdf2;
+                switch (currentShape) {
+                    case 0: sdf1 = sdfSquareInline(rx, ry, cx, cy, shapeSize); sdf2 = sdfTriangleInline(rx, ry, cx, cy, shapeSize); break;
+                    case 1: sdf1 = sdfTriangleInline(rx, ry, cx, cy, shapeSize); sdf2 = sdfCircleInline(rx, ry, cx, cy, shapeSize); break;
+                    default: sdf1 = sdfCircleInline(rx, ry, cx, cy, shapeSize); sdf2 = sdfSquareInline(rx, ry, cx, cy, shapeSize); break;
+                }
+                float sdf = sdf1 + (sdf2 - sdf1) * t;
+                
+                if (sdf < 0.5f) rightEdge = px;
+                else if (rightEdge >= 0) break;  // Found edge, stop searching
             }
             
             // Draw the span
@@ -787,6 +1157,7 @@ struct SDFMorphAnim {
 // MASTER SANDBOX CONTROLLER
 // Auto-cycles through animations every 5 seconds
 // Provides shared GlitchShader that can be applied to any animation
+// Features separate transition types: Glitch OR Particle Dissolve
 // ================================================================
 class SandboxController {
 public:
@@ -797,13 +1168,39 @@ public:
         SHADER_TEST = 3
     };
     
-    Animation currentAnim = Animation::GYRO_EYES;
+    // Transition types - cycle through these
+    enum class TransitionType {
+        GLITCH = 0,      // Glitch effect with row displacement and color bands
+        PARTICLE = 1,    // Particle dissolve with falling pixels
+        COUNT = 2
+    };
+    
+    Animation currentAnim = Animation::SDF_MORPH;
+    Animation nextAnim = Animation::SDF_MORPH;
     uint32_t animTimer = 0;
     bool enabled = false;
     
-    // Shared glitch shader - can be applied to any animation
+    // Animation cycling
+    static constexpr uint32_t ANIMATION_DURATION_MS = 8000;   // 8 seconds per animation
+    static constexpr uint32_t TRANSITION_DURATION_MS = 1500;  // 1.5 second transition
+    bool inTransition = false;
+    uint32_t transitionTimer = 0;
+    float transitionProgress = 0.0f;  // 0 to 1
+    
+    // Current transition type
+    TransitionType currentTransition = TransitionType::GLITCH;
+    
+    // Glitch intensity for glitch transitions
+    float glitchIntensity = 0.0f;
+    
+    // Shared glitch shader
     GlitchShader glitchShader;
-    bool applyGlitchToAll = false;  // When true, applies glitch shader to all animations
+    bool applyGlitchToAll = false;
+    
+    // Particle transition system
+    ParticleTransition particleFX;
+    int particlePhase = 0;  // 0 = outgoing, 1 = incoming, 2 = done
+    Animation outgoingAnim;  // Remember which anim was outgoing
     
     // Animation instances
     GyroEyesAnim gyroEyes;
@@ -847,20 +1244,98 @@ public:
         
         animTimer += deltaMs;
         
-        // Update glitch shader (always, so it's ready when needed)
-        if (applyGlitchToAll || currentAnim == Animation::SHADER_TEST) {
-            glitchShader.update(deltaMs);
+        // Handle transitions - different behavior based on transition type
+        if (inTransition) {
+            transitionTimer += deltaMs;
+            transitionProgress = (float)transitionTimer / TRANSITION_DURATION_MS;
+            if (transitionProgress > 1.0f) transitionProgress = 1.0f;
+            
+            // Update based on transition type
+            if (currentTransition == TransitionType::GLITCH) {
+                // Switch animation at 50% progress for glitch
+                if (transitionProgress >= 0.5f && currentAnim != nextAnim) {
+                    currentAnim = nextAnim;
+                }
+                
+                // Glitch transition: intensity peaks in middle, fades at ends
+                float glitchCurve;
+                if (transitionProgress < 0.5f) {
+                    glitchCurve = transitionProgress * 3.0f;  // peaks at 1.5
+                } else {
+                    glitchCurve = (1.0f - transitionProgress) * 3.0f;
+                }
+                glitchIntensity = glitchCurve;
+                glitchShader.setIntensity(glitchIntensity);
+                glitchShader.update(deltaMs);
+            }
+            else if (currentTransition == TransitionType::PARTICLE) {
+                // Particle transition has 2 phases:
+                // Phase 0: Outgoing particles fall off screen (first half)
+                // Phase 1: Incoming particles fall into place (second half)
+                
+                particleFX.update(deltaMs);
+                
+                // Check phase transitions
+                if (particlePhase == 0 && transitionProgress >= 0.5f) {
+                    // Switch to incoming phase
+                    particlePhase = 1;
+                    currentAnim = nextAnim;  // Switch animation
+                    
+                    // Capture the new animation's pixels
+                    particleFX.clearCapture();
+                    captureAnimationPixels(currentAnim);
+                    particleFX.initIncoming();
+                }
+            }
+            
+            // End transition
+            if (transitionTimer >= TRANSITION_DURATION_MS) {
+                inTransition = false;
+                applyGlitchToAll = false;
+                glitchShader.setEnabled(false);
+                glitchIntensity = 0.0f;
+                particleFX.reset();
+                particlePhase = 0;
+                animTimer = 0;
+            }
+        }
+        // Auto-cycle animations with alternating transition types
+        else if (animTimer >= ANIMATION_DURATION_MS) {
+            // Start transition to next animation
+            int next = ((int)currentAnim + 1);
+            // Skip GLITCH_TV (it's just a demo)
+            if (next == (int)Animation::GLITCH_TV) next++;
+            if (next > (int)Animation::SHADER_TEST) next = (int)Animation::SDF_MORPH;
+            
+            nextAnim = (Animation)next;
+            outgoingAnim = currentAnim;  // Remember for particle capture
+            inTransition = true;
+            transitionTimer = 0;
+            transitionProgress = 0.0f;
+            
+            // Cycle to next transition type (GLITCH <-> PARTICLE)
+            currentTransition = (TransitionType)(((int)currentTransition + 1) % (int)TransitionType::COUNT);
+            
+            // Setup based on transition type
+            if (currentTransition == TransitionType::GLITCH) {
+                applyGlitchToAll = true;
+                glitchShader.setEnabled(true);
+                glitchShader.reset();
+                glitchIntensity = 0.0f;
+            }
+            else if (currentTransition == TransitionType::PARTICLE) {
+                // Capture current animation's pixels, then start outgoing
+                particleFX.reset();
+                particlePhase = 0;
+                captureAnimationPixels(currentAnim);
+                particleFX.initOutgoing();
+            }
         }
         
-        // DISABLED: Auto-cycle animations (debugging gyro eyes only)
-        // if (animTimer >= ANIMATION_DURATION_MS) {
-        //     animTimer = 0;
-        //     int next = ((int)currentAnim + 1) % NUM_ANIMATIONS;
-        //     currentAnim = (Animation)next;
-        // }
-        
-        // Force SDF_MORPH for debugging
-        currentAnim = Animation::SDF_MORPH;
+        // Update glitch shader if active (outside of transition too)
+        if (applyGlitchToAll && !inTransition) {
+            glitchShader.update(deltaMs);
+        }
         
         // Update current animation
         switch (currentAnim) {
@@ -877,11 +1352,40 @@ public:
                 shaderTest.update(deltaMs);
                 break;
         }
+        
+        // Also update next animation during transition so it's ready
+        if (inTransition && nextAnim != currentAnim) {
+            switch (nextAnim) {
+                case Animation::GYRO_EYES:
+                    gyroEyes.update(gyroX, gyroY, gyroZ, deltaMs);
+                    break;
+                case Animation::GLITCH_TV:
+                    glitchTV.update(deltaMs);
+                    break;
+                case Animation::SDF_MORPH:
+                    sdfMorph.update(deltaMs);
+                    break;
+                case Animation::SHADER_TEST:
+                    shaderTest.update(deltaMs);
+                    break;
+            }
+        }
     }
     
     void render() {
         if (!enabled || !clear || !fillRect || !present) return;
         
+        // During transition, render based on transition type
+        if (inTransition) {
+            if (currentTransition == TransitionType::GLITCH) {
+                renderGlitchTransition();
+            } else if (currentTransition == TransitionType::PARTICLE) {
+                renderParticleTransition();
+            }
+            return;
+        }
+        
+        // Normal rendering
         switch (currentAnim) {
             case Animation::GYRO_EYES:
                 renderGyroEyesWithGlitch();
@@ -899,6 +1403,257 @@ public:
     }
     
 private:
+    // Determine which animation to render as "outgoing" vs "incoming"
+    Animation getOutgoingAnim() const {
+        // In first half, current is outgoing; in second half, next was outgoing
+        return (transitionProgress < 0.5f) ? currentAnim : nextAnim;
+    }
+    
+    Animation getIncomingAnim() const {
+        return (transitionProgress < 0.5f) ? nextAnim : currentAnim;
+    }
+    
+    // GLITCH TRANSITION: Row displacement, color bands, scanlines - no particles
+    void renderGlitchTransition() {
+        clear(5, 5, 15);  // Dark background
+        
+        // First half: outgoing animation with increasing glitch
+        // Second half: incoming animation with decreasing glitch
+        Animation animToRender = (transitionProgress < 0.5f) ? currentAnim : nextAnim;
+        
+        // Render the current animation with heavy glitch
+        renderAnimWithGlitch(animToRender, &glitchShader);
+        
+        // Apply glitch overlay effects (scanlines, color bands)
+        glitchShader.applyOverlay(fillRect);
+        
+        present();
+    }
+    
+    // Helper to render any animation with glitch shader applied
+    void renderAnimWithGlitch(Animation anim, GlitchShader* shader) {
+        switch (anim) {
+            case Animation::SDF_MORPH:
+                renderSdfMorphGlitched(shader);
+                break;
+            case Animation::SHADER_TEST:
+                renderShaderTestGlitched(shader);
+                break;
+            case Animation::GYRO_EYES:
+                renderGyroEyesGlitched(shader);
+                break;
+            default:
+                break;
+        }
+    }
+    
+    // Render SDF morph with full glitch (row offsets applied)
+    void renderSdfMorphGlitched(GlitchShader* shader) {
+        if (!shader) return;
+        uint8_t r = sdfMorph.colorR;
+        uint8_t g = sdfMorph.colorG;
+        uint8_t b = sdfMorph.colorB;
+        
+        for (int py = 0; py < DISPLAY_H; py++) {
+            int offset = shader->getRowOffset(py);
+            renderSdfRowWithOffset(sdfMorph.leftCenterX, sdfMorph.leftCenterY, 
+                                   sdfMorph.leftRotation, py, offset, r, g, b);
+            renderSdfRowWithOffset(sdfMorph.rightCenterX, sdfMorph.rightCenterY, 
+                                   sdfMorph.rightRotation, py, offset, r, g, b);
+        }
+    }
+    
+    // Render shader test with glitch
+    void renderShaderTestGlitched(GlitchShader* shader) {
+        // ShaderTest has its own glitch-aware render
+        shaderTest.render(fillRect, drawPixel, clear, present, shader);
+    }
+    
+    // Render gyro eyes with glitch
+    void renderGyroEyesGlitched(GlitchShader* shader) {
+        if (!shader) return;
+        // Render eyes row by row with offsets
+        for (int py = 0; py < DISPLAY_H; py++) {
+            int offset = shader->getRowOffset(py);
+            gyroEyes.renderRowWithOffset(py, offset, fillRect);
+        }
+    }
+    
+    // Capture pixels from an animation for particle transition
+    void captureAnimationPixels(Animation anim) {
+        // We need to "render" the animation but capture the pixels instead of displaying
+        // Use a temporary capture callback
+        switch (anim) {
+            case Animation::SDF_MORPH:
+                captureSdfMorph();
+                break;
+            case Animation::SHADER_TEST:
+                captureShaderTest();
+                break;
+            case Animation::GYRO_EYES:
+                captureGyroEyes();
+                break;
+            default:
+                break;
+        }
+    }
+    
+    // Capture SDF morph pixels
+    void captureSdfMorph() {
+        uint8_t r = sdfMorph.colorR;
+        uint8_t g = sdfMorph.colorG;
+        uint8_t b = sdfMorph.colorB;
+        
+        // Sample at GRID_STEP intervals
+        for (int py = 0; py < DISPLAY_H; py += ParticleTransition::GRID_STEP) {
+            for (int px = 0; px < DISPLAY_W; px += ParticleTransition::GRID_STEP) {
+                // Check if pixel is inside either shape
+                if (isPixelInSdfShape(px, py, sdfMorph.leftCenterX, sdfMorph.leftCenterY, sdfMorph.leftRotation) ||
+                    isPixelInSdfShape(px, py, sdfMorph.rightCenterX, sdfMorph.rightCenterY, sdfMorph.rightRotation)) {
+                    particleFX.capturePixel(px, py, r, g, b);
+                }
+            }
+        }
+    }
+    
+    bool isPixelInSdfShape(int px, int py, float cx, float cy, float rotation) {
+        float x = px + 0.5f;
+        float y = py + 0.5f;
+        float dx = x - cx;
+        float dy = y - cy;
+        
+        float cosA = cosf(-rotation);
+        float sinA = sinf(-rotation);
+        float rx = dx * cosA - dy * sinA + cx;
+        float ry = dx * sinA + dy * cosA + cy;
+        
+        float sdf1, sdf2;
+        switch (sdfMorph.currentShape) {
+            case 0: sdf1 = sdfMorph.sdfSquareInline(rx, ry, cx, cy, sdfMorph.shapeSize); 
+                    sdf2 = sdfMorph.sdfTriangleInline(rx, ry, cx, cy, sdfMorph.shapeSize); break;
+            case 1: sdf1 = sdfMorph.sdfTriangleInline(rx, ry, cx, cy, sdfMorph.shapeSize); 
+                    sdf2 = sdfMorph.sdfCircleInline(rx, ry, cx, cy, sdfMorph.shapeSize); break;
+            default: sdf1 = sdfMorph.sdfCircleInline(rx, ry, cx, cy, sdfMorph.shapeSize); 
+                     sdf2 = sdfMorph.sdfSquareInline(rx, ry, cx, cy, sdfMorph.shapeSize); break;
+        }
+        float sdf = sdf1 + (sdf2 - sdf1) * sdfMorph.t;
+        return sdf < 0.5f;
+    }
+    
+    // Capture shader test pixels - uses white squares
+    void captureShaderTest() {
+        float leftX = shaderTest.leftPosX + LEFT_EYE_X;
+        float leftY = shaderTest.leftPosY;
+        float rightX = shaderTest.rightPosX + RIGHT_EYE_X;
+        float rightY = shaderTest.rightPosY;
+        float size = shaderTest.squareSize;
+        
+        // ShaderTest uses white (255, 255, 255) for its rotating squares
+        uint8_t r = 255, g = 255, b = 255;
+        
+        for (int py = 0; py < DISPLAY_H; py += ParticleTransition::GRID_STEP) {
+            for (int px = 0; px < DISPLAY_W; px += ParticleTransition::GRID_STEP) {
+                // Check left square (using SDF for rotation)
+                float sdfLeft = shaderTest.sdfRotatedBox((float)px, (float)py, 
+                    shaderTest.leftPosX + LEFT_EYE_X, shaderTest.leftPosY, size, shaderTest.leftAngle);
+                if (sdfLeft < 0.5f) {
+                    particleFX.capturePixel(px, py, r, g, b);
+                    continue;
+                }
+                
+                // Check right square
+                float sdfRight = shaderTest.sdfRotatedBox((float)px, (float)py,
+                    shaderTest.rightPosX + RIGHT_EYE_X, shaderTest.rightPosY, size, shaderTest.rightAngle);
+                if (sdfRight < 0.5f) {
+                    particleFX.capturePixel(px, py, r, g, b);
+                }
+            }
+        }
+    }
+    
+    // Capture gyro eyes pixels
+    void captureGyroEyes() {
+        float leftX = LEFT_EYE_X + gyroEyes.leftCircleX;
+        float leftY = gyroEyes.leftCircleY;
+        float rightX = RIGHT_EYE_X + gyroEyes.rightCircleX;
+        float rightY = gyroEyes.rightCircleY;
+        int r = gyroEyes.circleRadius;
+        
+        for (int py = 0; py < DISPLAY_H; py += ParticleTransition::GRID_STEP) {
+            for (int px = 0; px < DISPLAY_W; px += ParticleTransition::GRID_STEP) {
+                float dx1 = px - leftX;
+                float dy1 = py - leftY;
+                float dx2 = px - rightX;
+                float dy2 = py - rightY;
+                
+                if ((dx1*dx1 + dy1*dy1) <= r*r || (dx2*dx2 + dy2*dy2) <= r*r) {
+                    particleFX.capturePixel(px, py, gyroEyes.eyeR, gyroEyes.eyeG, gyroEyes.eyeB);
+                }
+            }
+        }
+    }
+    
+    // PARTICLE TRANSITION: Particles fall out, then fall in
+    void renderParticleTransition() {
+        clear(0, 0, 0);  // Black background
+        
+        // Just draw all the particles
+        particleFX.draw(drawPixel, fillRect);
+        
+        present();
+    }
+    
+    // Render a single row of SDF shape with offset
+    void renderSdfRowWithOffset(float cx, float cy, float rotation, int py, int offset, 
+                                 uint8_t r, uint8_t g, uint8_t b) {
+        float y = py + 0.5f;
+        float dy = y - cy;
+        if (fabsf(dy) > sdfMorph.shapeSize + 2) return;  // Quick bounds check
+        
+        float cosA = cosf(-rotation);
+        float sinA = sinf(-rotation);
+        
+        int scanLeft = (int)cx - (int)sdfMorph.shapeSize - 2;
+        int scanRight = (int)cx + (int)sdfMorph.shapeSize + 2;
+        if (scanLeft < 0) scanLeft = 0;
+        if (scanRight >= DISPLAY_W) scanRight = DISPLAY_W - 1;
+        
+        int leftEdge = -1, rightEdge = -1;
+        
+        // Find edges
+        for (int px = scanLeft; px <= scanRight; px++) {
+            float dx = px + 0.5f - cx;
+            float rx = dx * cosA - dy * sinA + cx;
+            float ry = dx * sinA + dy * cosA + cy;
+            
+            float sdf1, sdf2;
+            switch (sdfMorph.currentShape) {
+                case 0: sdf1 = sdfMorph.sdfSquareInline(rx, ry, cx, cy, sdfMorph.shapeSize); 
+                        sdf2 = sdfMorph.sdfTriangleInline(rx, ry, cx, cy, sdfMorph.shapeSize); break;
+                case 1: sdf1 = sdfMorph.sdfTriangleInline(rx, ry, cx, cy, sdfMorph.shapeSize); 
+                        sdf2 = sdfMorph.sdfCircleInline(rx, ry, cx, cy, sdfMorph.shapeSize); break;
+                default: sdf1 = sdfMorph.sdfCircleInline(rx, ry, cx, cy, sdfMorph.shapeSize); 
+                         sdf2 = sdfMorph.sdfSquareInline(rx, ry, cx, cy, sdfMorph.shapeSize); break;
+            }
+            float sdf = sdf1 + (sdf2 - sdf1) * sdfMorph.t;
+            
+            if (sdf < 0.5f) {
+                if (leftEdge < 0) leftEdge = px;
+                rightEdge = px;
+            }
+        }
+        
+        if (leftEdge >= 0 && rightEdge >= leftEdge) {
+            int drawX = leftEdge + offset;
+            int width = rightEdge - leftEdge + 1;
+            if (drawX < 0) { width += drawX; drawX = 0; }
+            if (drawX + width > DISPLAY_W) width = DISPLAY_W - drawX;
+            if (width > 0) {
+                fillRect(drawX, py, width, 1, r, g, b);
+            }
+        }
+    }
+    
     // Render gyro eyes with optional glitch shader applied
     void renderGyroEyesWithGlitch() {
         clear(gyroEyes.bgR, gyroEyes.bgG, gyroEyes.bgB);

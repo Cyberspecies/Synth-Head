@@ -24,6 +24,7 @@
 // Animation System
 #include "AnimationSystem/AnimationSystem.hpp"
 #include "AnimationSystem/AnimationSandbox.hpp"
+#include "AnimationSystem/Animations/ComplexTransitionAnim.hpp"
 #include "Modes/AnimationHandler.hpp"
 
 // Modular hardware drivers
@@ -89,10 +90,17 @@ namespace GpuDriverState {
     static bool autoRotate = false;         // Auto-rotate flag (true for test, false for web uploads)
     
     // ====== SANDBOX MODE STATE ======
-    static bool sandboxEnabled = false;
+    static bool sandboxEnabled = true;  // Enable sandbox by default (SDF_MORPH animation)
     static float sandboxPitch = 0.0f;
     static float sandboxRoll = 0.0f;
     static float sandboxAudioLevel = 0.0f;
+    
+    // Initialize sandbox on first use
+    static bool sandboxInitialized = false;
+    
+    // ====== COMPLEX TRANSITION ANIMATION ======
+    static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
+    static bool complexAnimEnabled = false;  // Disabled - use sandbox instead
     
     // ====== HIGH-FREQUENCY IMU TASK ======
     static TaskHandle_t imuTaskHandle = nullptr;
@@ -302,28 +310,110 @@ namespace GpuDriverState {
             lastPingTime = currentTimeMs;
             
             // Use simple ping - GpuDriver handles keep-alive internally
-            if (g_gpu.ping(100)) {  // 100ms timeout
+            // NOTE: Don't block on ping response - just update status for diagnostics
+            // The GPU is responsive even if we miss PONG (it's busy processing frames)
+            static int missedPongs = 0;
+            if (g_gpu.ping(10)) {  // Very short timeout - non-blocking check
                 connected = true;
+                missedPongs = 0;
             } else {
-                connected = false;
+                // Don't set connected=false on missed pong - GPU is just busy
+                // Only mark disconnected after many consecutive failures
+                missedPongs++;
+                if (missedPongs > 10) {  // 10 consecutive misses = ~50 seconds
+                    connected = false;
+                }
             }
         }
         
         // ====== CONTINUOUS RENDERING AT ~30fps ======
-        if (connected && (currentTimeMs - lastRenderTime >= RENDER_INTERVAL_MS)) {
+        // ALWAYS render regardless of ping status - GPU processes frames even if PONG is delayed
+        if (currentTimeMs - lastRenderTime >= RENDER_INTERVAL_MS) {
             lastRenderTime = currentTimeMs;
             renderFrameCount++;
             
             g_gpu.setTarget(GpuTarget::HUB75);
             
+            // Check if complex transition animation is enabled (new default)
+            if (complexAnimEnabled) {
+                // Get accelerometer data from global sync state (convert from milli-g to g)
+                auto& syncState = SystemAPI::SYNC_STATE.state();
+                float ax = syncState.accelX / 1000.0f;
+                float ay = syncState.accelY / 1000.0f;
+                float az = syncState.accelZ / 1000.0f;
+                
+                // Update and render complex transition animation
+                complexAnim.update(RENDER_INTERVAL_MS, ax, ay, az);
+                
+                // Set up GPU callbacks (SystemAPI::GpuDriver uses drawRect, not fillRect)
+                auto clear = [](uint8_t r, uint8_t g, uint8_t b) {
+                    g_gpu.clear(r, g, b);
+                };
+                auto fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+                    if (w > 0 && h > 0) {
+                        // Use drawRect as filled rect for SystemAPI::GpuDriver
+                        g_gpu.drawRect(x, y, w, h, r, g, b);
+                    }
+                };
+                auto drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+                    g_gpu.drawPixel(x, y, r, g, b);
+                };
+                auto present = []() {
+                    g_gpu.present();
+                    vTaskDelay(pdMS_TO_TICKS(1));
+                };
+                
+                complexAnim.render(fillRect, drawPixel, clear, present);
+                
+                // Debug every 60 frames
+                if (renderFrameCount % 60 == 0) {
+                    printf("COMPLEX_ANIM: Frame %lu - stage=%d time=%.2f accel=(%.2f,%.2f,%.2f)\n",
+                           renderFrameCount, (int)complexAnim.currentStage, complexAnim.stageTime, ax, ay, az);
+                }
+            }
             // Check if sandbox mode is enabled
-            if (sandboxEnabled) {
+            else if (sandboxEnabled) {
+                // Initialize sandbox callbacks on first use
+                if (!sandboxInitialized) {
+                    auto& sandbox = AnimationSystem::Sandbox::getSandbox();
+                    
+                    // Set up GPU callbacks for sandbox
+                    sandbox.clear = [](uint8_t r, uint8_t g, uint8_t b) {
+                        g_gpu.clear(r, g, b);
+                    };
+                    sandbox.fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+                        if (w > 0 && h > 0) {
+                            g_gpu.drawRect(x, y, w, h, r, g, b);
+                        }
+                    };
+                    sandbox.drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+                        g_gpu.drawPixel(x, y, r, g, b);
+                    };
+                    sandbox.drawCircleF = [](float x, float y, float radius, uint8_t r, uint8_t g, uint8_t b) {
+                        g_gpu.drawCircleF(x, y, radius, r, g, b);
+                    };
+                    sandbox.present = []() {
+                        g_gpu.present();
+                        vTaskDelay(pdMS_TO_TICKS(2));  // Longer delay for UART stability
+                    };
+                    
+                    // Enable sandbox and force SDF_MORPH animation
+                    sandbox.setEnabled(true);
+                    sandbox.setAnimation(AnimationSystem::Sandbox::SandboxController::Animation::SDF_MORPH);
+                    
+                    sandboxInitialized = true;
+                    printf("SANDBOX: Initialized with SDF_MORPH animation\n");
+                }
+                
                 // Sandbox handles its own rendering through the loop
                 auto& sandbox = AnimationSystem::Sandbox::getSandbox();
                 sandbox.gyroX = sandboxPitch;
                 sandbox.gyroY = sandboxRoll;
                 sandbox.gyroZ = sandboxAudioLevel;
                 sandbox.update(RENDER_INTERVAL_MS);
+                
+                // Add small delay before rendering to prevent watchdog timeout
+                vTaskDelay(pdMS_TO_TICKS(1));
                 
                 // Sandbox renders directly to GPU
                 // Note: sandbox.render() calls clear/draw/present internally
