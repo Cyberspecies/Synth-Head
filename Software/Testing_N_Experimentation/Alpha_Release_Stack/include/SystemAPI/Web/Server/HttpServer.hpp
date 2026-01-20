@@ -14,12 +14,14 @@
 #include "SystemAPI/Web/Interfaces/ICommandHandler.hpp"
 #include "SystemAPI/Web/Content/WebContent.hpp"
 #include "SystemAPI/Web/Content/PageSdCard.hpp"
+#include "SystemAPI/Web/Content/PageSceneComposition.hpp"
 #include "SystemAPI/Misc/SyncState.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
 #include "SystemAPI/Animation/AnimationConfig.hpp"
 #include "SystemAPI/Utils/FileSystemService.hpp"
 #include "SystemAPI/Storage/StorageManager.hpp"
 #include "SystemAPI/Storage/SdCardManager.hpp"
+#include "AnimationSystem/AnimationSystem.hpp"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -349,6 +351,8 @@ private:
         registerHandler("/api/scenes", HTTP_GET, handleApiScenes);
         registerHandler("/api/scene/create", HTTP_POST, handleApiSceneCreate);
         registerHandler("/api/scene/delete", HTTP_POST, handleApiSceneDelete);
+        registerHandler("/api/scene/rename", HTTP_POST, handleApiSceneRename);
+        registerHandler("/api/scene/get", HTTP_GET, handleApiSceneGet);
         registerHandler("/api/scene/activate", HTTP_POST, handleApiSceneActivate);
         registerHandler("/api/scene/update", HTTP_POST, handleApiSceneUpdate);
         registerHandler("/api/scene/display", HTTP_POST, handleApiSceneDisplay);
@@ -379,6 +383,17 @@ private:
         registerHandler("/api/sdcard/read", HTTP_GET, handleApiSdCardRead);
         registerHandler("/api/sdcard/download", HTTP_GET, handleApiSdCardDownload);
         registerHandler("/api/sdcard/delete", HTTP_POST, handleApiSdCardDelete);
+        
+        // Animation System API endpoints
+        registerHandler("/scene", HTTP_GET, handlePageSceneComposition);
+        registerHandler("/api/animation/sets", HTTP_GET, handleApiAnimationSets);
+        registerHandler("/api/animation/params", HTTP_GET, handleApiAnimationParams);
+        registerHandler("/api/animation/param", HTTP_POST, handleApiAnimationParam);
+        registerHandler("/api/animation/inputs", HTTP_GET, handleApiAnimationInputs);
+        registerHandler("/api/animation/activate", HTTP_POST, handleApiAnimationActivate);
+        registerHandler("/api/animation/stop", HTTP_POST, handleApiAnimationStop);
+        registerHandler("/api/animation/reset", HTTP_POST, handleApiAnimationReset);
+        registerHandler("/api/scene/save", HTTP_POST, handleApiSceneSave);
         
         // Captive portal detection endpoints (comprehensive list for all devices)
         const char* redirect_paths[] = {
@@ -1443,6 +1458,43 @@ private:
         return ESP_OK;
     }
     
+    /**
+     * @brief Check if auth is required for JSON API endpoints
+     * @return true if request should be blocked
+     */
+    static bool requiresAuthJson(httpd_req_t* req) {
+        auto& state = SYNC_STATE.state();
+        
+        // Same logic as requiresAuthRedirect but for API endpoints
+        if (!state.extWifiIsConnected) return false;
+        if (!state.authEnabled) return false;
+        if (strlen(state.authPassword) == 0) return false;
+        if (!isExternalNetworkRequest(req)) return false;
+        if (isAuthenticated(req)) return false;
+        
+        return true;
+    }
+    
+    /**
+     * @brief Send JSON error response
+     */
+    static esp_err_t sendJsonError(httpd_req_t* req, int statusCode, const char* message) {
+        char statusStr[32];
+        snprintf(statusStr, sizeof(statusStr), "%d", statusCode);
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "{\"success\":false,\"error\":\"%s\"}", message);
+        
+        httpd_resp_set_status(req, statusCode == 401 ? "401 Unauthorized" : 
+                                   statusCode == 400 ? "400 Bad Request" :
+                                   statusCode == 404 ? "404 Not Found" : 
+                                   statusCode == 500 ? "500 Internal Server Error" : "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
     // ========== Login Page ==========
     
     static const char* getLoginPage() {
@@ -1647,10 +1699,10 @@ private:
     static esp_err_t handlePageScenes(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return redirectToLogin(req);
         
-        ESP_LOGI(HTTP_TAG, "Serving Scenes page");
+        ESP_LOGI(HTTP_TAG, "Serving Scenes page (redirecting to Scene Composition)");
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-        httpd_resp_send(req, Content::PAGE_SCENES, HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send(req, Content::PAGE_SCENE_COMPOSITION, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     
@@ -1681,6 +1733,366 @@ private:
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
         httpd_resp_send(req, Content::PAGE_SETTINGS, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    // ========== Animation System Handlers ==========
+    
+    /**
+     * @brief Serve the Scene Composition page
+     */
+    static esp_err_t handlePageSceneComposition(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return redirectToLogin(req);
+        
+        ESP_LOGI(HTTP_TAG, "Serving Scene Composition page");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_send(req, Content::PAGE_SCENE_COMPOSITION, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get list of all available animation sets
+     * GET /api/animation/sets
+     */
+    static esp_err_t handleApiAnimationSets(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        ESP_LOGI(HTTP_TAG, "API: Get animation sets");
+        
+        auto& registry = AnimationSystem::getParameterRegistry();
+        std::string json = registry.exportAnimationSetsJson();
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json.c_str(), json.length());
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get parameters for a specific animation set
+     * GET /api/animation/params?set=<setId>
+     */
+    static esp_err_t handleApiAnimationParams(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        // Parse query parameters
+        char query[128] = {0};
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+            return sendJsonError(req, 400, "Missing query parameters");
+        }
+        
+        char setId[64] = {0};
+        if (httpd_query_key_value(query, "set", setId, sizeof(setId)) != ESP_OK) {
+            return sendJsonError(req, 400, "Missing 'set' parameter");
+        }
+        
+        ESP_LOGI(HTTP_TAG, "API: Get parameters for set '%s'", setId);
+        
+        auto& registry = AnimationSystem::getParameterRegistry();
+        std::string json = registry.exportParametersJson(setId);
+        
+        if (json.empty()) {
+            return sendJsonError(req, 404, "Animation set not found");
+        }
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json.c_str(), json.length());
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Update a specific parameter value
+     * POST /api/animation/param
+     * Body: {"set": "setId", "param": "paramId", "value": <value>}
+     */
+    static esp_err_t handleApiAnimationParam(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        // Read request body
+        char body[512] = {0};
+        int received = httpd_req_recv(req, body, sizeof(body) - 1);
+        if (received <= 0) {
+            return sendJsonError(req, 400, "Empty request body");
+        }
+        body[received] = '\0';
+        
+        ESP_LOGI(HTTP_TAG, "API: Update parameter - %s", body);
+        
+        // Parse JSON manually (simple parsing)
+        char setId[64] = {0};
+        char paramId[64] = {0};
+        float value = 0;
+        
+        // Extract "set" field
+        const char* setStart = strstr(body, "\"set\"");
+        if (setStart) {
+            setStart = strchr(setStart, ':');
+            if (setStart) {
+                setStart = strchr(setStart, '"');
+                if (setStart) {
+                    setStart++;
+                    const char* setEnd = strchr(setStart, '"');
+                    if (setEnd) {
+                        size_t len = setEnd - setStart;
+                        if (len < sizeof(setId)) {
+                            strncpy(setId, setStart, len);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Extract "param" field
+        const char* paramStart = strstr(body, "\"param\"");
+        if (paramStart) {
+            paramStart = strchr(paramStart, ':');
+            if (paramStart) {
+                paramStart = strchr(paramStart, '"');
+                if (paramStart) {
+                    paramStart++;
+                    const char* paramEnd = strchr(paramStart, '"');
+                    if (paramEnd) {
+                        size_t len = paramEnd - paramStart;
+                        if (len < sizeof(paramId)) {
+                            strncpy(paramId, paramStart, len);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Extract "value" field
+        const char* valueStart = strstr(body, "\"value\"");
+        if (valueStart) {
+            valueStart = strchr(valueStart, ':');
+            if (valueStart) {
+                valueStart++;
+                while (*valueStart == ' ') valueStart++;
+                value = atof(valueStart);
+            }
+        }
+        
+        if (strlen(setId) == 0 || strlen(paramId) == 0) {
+            return sendJsonError(req, 400, "Missing 'set' or 'param' field");
+        }
+        
+        // Update the parameter
+        auto& registry = AnimationSystem::getParameterRegistry();
+        AnimationSystem::AnimationSet* animSet = registry.getAnimationSet(setId);
+        if (!animSet) {
+            return sendJsonError(req, 404, "Animation set not found");
+        }
+        
+        if (!animSet->setParameterValue(paramId, value)) {
+            return sendJsonError(req, 404, "Parameter not found");
+        }
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get available inputs for animation binding
+     * GET /api/animation/inputs
+     */
+    static esp_err_t handleApiAnimationInputs(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        ESP_LOGI(HTTP_TAG, "API: Get animation inputs");
+        
+        auto& ctx = AnimationSystem::getContext();
+        std::string json = ctx.exportInputsJson();
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json.c_str(), json.length());
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Activate an animation set
+     * POST /api/animation/activate
+     * Body: {"set": "setId"}
+     */
+    static esp_err_t handleApiAnimationActivate(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        // Read request body
+        char body[256] = {0};
+        int received = httpd_req_recv(req, body, sizeof(body) - 1);
+        if (received <= 0) {
+            return sendJsonError(req, 400, "Empty request body");
+        }
+        body[received] = '\0';
+        
+        // Extract set ID
+        char setId[64] = {0};
+        const char* setStart = strstr(body, "\"set\"");
+        if (setStart) {
+            setStart = strchr(setStart, ':');
+            if (setStart) {
+                setStart = strchr(setStart, '"');
+                if (setStart) {
+                    setStart++;
+                    const char* setEnd = strchr(setStart, '"');
+                    if (setEnd) {
+                        size_t len = setEnd - setStart;
+                        if (len < sizeof(setId)) {
+                            strncpy(setId, setStart, len);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (strlen(setId) == 0) {
+            return sendJsonError(req, 400, "Missing 'set' field");
+        }
+        
+        ESP_LOGI(HTTP_TAG, "API: Activate animation set '%s'", setId);
+        
+        auto& mode = AnimationSystem::getAnimationMode();
+        if (!mode.activateAnimationSet(setId)) {
+            return sendJsonError(req, 404, "Animation set not found");
+        }
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Stop the active animation
+     * POST /api/animation/stop
+     */
+    static esp_err_t handleApiAnimationStop(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        ESP_LOGI(HTTP_TAG, "API: Stop animation");
+        
+        auto& mode = AnimationSystem::getAnimationMode();
+        mode.stop();
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Reset animation parameters to defaults
+     * POST /api/animation/reset
+     * Body: {"set": "setId"} or {} for all
+     */
+    static esp_err_t handleApiAnimationReset(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        // Read request body
+        char body[256] = {0};
+        int received = httpd_req_recv(req, body, sizeof(body) - 1);
+        if (received > 0) {
+            body[received] = '\0';
+        }
+        
+        // Extract optional set ID
+        char setId[64] = {0};
+        const char* setStart = strstr(body, "\"set\"");
+        if (setStart) {
+            setStart = strchr(setStart, ':');
+            if (setStart) {
+                setStart = strchr(setStart, '"');
+                if (setStart) {
+                    setStart++;
+                    const char* setEnd = strchr(setStart, '"');
+                    if (setEnd) {
+                        size_t len = setEnd - setStart;
+                        if (len < sizeof(setId)) {
+                            strncpy(setId, setStart, len);
+                        }
+                    }
+                }
+            }
+        }
+        
+        ESP_LOGI(HTTP_TAG, "API: Reset animation parameters%s%s", 
+                 strlen(setId) > 0 ? " for " : "", setId);
+        
+        auto& registry = AnimationSystem::getParameterRegistry();
+        
+        if (strlen(setId) > 0) {
+            AnimationSystem::AnimationSet* animSet = registry.getAnimationSet(setId);
+            if (!animSet) {
+                return sendJsonError(req, 404, "Animation set not found");
+            }
+            animSet->resetToDefaults();
+        } else {
+            registry.resetAllToDefaults();
+        }
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Save current scene configuration
+     * POST /api/scene/save
+     * Body: {"name": "sceneName"}
+     */
+    static esp_err_t handleApiSceneSave(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        // Read request body
+        char body[256] = {0};
+        int received = httpd_req_recv(req, body, sizeof(body) - 1);
+        if (received <= 0) {
+            return sendJsonError(req, 400, "Empty request body");
+        }
+        body[received] = '\0';
+        
+        // Extract scene name
+        char sceneName[64] = {0};
+        const char* nameStart = strstr(body, "\"name\"");
+        if (nameStart) {
+            nameStart = strchr(nameStart, ':');
+            if (nameStart) {
+                nameStart = strchr(nameStart, '"');
+                if (nameStart) {
+                    nameStart++;
+                    const char* nameEnd = strchr(nameStart, '"');
+                    if (nameEnd) {
+                        size_t len = nameEnd - nameStart;
+                        if (len < sizeof(sceneName)) {
+                            strncpy(sceneName, nameStart, len);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (strlen(sceneName) == 0) {
+            return sendJsonError(req, 400, "Missing 'name' field");
+        }
+        
+        ESP_LOGI(HTTP_TAG, "API: Save scene '%s'", sceneName);
+        
+        // Export current scene configuration
+        auto& mode = AnimationSystem::getAnimationMode();
+        std::string sceneJson = mode.exportSceneJson();
+        
+        // Build file path
+        char filePath[128];
+        snprintf(filePath, sizeof(filePath), "%s/%s.json", SCENE_DIR, sceneName);
+        
+        // Write to file
+        FILE* f = fopen(filePath, "w");
+        if (!f) {
+            return sendJsonError(req, 500, "Failed to create scene file");
+        }
+        fwrite(sceneJson.c_str(), 1, sceneJson.length(), f);
+        fclose(f);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     
@@ -2642,6 +3054,127 @@ private:
         
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Rename a scene
+     */
+    static esp_err_t handleApiSceneRename(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[512];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* id = cJSON_GetObjectItem(root, "id");
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        bool success = false;
+        
+        if (id && cJSON_IsNumber(id) && name && cJSON_IsString(name)) {
+            for (auto& scene : savedScenes_) {
+                if (scene.id == id->valueint) {
+                    ESP_LOGI(HTTP_TAG, "Renaming scene %d: %s -> %s", scene.id, scene.name.c_str(), name->valuestring);
+                    scene.name = name->valuestring;
+                    success = true;
+                    saveScenesStorage();
+                    break;
+                }
+            }
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get a single scene by ID
+     */
+    static esp_err_t handleApiSceneGet(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        // Parse query string for id parameter
+        char query[64] = {0};
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing id parameter");
+            return ESP_FAIL;
+        }
+        
+        char id_str[16] = {0};
+        if (httpd_query_key_value(query, "id", id_str, sizeof(id_str)) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing id parameter");
+            return ESP_FAIL;
+        }
+        
+        int sceneId = atoi(id_str);
+        SavedScene* found = nullptr;
+        
+        for (auto& scene : savedScenes_) {
+            if (scene.id == sceneId) {
+                found = &scene;
+                break;
+            }
+        }
+        
+        if (!found) {
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Scene not found");
+            return ESP_FAIL;
+        }
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON* sceneObj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(sceneObj, "id", found->id);
+        cJSON_AddStringToObject(sceneObj, "name", found->name.c_str());
+        cJSON_AddNumberToObject(sceneObj, "type", found->type);
+        cJSON_AddBoolToObject(sceneObj, "active", found->active);
+        
+        // Add animation set ID if applicable (using type as proxy for now)
+        if (found->type > 0) {
+            const char* animSets[] = {"", "gyro_eye", "static_sprite", "rotating_sprite"};
+            if (found->type < 4) {
+                cJSON_AddStringToObject(sceneObj, "animSet", animSets[found->type]);
+            }
+        }
+        
+        // Return parameters array if any
+        cJSON* params = cJSON_CreateArray();
+        // For gyro eye scenes, expose the parameters
+        if (found->type == 1 && found->hasGyroEyeConfig) {
+            auto addParam = [&params](const char* id, const char* name, float value) {
+                cJSON* p = cJSON_CreateObject();
+                cJSON_AddStringToObject(p, "id", id);
+                cJSON_AddStringToObject(p, "name", name);
+                cJSON_AddNumberToObject(p, "value", value);
+                cJSON_AddItemToArray(params, p);
+            };
+            addParam("intensity", "Intensity", found->gyroEye.intensity);
+            addParam("maxOffsetX", "Max Offset X", found->gyroEye.maxOffsetX);
+            addParam("maxOffsetY", "Max Offset Y", found->gyroEye.maxOffsetY);
+            addParam("smoothing", "Smoothing", found->gyroEye.smoothingFactor);
+        }
+        cJSON_AddItemToObject(sceneObj, "params", params);
+        
+        cJSON_AddItemToObject(root, "scene", sceneObj);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
         return ESP_OK;
     }
     

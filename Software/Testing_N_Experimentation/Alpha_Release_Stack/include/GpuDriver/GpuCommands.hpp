@@ -104,6 +104,9 @@ private:
         DRAW_LINE_F = 0x48,
         DRAW_CIRCLE_F = 0x49,
         DRAW_RECT_F = 0x4A,
+        DRAW_FILL_F = 0x4B,
+        BLIT_SPRITE_F = 0x4C,   // Sprite with sub-pixel position
+        BLIT_SPRITE_ROT = 0x4D, // Sprite with rotation
         
         // Target/present
         SET_TARGET = 0x50,
@@ -321,6 +324,13 @@ private:
     static void encodeI16(uint8_t* buf, int idx, int16_t val) {
         buf[idx] = val & 0xFF;
         buf[idx + 1] = (val >> 8) & 0xFF;
+    }
+    
+    // Encode float to 8.8 fixed-point (for sub-pixel positioning)
+    static void encodeFixed88(uint8_t* buf, int idx, float val) {
+        int16_t fixed = (int16_t)(val * 256.0f);
+        buf[idx] = fixed & 0xFF;        // Fractional part
+        buf[idx + 1] = (fixed >> 8) & 0xFF;  // Integer part
     }
     
 public:
@@ -1141,6 +1151,32 @@ public:
         encodeI16(payload, 1, x);
         encodeI16(payload, 3, y);
         sendCmd(CmdType::BLIT_SPRITE, payload, 5);
+    }
+    
+    /**
+     * Blit sprite with sub-pixel positioning (smooth movement)
+     * Uses 8.8 fixed-point format for smooth motion
+     * Protocol: BLIT_SPRITE_F [id:1][x:2][y:2] (8.8 fixed-point)
+     */
+    void blitSpriteF(uint8_t id, float x, float y) {
+        uint8_t payload[5];
+        payload[0] = id;
+        encodeFixed88(payload, 1, x);
+        encodeFixed88(payload, 3, y);
+        sendCmd(CmdType::BLIT_SPRITE_F, payload, 5);
+    }
+    
+    /**
+     * Blit sprite with rotation (in degrees)
+     * Protocol: BLIT_SPRITE_ROT [id:1][x:2][y:2][angle:2] (8.8 fixed-point)
+     */
+    void blitSpriteRotated(uint8_t id, float x, float y, float angleDegrees) {
+        uint8_t payload[7];
+        payload[0] = id;
+        encodeFixed88(payload, 1, x);
+        encodeFixed88(payload, 3, y);
+        encodeFixed88(payload, 5, angleDegrees);
+        sendCmd(CmdType::BLIT_SPRITE_ROT, payload, 7);
     }
     
     /**

@@ -27,7 +27,7 @@
 #include "PageAdvancedMenu.hpp"
 #include "PageSprite.hpp"
 #include "PageEquations.hpp"
-#include "PageScenes.hpp"
+#include "PageSceneComposition.hpp"
 #include "PageSettings.hpp"
 
 namespace SystemAPI {

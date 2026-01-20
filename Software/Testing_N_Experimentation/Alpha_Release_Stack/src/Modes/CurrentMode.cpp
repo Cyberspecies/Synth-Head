@@ -21,6 +21,11 @@
 #include "Application/Application.hpp"  // Dual-core application layer
 #include "Application/Pipeline/SceneRenderer.hpp"  // Scene renderer for Core 1
 
+// Animation System
+#include "AnimationSystem/AnimationSystem.hpp"
+#include "AnimationSystem/AnimationSandbox.hpp"
+#include "Modes/AnimationHandler.hpp"
+
 // Modular hardware drivers
 #include "Drivers/GpsDriver.hpp"
 #include "Drivers/MicDriver.hpp"
@@ -72,16 +77,97 @@ namespace GpuDriverState {
     static bool gpuOledOk = false;
     
     // ====== SPRITE RENDERING STATE (like WifiSpriteUploadTest) ======
-    // This allows continuous rendering at ~30fps from the update loop
+    // This allows continuous rendering at ~60fps from the update loop
     static bool spriteReady = false;        // Is sprite uploaded and ready to render?
     static uint8_t activeSpriteId = 0;      // GPU sprite cache slot
     static float spriteX = 64.0f;           // Center X position
     static float spriteY = 16.0f;           // Center Y position
     static float spriteAngle = 0.0f;        // Rotation angle (degrees)
     static uint8_t bgR = 0, bgG = 0, bgB = 0;  // Background color
-    static uint32_t lastRenderTime = 0;     // For ~30fps throttle
-    static constexpr uint32_t RENDER_INTERVAL_MS = 33;  // ~30fps
+    static uint32_t lastRenderTime = 0;     // For fps throttle
+    static constexpr uint32_t RENDER_INTERVAL_MS = 22;  // ~45fps (GPU-safe, prevents buffer overflow)
     static bool autoRotate = false;         // Auto-rotate flag (true for test, false for web uploads)
+    
+    // ====== SANDBOX MODE STATE ======
+    static bool sandboxEnabled = false;
+    static float sandboxPitch = 0.0f;
+    static float sandboxRoll = 0.0f;
+    static float sandboxAudioLevel = 0.0f;
+    
+    // ====== HIGH-FREQUENCY IMU TASK ======
+    static TaskHandle_t imuTaskHandle = nullptr;
+    static bool imuTaskRunning = false;
+    
+    // ====== EYE SPRITE CREATION ======
+    // Create a filled circle sprite for AA eye rendering
+    static void createCircleSprite(uint8_t* data, int size, uint8_t r, uint8_t g, uint8_t b) {
+        float cx = size / 2.0f;
+        float cy = size / 2.0f;
+        float radius = (size / 2.0f) - 1.0f;
+        
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                int idx = (y * size + x) * 3;
+                float dx = x - cx + 0.5f;
+                float dy = y - cy + 0.5f;
+                float dist = sqrtf(dx * dx + dy * dy);
+                
+                if (dist <= radius) {
+                    // Inside circle - full color with slight gradient for depth
+                    float shade = 1.0f - (dist / radius) * 0.2f;
+                    data[idx + 0] = (uint8_t)(r * shade);
+                    data[idx + 1] = (uint8_t)(g * shade);
+                    data[idx + 2] = (uint8_t)(b * shade);
+                } else {
+                    // Outside circle - transparent (black for now, GPU handles transparency)
+                    data[idx + 0] = 0;
+                    data[idx + 1] = 0;
+                    data[idx + 2] = 0;
+                }
+            }
+        }
+    }
+    
+    // Upload eye sprites to GPU for AA rendering
+    static void uploadEyeSprites() {
+        const int EYE_SIZE = 24;  // 24x24 pixel circle sprites
+        uint8_t spriteData[EYE_SIZE * EYE_SIZE * 3];
+        
+        printf("  uploadEyeSprites: Creating %dx%d circle sprites...\n", EYE_SIZE, EYE_SIZE);
+        
+        // Sprite 0: Left eye (white circle)
+        createCircleSprite(spriteData, EYE_SIZE, 255, 255, 255);
+        
+        // Debug: print first 12 bytes of sprite data
+        printf("  Sprite 0 first 12 bytes: ");
+        for (int i = 0; i < 12; i++) {
+            printf("%02X ", spriteData[i]);
+        }
+        printf("\n");
+        
+        bool result0 = g_gpu.uploadSprite(0, EYE_SIZE, EYE_SIZE, spriteData, SpriteFormat::RGB888);
+        printf("  Eye sprite 0 upload: %s\n", result0 ? "SUCCESS" : "FAILED");
+        vTaskDelay(pdMS_TO_TICKS(100));  // Give GPU time to process
+        
+        // Sprite 1: Right eye (same as left - white circle)
+        createCircleSprite(spriteData, EYE_SIZE, 255, 255, 255);
+        bool result1 = g_gpu.uploadSprite(1, EYE_SIZE, EYE_SIZE, spriteData, SpriteFormat::RGB888);
+        printf("  Eye sprite 1 upload: %s\n", result1 ? "SUCCESS" : "FAILED");
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        printf("  uploadEyeSprites: Done!\n");
+    }
+    
+    // IMU task: Polls gyro at 100Hz (10ms) for better responsiveness
+    static void imuTask(void* param) {
+        printf("  GPU: IMU high-frequency task started (100Hz)\n");
+        while (imuTaskRunning) {
+            // Update IMU at 100Hz
+            Drivers::ImuDriver::update();
+            vTaskDelay(pdMS_TO_TICKS(10));  // 10ms = 100Hz
+        }
+        vTaskDelete(nullptr);
+    }
     
     bool init() {
         if (initialized) return true;
@@ -115,6 +201,18 @@ namespace GpuDriverState {
         lastPingTime = 0;
         printf("  GPU: Initialized via GpuDriver (TX:%d, RX:%d @ 10Mbps)\n", GPU_TX_PIN, GPU_RX_PIN);
         printf("  GPU: Keep-alive started, display initialized\n");
+        
+        // Start high-frequency IMU task (100Hz for better gyro responsiveness)
+        imuTaskRunning = true;
+        xTaskCreatePinnedToCore(
+            imuTask,
+            "IMU_Task",
+            2048,  // Stack size
+            nullptr,
+            5,     // Priority (higher than main loop)
+            &imuTaskHandle,
+            0      // Core 0 (same as main)
+        );
         
         return true;
     }
@@ -211,35 +309,54 @@ namespace GpuDriverState {
             }
         }
         
-        // ====== CONTINUOUS SPRITE RENDERING (like WifiSpriteUploadTest) ======
-        // If a sprite is ready to display, render it continuously at ~30fps
-        if (spriteReady && connected && (currentTimeMs - lastRenderTime >= RENDER_INTERVAL_MS)) {
+        // ====== CONTINUOUS RENDERING AT ~30fps ======
+        if (connected && (currentTimeMs - lastRenderTime >= RENDER_INTERVAL_MS)) {
             lastRenderTime = currentTimeMs;
             renderFrameCount++;
             
-            // Increment angle only if auto-rotate is enabled (test sprite)
-            if (autoRotate) {
-                incrementAngle();
-            }
-            
-            // Render frame - exactly like WifiSpriteUploadTest
             g_gpu.setTarget(GpuTarget::HUB75);
-            g_gpu.clear(bgR, bgG, bgB);
-            g_gpu.blitSpriteRotated(activeSpriteId, spriteX, spriteY, spriteAngle);
-            g_gpu.present();
             
-            // Debug: Print every 30 frames (~1 second)
-            if (renderFrameCount % 30 == 0) {
-                printf("DEBUG RENDER: Frame %lu - sprite=%u pos=(%.1f,%.1f) angle=%.1f bg=(%u,%u,%u)\n",
-                       renderFrameCount, activeSpriteId, spriteX, spriteY, spriteAngle, bgR, bgG, bgB);
+            // Check if sandbox mode is enabled
+            if (sandboxEnabled) {
+                // Sandbox handles its own rendering through the loop
+                auto& sandbox = AnimationSystem::Sandbox::getSandbox();
+                sandbox.gyroX = sandboxPitch;
+                sandbox.gyroY = sandboxRoll;
+                sandbox.gyroZ = sandboxAudioLevel;
+                sandbox.update(RENDER_INTERVAL_MS);
+                
+                // Sandbox renders directly to GPU
+                // Note: sandbox.render() calls clear/draw/present internally
+                sandbox.render();
+                
+                // Debug every 30 frames
+                if (renderFrameCount % 30 == 0) {
+                    printf("SANDBOX: Frame %lu - anim=%d gyroX=%.1f gyroY=%.1f gyroZ=%.1f\n",
+                           renderFrameCount, (int)sandbox.currentAnim, sandboxPitch, sandboxRoll, sandboxAudioLevel);
+                }
+            }
+            else if (spriteReady) {
+                // Sprite rendering mode (like WifiSpriteUploadTest)
+                if (autoRotate) {
+                    incrementAngle();
+                }
+                
+                g_gpu.clear(bgR, bgG, bgB);
+                g_gpu.blitSpriteRotated(activeSpriteId, spriteX, spriteY, spriteAngle);
+                g_gpu.present();
+                
+                if (renderFrameCount % 30 == 0) {
+                    printf("DEBUG RENDER: Frame %lu - sprite=%u pos=(%.1f,%.1f) angle=%.1f\n",
+                           renderFrameCount, activeSpriteId, spriteX, spriteY, spriteAngle);
+                }
             }
         }
         
         // Debug: Print render state every 5 seconds
         if (currentTimeMs - lastRenderDebugTime >= 5000) {
             lastRenderDebugTime = currentTimeMs;
-            printf("DEBUG STATE: spriteReady=%d connected=%d frames=%lu\n",
-                   spriteReady, connected, renderFrameCount);
+            printf("DEBUG STATE: sandbox=%d spriteReady=%d connected=%d frames=%lu\n",
+                   sandboxEnabled, spriteReady, connected, renderFrameCount);
         }
         
         // Note: GpuDriver from SystemAPI doesn't have stats/alerts like GpuCommands
@@ -265,6 +382,23 @@ namespace GpuDriverState {
     void clearSpriteScene() {
         spriteReady = false;
         printf("DEBUG: Sprite scene cleared\n");
+    }
+    
+    // ====== SANDBOX MODE ======
+    // When enabled, sandbox takes over the render loop
+    void enableSandbox(bool enable) {
+        sandboxEnabled = enable;
+        if (enable) {
+            spriteReady = false;  // Disable sprite rendering when sandbox is on
+        }
+    }
+    
+    bool isSandboxEnabled() { return sandboxEnabled; }
+    
+    void updateSandboxSensors(float gyroX, float gyroY, float gyroZ) {
+        sandboxPitch = gyroX;
+        sandboxRoll = gyroY;
+        sandboxAudioLevel = gyroZ;
     }
     
     // Getters - provide access to the global GpuDriver
@@ -348,11 +482,101 @@ void CurrentMode::onStart() {
     // conflicts with the GpuDriver we're using. To match the working
     // WifiSpriteUploadTest, we use only GpuDriver from Core 0.
     // =====================================================
-    printf("\\n  ┌────────────────────────────────────┐\\n");
-    printf("  │   SINGLE-CORE GPU MODE (TEST)      │\\n");
-    printf("  └────────────────────────────────────┘\\n");
-    printf("  Using GpuDriver from Core 0 only (like WifiSpriteUploadTest)\\n");
-    printf("  Application layer DISABLED to avoid UART conflict\\n\\n");
+    printf("\n  ┌────────────────────────────────────┐\n");
+    printf("  │   SINGLE-CORE GPU MODE (TEST)      │\n");
+    printf("  └────────────────────────────────────┘\n");
+    printf("  Using GpuDriver from Core 0 only (like WifiSpriteUploadTest)\n");
+    printf("  Application layer DISABLED to avoid UART conflict\n\n");
+    
+    // =====================================================
+    // Initialize Animation Handler
+    // =====================================================
+    auto& animHandler = Modes::getAnimationHandler();
+    if (animHandler.init()) {
+        printf("  AnimationHandler: Initialized\n");
+        
+        // Wire GPU callbacks to AnimationHandler
+        animHandler.wireGpuCallbacks(
+            // Clear function
+            [](uint8_t r, uint8_t g, uint8_t b) {
+                GpuDriverState::getGpu().setTarget(GpuTarget::HUB75);
+                GpuDriverState::getGpu().clear(r, g, b);
+            },
+            // Blit sprite function (use float for smooth sub-pixel positioning)
+            [](int id, float x, float y) {
+                GpuDriverState::getGpu().blitSpriteF(static_cast<uint8_t>(id), x, y);
+            },
+            // Blit sprite rotated function
+            [](int id, float x, float y, float angle) {
+                GpuDriverState::getGpu().blitSpriteRotated(static_cast<uint8_t>(id), x, y, angle);
+            },
+            // Fill circle function (use drawCircle - no filled variant in GpuDriver)
+            [](int cx, int cy, int r, uint8_t red, uint8_t green, uint8_t blue) {
+                GpuDriverState::getGpu().drawCircle(static_cast<int16_t>(cx), 
+                                                     static_cast<int16_t>(cy), 
+                                                     static_cast<int16_t>(r), 
+                                                     red, green, blue);
+            },
+            // Fill rect function (use drawFilledRect)
+            [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+                GpuDriverState::getGpu().drawFilledRect(static_cast<int16_t>(x), 
+                                                         static_cast<int16_t>(y), 
+                                                         static_cast<int16_t>(w), 
+                                                         static_cast<int16_t>(h), 
+                                                         r, g, b);
+            },
+            // Present function
+            []() {
+                GpuDriverState::getGpu().present();
+            }
+        );
+        printf("  AnimationHandler: GPU callbacks wired\n");
+    } else {
+        printf("  AnimationHandler: Init failed\n");
+    }
+    
+    // =====================================================
+    // Initialize Animation Sandbox (EXPERIMENTAL)
+    // =====================================================
+    auto& sandbox = AnimationSystem::Sandbox::getSandbox();
+    sandbox.clear = [](uint8_t r, uint8_t g, uint8_t b) {
+        GpuDriverState::getGpu().setTarget(GpuTarget::HUB75);
+        GpuDriverState::getGpu().clear(r, g, b);
+    };
+    sandbox.fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+        GpuDriverState::getGpu().drawFilledRect(static_cast<int16_t>(x), 
+                                                 static_cast<int16_t>(y), 
+                                                 static_cast<int16_t>(w), 
+                                                 static_cast<int16_t>(h), 
+                                                 r, g, b);
+    };
+    sandbox.drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        GpuDriverState::getGpu().drawPixel(static_cast<int16_t>(x), 
+                                            static_cast<int16_t>(y), 
+                                            r, g, b);
+    };
+    sandbox.blitSprite = [](int id, float x, float y) {
+        GpuDriverState::getGpu().blitSpriteF(static_cast<uint8_t>(id), x, y);
+    };
+    sandbox.blitSpriteRotated = [](int id, float x, float y, float angle) {
+        GpuDriverState::getGpu().blitSpriteRotated(static_cast<uint8_t>(id), x, y, angle);
+    };
+    sandbox.drawCircleF = [](float x, float y, float radius, uint8_t r, uint8_t g, uint8_t b) {
+        GpuDriverState::getGpu().drawCircleF(x, y, radius, r, g, b);
+    };
+    sandbox.present = []() {
+        GpuDriverState::getGpu().present();
+        // Small yield to let GPU process (prevents UART buffer overflow at high FPS)
+        vTaskDelay(1);  // 1 tick = ~1ms - gives GPU time to drain command buffer
+    };
+    sandbox.setEnabled(true);  // Mark sandbox as enabled
+    GpuDriverState::enableSandbox(true);  // Enable sandbox in render loop
+    printf("  AnimationSandbox: Enabled (5s cycle: GYRO_EYES -> GLITCH_TV -> SDF_MORPH)\n");
+    
+    // Upload eye sprites for AA rendering
+    printf("  Uploading eye sprites for AA rendering...\n");
+    GpuDriverState::uploadEyeSprites();
+    printf("  Eye sprites ready!\n");
     
     /*
     // DISABLED: This creates a conflicting UART driver on Core 1
@@ -532,7 +756,8 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
     uint32_t currentTimeMs = (uint32_t)(esp_timer_get_time() / 1000);
     Drivers::GpsDriver::update();
     Drivers::MicDriver::update();
-    Drivers::ImuDriver::update();
+    // IMU now runs in dedicated 100Hz task for better responsiveness
+    // Drivers::ImuDriver::update();  // REMOVED - runs in imuTask at 100Hz
     GpuDriverState::update(currentTimeMs);
 
     // Get SyncState reference
@@ -640,6 +865,53 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
     // Calculate pitch and roll angles (simplified) - kept for sensor data logging
     float pitch = atan2f(-ax, sqrtf(ay * ay + az * az)) * 180.0f / 3.14159f;
     float roll = atan2f(ay, az) * 180.0f / 3.14159f;
+    
+    // =====================================================
+    // Update AnimationHandler with sensor data
+    // =====================================================
+    auto& animHandler = Modes::getAnimationHandler();
+    if (animHandler.isInitialized()) {
+        // Update IMU inputs (pitch, roll, yaw, accel, gyro)
+        animHandler.updateSensorInputs(
+            pitch, roll, 0.0f,  // yaw not available without magnetometer
+            ax, ay, az,
+            state.gyroX / 1000.0f, state.gyroY / 1000.0f, state.gyroZ / 1000.0f
+        );
+        
+        // Update GPS inputs
+        animHandler.updateGpsInputs(
+            state.latitude, state.longitude, state.altitude,
+            state.gpsSpeed, state.satellites, state.gpsValid
+        );
+        
+        // Update audio inputs
+        animHandler.updateAudioInputs(
+            state.micLevel / 100.0f,  // Normalize 0-100 to 0-1
+            state.micDb / 100.0f,     // Use dB as peak proxy
+            0.0f, 0.0f, 0.0f          // FFT bands not available yet
+        );
+        
+        // Update environment inputs
+        animHandler.updateEnvironmentInputs(
+            state.temperature, state.humidity, state.pressure
+        );
+        
+        // Update animation system (runs active animation set)
+        animHandler.update(deltaMs);
+        
+        // Render if animation is enabled and GPU connected
+        if (animHandler.isAnimationEnabled() && GpuDriverState::connected) {
+            animHandler.render();
+        }
+    }
+    
+    // =====================================================
+    // Update Sandbox Sensors (render happens in GpuDriverState::update)
+    // =====================================================
+    if (GpuDriverState::isSandboxEnabled()) {
+        // Use device gyro (calibrated) X, Y, Z directly
+        GpuDriverState::updateSandboxSensors(state.deviceGyroX, state.deviceGyroY, state.deviceGyroZ);
+    }
     
     /*
     // DISABLED: Application layer
