@@ -105,10 +105,9 @@ namespace GpuDriverState {
         g_gpu.reset();
         vTaskDelay(pdMS_TO_TICKS(200));
         
-        // Initial display - show waiting message (SAME as working test)
+        // Clear display on init - no startup animation
         g_gpu.setTarget(GpuTarget::HUB75);
-        g_gpu.clear(5, 5, 20);
-        g_gpu.drawRect(10, 5, 108, 22, 255, 128, 0);  // Orange border
+        g_gpu.clear(0, 0, 0);
         g_gpu.present();
         
         initialized = true;

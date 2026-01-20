@@ -372,6 +372,7 @@ private:
         // SD Card API endpoints
         registerHandler("/api/sdcard/status", HTTP_GET, handleApiSdCardStatus);
         registerHandler("/api/sdcard/format", HTTP_POST, handleApiSdCardFormat);
+        registerHandler("/api/sdcard/setup", HTTP_POST, handleApiSdCardSetup);
         registerHandler("/api/sdcard/clear", HTTP_POST, handleApiSdCardClear);
         registerHandler("/api/sdcard/list", HTTP_GET, handleApiSdCardList);
         registerHandler("/api/sdcard/hex", HTTP_GET, handleApiSdCardHex);
@@ -3933,6 +3934,80 @@ public:
         } else {
             cJSON_AddStringToObject(root, "error", "Failed to format SD card");
         }
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Setup SD card - clear everything and create folder structure
+     */
+    static esp_err_t handleApiSdCardSetup(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isReady() || !sdCard.isMounted()) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"SD card not initialized\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        ESP_LOGW(HTTP_TAG, "Setting up SD card (clear all + create folders)...");
+        
+        // Step 1: Clear all existing files and folders recursively
+        ESP_LOGI(HTTP_TAG, "Clearing all existing files and folders...");
+        bool clearSuccess = sdCard.clearAll();
+        if (!clearSuccess) {
+            ESP_LOGW(HTTP_TAG, "Warning: clearAll returned false, continuing anyway...");
+        }
+        
+        // Give filesystem time to settle after clearing
+        vTaskDelay(pdMS_TO_TICKS(500));
+        SystemAPI::Utils::syncFilesystem();
+        vTaskDelay(pdMS_TO_TICKS(200));
+        
+        // Step 2: Create folder structure
+        const char* folders[] = {
+            "/Sprites",
+            "/Equations", 
+            "/Scenes",
+            "/Animations",
+            "/Configs",
+            "/Cache",
+            "/Calibration"
+        };
+        
+        int foldersCreated = 0;
+        int foldersFailed = 0;
+        
+        for (const char* folder : folders) {
+            ESP_LOGI(HTTP_TAG, "Creating folder: %s", folder);
+            if (sdCard.createDir(folder)) {
+                foldersCreated++;
+            } else {
+                ESP_LOGW(HTTP_TAG, "Failed to create folder: %s", folder);
+                foldersFailed++;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));  // Small delay between folder creations
+        }
+        
+        // Sync filesystem
+        SystemAPI::Utils::syncFilesystem();
+        
+        // Build response
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", foldersFailed == 0);
+        cJSON_AddStringToObject(root, "message", "SD card setup complete");
+        cJSON_AddNumberToObject(root, "folders_created", foldersCreated);
+        cJSON_AddNumberToObject(root, "folders_failed", foldersFailed);
+        cJSON_AddNumberToObject(root, "total_mb", sdCard.getTotalBytes() / (1024 * 1024));
+        cJSON_AddNumberToObject(root, "free_mb", sdCard.getFreeBytes() / (1024 * 1024));
         
         char* json = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);

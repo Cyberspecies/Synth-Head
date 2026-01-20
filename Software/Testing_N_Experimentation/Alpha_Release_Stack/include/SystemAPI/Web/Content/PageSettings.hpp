@@ -298,6 +298,7 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
           </div>
           
           <div class="button-group" id="sd-buttons" style="display: none;">
+            <button id="sd-setup-btn" class="btn btn-primary">Setup Card</button>
             <button id="sd-clear-btn" class="btn btn-warning">Clear All Files</button>
             <button id="sd-format-btn" class="btn btn-danger">Reformat Card</button>
           </div>
@@ -319,8 +320,15 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
               <button id="sd-confirm-format-btn" class="btn btn-danger">Yes, Format Card</button>
               <button id="sd-cancel-format-btn" class="btn btn-secondary">Cancel</button>
             </div>
-          </div>
-        </div>
+          </div>          
+          <div id="sd-confirm-setup" class="danger-confirm" style="display: none; margin-top: 16px; padding: 16px; background: var(--accent-bg, rgba(255, 107, 0, 0.1)); border: 1px solid var(--accent, #ff6b00); border-radius: 8px;">
+            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--accent, #ff6b00);">&#x2699; Setup SD Card</p>
+            <p style="margin: 0 0 12px 0; font-size: 0.875rem;">This will DELETE ALL files and folders (including legacy ones) and create a fresh folder structure (Sprites, Equations, Scenes, etc.). All existing data will be permanently lost.</p>
+            <div class="button-group">
+              <button id="sd-confirm-setup-btn" class="btn btn-primary">Yes, Setup Card</button>
+              <button id="sd-cancel-setup-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>        </div>
       </div>
       
       <div class="card danger-card">
@@ -894,6 +902,40 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
           showToast('SD card formatted', 'success');
         } else {
           showToast(data.error || 'Failed to format', 'error');
+        }
+        updateSdCardStatus();
+      })
+      .catch(err => {
+        hideSdProgress();
+        showToast('Error: ' + err, 'error');
+      });
+  });
+  
+  // Setup button click - show confirmation
+  document.getElementById('sd-setup-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-setup').style.display = 'block';
+    document.getElementById('sd-confirm-clear').style.display = 'none';
+    document.getElementById('sd-confirm-format').style.display = 'none';
+  });
+  
+  // Cancel setup
+  document.getElementById('sd-cancel-setup-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-setup').style.display = 'none';
+  });
+  
+  // Confirm setup
+  document.getElementById('sd-confirm-setup-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-setup').style.display = 'none';
+    showSdProgress('Setting up SD card...');
+    
+    fetch('/api/sdcard/setup', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        hideSdProgress();
+        if (data.success) {
+          showToast('SD card setup complete', 'success');
+        } else {
+          showToast(data.error || 'Failed to setup', 'error');
         }
         updateSdCardStatus();
       })
