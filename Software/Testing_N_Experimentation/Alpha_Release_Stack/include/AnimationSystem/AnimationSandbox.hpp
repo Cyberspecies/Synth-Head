@@ -232,18 +232,33 @@ struct GyroEyesAnim {
 
 // ================================================================
 // ANIMATION 2: GLITCH TV
-// Chromatic aberration, static, scan lines, retro glitch
+// Horizontal row glitches, scanlines, chromatic aberration
+// No noise - focused on clean row displacement effects
 // ================================================================
 struct GlitchTVAnim {
     uint32_t frameCount = 0;
     uint32_t glitchTimer = 0;
-    int glitchOffsetX = 0;
-    int glitchOffsetY = 0;
     int chromaOffset = 2;
-    bool heavyGlitch = false;
     int scanlineY = 0;
     
-    // Static noise seed
+    // Row glitch state - each row can have its own offset
+    static constexpr int MAX_GLITCH_ROWS = 12;  // More simultaneous glitches
+    struct RowGlitch {
+        int y;           // Row Y position
+        int height;      // Height of glitch band
+        int offsetX;     // Horizontal shift
+        int duration;    // Frames remaining
+        uint8_t r, g, b; // Optional color tint
+        bool colorTint;  // Apply color tint?
+    };
+    RowGlitch rowGlitches[MAX_GLITCH_ROWS];
+    int activeGlitches = 0;
+    
+    // Per-row random offset for subtle continuous glitching
+    int8_t rowOffsets[DISPLAY_H] = {0};
+    uint32_t rowOffsetTimer = 0;
+    
+    // Random seed
     uint32_t noiseSeed = 12345;
     
     uint32_t fastRand() {
@@ -255,69 +270,137 @@ struct GlitchTVAnim {
         frameCount++;
         glitchTimer += deltaMs;
         
-        // Random glitch events
-        if (glitchTimer > 100 + (fastRand() % 200)) {
-            glitchTimer = 0;
-            glitchOffsetX = (fastRand() % 8) - 4;
-            glitchOffsetY = (fastRand() % 4) - 2;
-            heavyGlitch = (fastRand() % 10) < 2;  // 20% chance
-            chromaOffset = 1 + (fastRand() % 4);
+        // Update existing glitches
+        for (int i = 0; i < activeGlitches; ) {
+            rowGlitches[i].duration--;
+            if (rowGlitches[i].duration <= 0) {
+                // Remove this glitch by swapping with last
+                rowGlitches[i] = rowGlitches[activeGlitches - 1];
+                activeGlitches--;
+            } else {
+                i++;
+            }
         }
         
-        // Scanline
+        // Spawn new row glitches periodically (more frequent)
+        if (glitchTimer > 20 + (fastRand() % 80)) {
+            glitchTimer = 0;
+            
+            // Add 2-5 new row glitches
+            int newGlitches = 2 + (fastRand() % 4);
+            for (int i = 0; i < newGlitches && activeGlitches < MAX_GLITCH_ROWS; i++) {
+                RowGlitch& g = rowGlitches[activeGlitches];
+                g.y = fastRand() % DISPLAY_H;
+                g.height = 1 + (fastRand() % 3);  // 1-3 rows tall
+                g.offsetX = (fastRand() % 50) - 25;  // -25 to +25 pixel shift
+                g.duration = 1 + (fastRand() % 6);  // 1-7 frames (faster)
+                g.colorTint = (fastRand() % 100) < 25;  // 25% chance of color tint
+                if (g.colorTint) {
+                    // 3-bit color palette (8 colors including white)
+                    // 000=black, 001=blue, 010=green, 011=cyan, 100=red, 101=magenta, 110=yellow, 111=white
+                    int colorChoice = fastRand() % 7;  // Skip black (0), use 1-7
+                    g.r = (colorChoice & 0x04) ? 255 : 30;  // Red bit
+                    g.g = (colorChoice & 0x02) ? 255 : 30;  // Green bit
+                    g.b = (colorChoice & 0x01) ? 255 : 30;  // Blue bit
+                }
+                activeGlitches++;
+            }
+            
+            // Occasionally update chromatic aberration
+            if (fastRand() % 3 == 0) {
+                chromaOffset = 1 + (fastRand() % 6);
+            }
+        }
+        
+        // Update per-row random offsets (subtle continuous jitter)
+        rowOffsetTimer += deltaMs;
+        if (rowOffsetTimer > 30) {  // Update every 30ms
+            rowOffsetTimer = 0;
+            // Randomly jitter a few rows
+            int numRowsToJitter = 3 + (fastRand() % 6);  // 3-8 rows
+            for (int i = 0; i < numRowsToJitter; i++) {
+                int row = fastRand() % DISPLAY_H;
+                // Small random offset (-3 to +3) or reset to 0
+                if (fastRand() % 3 == 0) {
+                    rowOffsets[row] = 0;  // Sometimes reset
+                } else {
+                    rowOffsets[row] = (int8_t)((fastRand() % 7) - 3);
+                }
+            }
+        }
+        
+        // Scanline moves down
         scanlineY = (scanlineY + 1) % DISPLAY_H;
     }
     
     void render(FillRectFunc fillRect, DrawPixelFunc drawPixel, ClearFunc clear, PresentFunc present) {
-        // Dark background with slight color
+        // Dark background
         clear(5, 5, 10);
         
-        // Draw some "content" that gets glitched
-        // Simple test pattern - rectangles
-        int baseX = 20 + glitchOffsetX;
-        int baseY = 8 + glitchOffsetY;
+        // Draw base content - two "eye" rectangles with per-row offsets
+        int baseY = 8;
         
-        // Chromatic aberration - offset R, G, B channels
-        // Red channel (offset left)
-        fillRect(baseX - chromaOffset, baseY, 24, 16, 180, 0, 0);
-        fillRect(baseX - chromaOffset + 70, baseY, 24, 16, 180, 0, 0);
-        
-        // Blue channel (offset right)  
-        fillRect(baseX + chromaOffset, baseY, 24, 16, 0, 0, 180);
-        fillRect(baseX + chromaOffset + 70, baseY, 24, 16, 0, 0, 180);
-        
-        // Green channel (center)
-        fillRect(baseX, baseY, 24, 16, 0, 180, 0);
-        fillRect(baseX + 70, baseY, 24, 16, 0, 180, 0);
-        
-        // Static noise overlay
-        for (int i = 0; i < 50; i++) {
-            int x = fastRand() % DISPLAY_W;
-            int y = fastRand() % DISPLAY_H;
-            uint8_t v = 50 + (fastRand() % 100);
-            if (drawPixel) drawPixel(x, y, v, v, v);
+        // Draw content row by row with subtle per-row jitter
+        for (int row = 0; row < 16; row++) {
+            int y = baseY + row;
+            if (y >= DISPLAY_H) break;
+            
+            int offset = rowOffsets[y];
+            
+            // Chromatic aberration on main content (with row offset)
+            // Red channel (offset left)
+            fillRect(20 - chromaOffset + offset, y, 24, 1, 150, 0, 0);
+            fillRect(84 - chromaOffset + offset, y, 24, 1, 150, 0, 0);
+            
+            // Blue channel (offset right)  
+            fillRect(20 + chromaOffset + offset, y, 24, 1, 0, 0, 150);
+            fillRect(84 + chromaOffset + offset, y, 24, 1, 0, 0, 150);
+            
+            // Green channel (center) - this creates the "main" image
+            fillRect(20 + offset, y, 24, 1, 0, 200, 0);
+            fillRect(84 + offset, y, 24, 1, 0, 200, 0);
         }
         
-        // Horizontal glitch lines
-        if (heavyGlitch) {
-            for (int i = 0; i < 3; i++) {
-                int y = fastRand() % DISPLAY_H;
-                int shift = (fastRand() % 20) - 10;
-                fillRect(shift < 0 ? 0 : shift, y, DISPLAY_W, 1 + (fastRand() % 2), 
-                        fastRand() % 255, fastRand() % 255, fastRand() % 255);
+        // Apply row glitches - horizontal bands that shift or tint
+        for (int i = 0; i < activeGlitches; i++) {
+            RowGlitch& g = rowGlitches[i];
+            
+            if (g.colorTint) {
+                // Draw a colored horizontal band
+                fillRect(0, g.y, DISPLAY_W, g.height, g.r, g.g, g.b);
+            } else {
+                // Draw shifted duplicate of content (simulates row displacement)
+                // Black bar first to "erase" then redraw shifted
+                fillRect(0, g.y, DISPLAY_W, g.height, 5, 5, 10);
+                
+                // Redraw content shifted for these rows
+                int shiftedX = 20 + g.offsetX;
+                int shiftedX2 = 84 + g.offsetX;
+                
+                // Only draw if row overlaps with content
+                if (g.y >= baseY - g.height && g.y <= baseY + 16) {
+                    int drawY = g.y;
+                    int h = g.height;
+                    // Clamp to content bounds
+                    if (drawY < baseY) { h -= (baseY - drawY); drawY = baseY; }
+                    if (drawY + h > baseY + 16) h = baseY + 16 - drawY;
+                    if (h > 0) {
+                        fillRect(shiftedX, drawY, 24, h, 0, 220, 0);
+                        fillRect(shiftedX2, drawY, 24, h, 0, 220, 0);
+                    }
+                }
             }
         }
         
-        // Scanline effect (dark line moving down)
+        // Scanline effect (subtle dark line moving down)
         fillRect(0, scanlineY, DISPLAY_W, 1, 0, 0, 0);
-        if (scanlineY > 0) {
-            fillRect(0, scanlineY - 1, DISPLAY_W, 1, 20, 20, 30);
-        }
         
-        // VHS tracking lines at edges
-        if (frameCount % 30 < 5) {
-            fillRect(0, 0, DISPLAY_W, 2, 40, 40, 50);
-            fillRect(0, DISPLAY_H - 2, DISPLAY_W, 2, 40, 40, 50);
+        // Occasional full-width glitch flash at top/bottom (more frequent)
+        if (frameCount % 40 < 3) {
+            fillRect(0, 0, DISPLAY_W, 1, 100, 100, 120);
+        }
+        if (frameCount % 30 < 2) {
+            fillRect(0, DISPLAY_H - 1, DISPLAY_W, 1, 100, 100, 120);
         }
         
         present();
@@ -534,8 +617,8 @@ public:
         //     currentAnim = (Animation)next;
         // }
         
-        // Force GYRO_EYES for debugging
-        currentAnim = Animation::GYRO_EYES;
+        // Force GLITCH_TV for debugging
+        currentAnim = Animation::GLITCH_TV;
         
         // Update current animation
         switch (currentAnim) {
