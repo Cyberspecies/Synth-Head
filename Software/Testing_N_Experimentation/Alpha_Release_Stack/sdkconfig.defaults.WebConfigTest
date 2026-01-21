@@ -1,0 +1,23 @@
+# sdkconfig.defaults for CPU Web Config Test
+# WiFi AP + HTTP server with dynamic parameter configuration
+# Copy of WifiSpriteTest settings for TLS bundle disabled
+
+# Flash size - 8MB
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+
+# Disable task watchdog
+CONFIG_ESP_TASK_WDT_EN=n
+
+# CRITICAL: Disable HTTPS/TLS certificate bundle (not needed for HTTP-only captive portal)
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
+
+# Compiler optimization (use -Os to avoid GCC bugs)
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# WiFi configuration
+CONFIG_ESP_WIFI_ENABLED=y
+
+# HTTP server settings
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
+CONFIG_HTTPD_MAX_URI_LEN=512

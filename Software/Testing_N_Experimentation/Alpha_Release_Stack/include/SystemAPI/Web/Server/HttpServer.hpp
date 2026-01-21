@@ -40,6 +40,7 @@
 #include <cerrno>
 #include <cmath>
 #include <vector>
+#include <map>
 #include <functional>
 #include <string>
 #include <sys/stat.h>
@@ -119,12 +120,30 @@ struct StaticSpriteSceneConfig {
 /**
  * @brief Saved scene definition
  * Scene Types: 0=NONE, 1=GYRO_EYES, 2=STATIC_SPRITE, 3=ANIMATED
+ * AnimType: static_image, gyro_eyes
+ * Transition: none, sdf_morph, glitch, particles
  */
 struct SavedScene {
     int id = 0;
     std::string name;
     int type = 0;
     bool active = false;
+    
+    // New AnimationSystem fields
+    std::string animType;       // Animation type ID: static_image, gyro_eyes
+    std::string transition;     // Transition type: none, sdf_morph, glitch, particles
+    int spriteId = -1;          // Overlay sprite ID (-1 = none)
+    bool mirrorSprite = false;  // Mirror sprite on right panel
+    std::map<std::string, float> params;  // Animation-specific parameters
+    
+    // Effects (constant overlays like glitch, scanlines, color_shift)
+    struct Effect {
+        bool enabled = false;
+        float intensity = 0.5f;
+    };
+    std::map<std::string, Effect> effects;
+    
+    // Legacy config (kept for backwards compatibility)
     bool hasGyroEyeConfig = false;
     bool hasStaticSpriteConfig = false;
     GyroEyeSceneConfig gyroEye;
@@ -394,6 +413,9 @@ private:
         registerHandler("/api/animation/stop", HTTP_POST, handleApiAnimationStop);
         registerHandler("/api/animation/reset", HTTP_POST, handleApiAnimationReset);
         registerHandler("/api/scene/save", HTTP_POST, handleApiSceneSave);
+        registerHandler("/api/scene/param", HTTP_POST, handleApiSceneParam);
+        registerHandler("/api/scene/preview", HTTP_POST, handleApiScenePreview);
+        registerHandler("/api/scene/stop", HTTP_POST, handleApiSceneStop);
         
         // Captive portal detection endpoints (comprehensive list for all devices)
         const char* redirect_paths[] = {
@@ -1048,7 +1070,34 @@ private:
             cJSON_AddNumberToObject(item, "type", s.type);
             cJSON_AddBoolToObject(item, "active", s.active);
             
-            // Save gyro eye config if present
+            // New AnimationSystem fields
+            cJSON_AddStringToObject(item, "animType", s.animType.c_str());
+            cJSON_AddStringToObject(item, "transition", s.transition.c_str());
+            cJSON_AddNumberToObject(item, "spriteId", s.spriteId);
+            cJSON_AddBoolToObject(item, "mirrorSprite", s.mirrorSprite);
+            
+            // Save params object
+            if (!s.params.empty()) {
+                cJSON* params = cJSON_CreateObject();
+                for (const auto& kv : s.params) {
+                    cJSON_AddNumberToObject(params, kv.first.c_str(), kv.second);
+                }
+                cJSON_AddItemToObject(item, "params", params);
+            }
+            
+            // Save effects object
+            if (!s.effects.empty()) {
+                cJSON* effects = cJSON_CreateObject();
+                for (const auto& kv : s.effects) {
+                    cJSON* effectObj = cJSON_CreateObject();
+                    cJSON_AddBoolToObject(effectObj, "enabled", kv.second.enabled);
+                    cJSON_AddNumberToObject(effectObj, "intensity", kv.second.intensity);
+                    cJSON_AddItemToObject(effects, kv.first.c_str(), effectObj);
+                }
+                cJSON_AddItemToObject(item, "effects", effects);
+            }
+            
+            // Save gyro eye config if present (legacy)
             if (s.hasGyroEyeConfig) {
                 cJSON* gyro = cJSON_CreateObject();
                 cJSON_AddNumberToObject(gyro, "spriteId", s.gyroEye.spriteId);
@@ -1069,7 +1118,7 @@ private:
                 cJSON_AddItemToObject(item, "gyroEye", gyro);
             }
             
-            // Save static sprite config if present
+            // Save static sprite config if present (legacy)
             if (s.hasStaticSpriteConfig) {
                 cJSON* sprite = cJSON_CreateObject();
                 cJSON_AddNumberToObject(sprite, "spriteId", s.staticSprite.spriteId);
@@ -1180,7 +1229,51 @@ private:
                 if (type && cJSON_IsNumber(type)) scene.type = type->valueint;
                 if (active) scene.active = cJSON_IsTrue(active);
                 
-                // Load gyro eye config
+                // Load new AnimationSystem fields
+                cJSON* val;
+                if ((val = cJSON_GetObjectItem(item, "animType")) && cJSON_IsString(val)) {
+                    scene.animType = val->valuestring;
+                }
+                if ((val = cJSON_GetObjectItem(item, "transition")) && cJSON_IsString(val)) {
+                    scene.transition = val->valuestring;
+                }
+                if ((val = cJSON_GetObjectItem(item, "spriteId")) && cJSON_IsNumber(val)) {
+                    scene.spriteId = val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "mirrorSprite"))) {
+                    scene.mirrorSprite = cJSON_IsTrue(val);
+                }
+                
+                // Load params object
+                cJSON* params = cJSON_GetObjectItem(item, "params");
+                if (params && cJSON_IsObject(params)) {
+                    cJSON* param = NULL;
+                    cJSON_ArrayForEach(param, params) {
+                        if (cJSON_IsNumber(param) && param->string) {
+                            scene.params[param->string] = (float)param->valuedouble;
+                        }
+                    }
+                }
+                
+                // Load effects object
+                cJSON* effects = cJSON_GetObjectItem(item, "effects");
+                if (effects && cJSON_IsObject(effects)) {
+                    cJSON* effect = NULL;
+                    cJSON_ArrayForEach(effect, effects) {
+                        if (cJSON_IsObject(effect) && effect->string) {
+                            SavedScene::Effect eff;
+                            cJSON* enabledVal = cJSON_GetObjectItem(effect, "enabled");
+                            cJSON* intensityVal = cJSON_GetObjectItem(effect, "intensity");
+                            if (enabledVal) eff.enabled = cJSON_IsTrue(enabledVal);
+                            if (intensityVal && cJSON_IsNumber(intensityVal)) {
+                                eff.intensity = (float)intensityVal->valuedouble;
+                            }
+                            scene.effects[effect->string] = eff;
+                        }
+                    }
+                }
+                
+                // Load gyro eye config (legacy)
                 cJSON* gyro = cJSON_GetObjectItem(item, "gyroEye");
                 if (gyro) {
                     scene.hasGyroEyeConfig = true;
@@ -1202,7 +1295,7 @@ private:
                     if ((val = cJSON_GetObjectItem(gyro, "bgB"))) scene.gyroEye.bgB = val->valueint;
                 }
                 
-                // Load static sprite config
+                // Load static sprite config (legacy)
                 cJSON* sprite = cJSON_GetObjectItem(item, "staticSprite");
                 if (sprite) {
                     scene.hasStaticSpriteConfig = true;
@@ -2090,6 +2183,163 @@ private:
         }
         fwrite(sceneJson.c_str(), 1, sceneJson.length(), f);
         fclose(f);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Update a single scene parameter in real-time
+     * POST /api/scene/param
+     * Body: {"sceneId": 1, "animType": "gyro_eyes", "param": "gyro_sensitivity", "value": 1.5}
+     */
+    static esp_err_t handleApiSceneParam(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        char body[512] = {0};
+        int received = httpd_req_recv(req, body, sizeof(body) - 1);
+        if (received <= 0) {
+            return sendJsonError(req, 400, "Empty request body");
+        }
+        body[received] = '\0';
+        
+        cJSON* root = cJSON_Parse(body);
+        if (!root) {
+            return sendJsonError(req, 400, "Invalid JSON");
+        }
+        
+        cJSON* sceneIdItem = cJSON_GetObjectItem(root, "sceneId");
+        cJSON* animTypeItem = cJSON_GetObjectItem(root, "animType");
+        cJSON* paramItem = cJSON_GetObjectItem(root, "param");
+        cJSON* valueItem = cJSON_GetObjectItem(root, "value");
+        
+        if (!paramItem || !cJSON_IsString(paramItem) || !valueItem) {
+            cJSON_Delete(root);
+            return sendJsonError(req, 400, "Missing param or value");
+        }
+        
+        const char* paramId = paramItem->valuestring;
+        float value = cJSON_IsNumber(valueItem) ? (float)valueItem->valuedouble : 
+                      cJSON_IsBool(valueItem) ? (cJSON_IsTrue(valueItem) ? 1.0f : 0.0f) : 0.0f;
+        
+        ESP_LOGI(HTTP_TAG, "API: Update scene param %s = %.2f", paramId, value);
+        
+        // Update the scene's params if sceneId provided
+        if (sceneIdItem && cJSON_IsNumber(sceneIdItem)) {
+            int sceneId = sceneIdItem->valueint;
+            for (auto& scene : savedScenes_) {
+                if (scene.id == sceneId) {
+                    scene.params[paramId] = value;
+                    break;
+                }
+            }
+        }
+        
+        // Also update the live animation system's active set parameter
+        auto& mode = AnimationSystem::getAnimationMode();
+        AnimationSystem::AnimationSet* activeSet = mode.getActiveAnimationSet();
+        if (activeSet) {
+            activeSet->setParameterValue(paramId, value);
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Start scene preview
+     * POST /api/scene/preview
+     * Body: {"animType": "gyro_eyes", "transition": "glitch", "params": {...}}
+     */
+    static esp_err_t handleApiScenePreview(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        char body[2048] = {0};
+        int received = httpd_req_recv(req, body, sizeof(body) - 1);
+        if (received <= 0) {
+            return sendJsonError(req, 400, "Empty request body");
+        }
+        body[received] = '\0';
+        
+        cJSON* root = cJSON_Parse(body);
+        if (!root) {
+            return sendJsonError(req, 400, "Invalid JSON");
+        }
+        
+        cJSON* animTypeItem = cJSON_GetObjectItem(root, "animType");
+        cJSON* transitionItem = cJSON_GetObjectItem(root, "transition");
+        cJSON* spriteIdItem = cJSON_GetObjectItem(root, "spriteId");
+        cJSON* mirrorItem = cJSON_GetObjectItem(root, "mirrorSprite");
+        cJSON* paramsItem = cJSON_GetObjectItem(root, "params");
+        
+        const char* animType = (animTypeItem && cJSON_IsString(animTypeItem)) ? animTypeItem->valuestring : "";
+        const char* transition = (transitionItem && cJSON_IsString(transitionItem)) ? transitionItem->valuestring : "none";
+        int spriteId = (spriteIdItem && cJSON_IsNumber(spriteIdItem)) ? spriteIdItem->valueint : -1;
+        bool mirror = (mirrorItem && cJSON_IsBool(mirrorItem)) ? cJSON_IsTrue(mirrorItem) : false;
+        
+        ESP_LOGI(HTTP_TAG, "API: Preview scene animType=%s transition=%s sprite=%d mirror=%d", 
+                 animType, transition, spriteId, mirror);
+        
+        // Map animType string to animation set ID
+        // Animation set IDs: gyro_eye, static_sprite, rotating_sprite, etc.
+        std::string animSetId;
+        if (strcmp(animType, "gyro_eyes") == 0) {
+            animSetId = "gyro_eye";
+        } else if (strcmp(animType, "sdf_morph") == 0) {
+            animSetId = "sdf_morph";
+        } else if (strcmp(animType, "shader_test") == 0) {
+            animSetId = "shader_test";
+        } else if (strcmp(animType, "glitch_tv") == 0) {
+            animSetId = "glitch_tv";
+        } else if (strcmp(animType, "sprite_display") == 0) {
+            animSetId = "static_sprite";
+        } else {
+            animSetId = animType;  // Use as-is if not in map
+        }
+        
+        auto& mode = AnimationSystem::getAnimationMode();
+        
+        // Activate the animation set
+        if (!animSetId.empty()) {
+            mode.activateAnimationSet(animSetId);
+        }
+        
+        // Apply parameters if provided
+        AnimationSystem::AnimationSet* activeSet = mode.getActiveAnimationSet();
+        if (activeSet && paramsItem && cJSON_IsObject(paramsItem)) {
+            cJSON* param = NULL;
+            cJSON_ArrayForEach(param, paramsItem) {
+                if (cJSON_IsNumber(param) && param->string) {
+                    activeSet->setParameterValue(param->string, (float)param->valuedouble);
+                }
+            }
+        }
+        
+        // Enable the animation
+        mode.setEnabled(true);
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Stop scene preview
+     * POST /api/scene/stop
+     */
+    static esp_err_t handleApiSceneStop(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        ESP_LOGI(HTTP_TAG, "API: Stop scene preview");
+        
+        auto& mode = AnimationSystem::getAnimationMode();
+        mode.stop();
         
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
@@ -3141,31 +3391,36 @@ private:
         cJSON_AddNumberToObject(sceneObj, "type", found->type);
         cJSON_AddBoolToObject(sceneObj, "active", found->active);
         
-        // Add animation set ID if applicable (using type as proxy for now)
+        // New AnimationSystem fields
+        cJSON_AddStringToObject(sceneObj, "animType", found->animType.c_str());
+        cJSON_AddStringToObject(sceneObj, "transition", found->transition.c_str());
+        cJSON_AddNumberToObject(sceneObj, "spriteId", found->spriteId);
+        cJSON_AddBoolToObject(sceneObj, "mirrorSprite", found->mirrorSprite);
+        
+        // Animation parameters as object
+        cJSON* paramsObj = cJSON_CreateObject();
+        for (const auto& kv : found->params) {
+            cJSON_AddNumberToObject(paramsObj, kv.first.c_str(), kv.second);
+        }
+        cJSON_AddItemToObject(sceneObj, "params", paramsObj);
+        
+        // Effects as object
+        cJSON* effectsObj = cJSON_CreateObject();
+        for (const auto& kv : found->effects) {
+            cJSON* effectObj = cJSON_CreateObject();
+            cJSON_AddBoolToObject(effectObj, "enabled", kv.second.enabled);
+            cJSON_AddNumberToObject(effectObj, "intensity", kv.second.intensity);
+            cJSON_AddItemToObject(effectsObj, kv.first.c_str(), effectObj);
+        }
+        cJSON_AddItemToObject(sceneObj, "effects", effectsObj);
+        
+        // Legacy: animation set ID if applicable (using type as proxy for backwards compat)
         if (found->type > 0) {
             const char* animSets[] = {"", "gyro_eye", "static_sprite", "rotating_sprite"};
             if (found->type < 4) {
                 cJSON_AddStringToObject(sceneObj, "animSet", animSets[found->type]);
             }
         }
-        
-        // Return parameters array if any
-        cJSON* params = cJSON_CreateArray();
-        // For gyro eye scenes, expose the parameters
-        if (found->type == 1 && found->hasGyroEyeConfig) {
-            auto addParam = [&params](const char* id, const char* name, float value) {
-                cJSON* p = cJSON_CreateObject();
-                cJSON_AddStringToObject(p, "id", id);
-                cJSON_AddStringToObject(p, "name", name);
-                cJSON_AddNumberToObject(p, "value", value);
-                cJSON_AddItemToArray(params, p);
-            };
-            addParam("intensity", "Intensity", found->gyroEye.intensity);
-            addParam("maxOffsetX", "Max Offset X", found->gyroEye.maxOffsetX);
-            addParam("maxOffsetY", "Max Offset Y", found->gyroEye.maxOffsetY);
-            addParam("smoothing", "Smoothing", found->gyroEye.smoothingFactor);
-        }
-        cJSON_AddItemToObject(sceneObj, "params", params);
         
         cJSON_AddItemToObject(root, "scene", sceneObj);
         
@@ -3241,6 +3496,7 @@ private:
     
     /**
      * @brief Update scene configuration
+     * Accepts both legacy config format and new AnimationSystem format
      */
     static esp_err_t handleApiSceneUpdate(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return sendUnauthorized(req);
@@ -3260,47 +3516,98 @@ private:
         }
         
         cJSON* id = cJSON_GetObjectItem(root, "id");
-        cJSON* config = cJSON_GetObjectItem(root, "config");
         bool success = false;
         
-        if (id && cJSON_IsNumber(id) && config) {
+        if (id && cJSON_IsNumber(id)) {
             for (auto& scene : savedScenes_) {
                 if (scene.id == id->valueint) {
-                    // Update gyro eye config
-                    cJSON* gyroEye = cJSON_GetObjectItem(config, "gyroEye");
-                    if (gyroEye && scene.type == 1) {
-                        scene.hasGyroEyeConfig = true;
-                        
-                        cJSON* item;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "spriteId"))) scene.gyroEye.spriteId = item->valueint;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "intensity"))) scene.gyroEye.intensity = item->valuedouble;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "maxOffsetX"))) scene.gyroEye.maxOffsetX = item->valuedouble;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "maxOffsetY"))) scene.gyroEye.maxOffsetY = item->valuedouble;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "smoothingFactor"))) scene.gyroEye.smoothingFactor = item->valuedouble;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "eyeOffset"))) scene.gyroEye.eyeOffset = item->valueint;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "leftEyeCenterX"))) scene.gyroEye.leftEyeCenterX = item->valueint;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "leftEyeCenterY"))) scene.gyroEye.leftEyeCenterY = item->valueint;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "rightEyeCenterX"))) scene.gyroEye.rightEyeCenterX = item->valueint;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "rightEyeCenterY"))) scene.gyroEye.rightEyeCenterY = item->valueint;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "invertPitch"))) scene.gyroEye.invertPitch = cJSON_IsTrue(item);
-                        if ((item = cJSON_GetObjectItem(gyroEye, "invertRoll"))) scene.gyroEye.invertRoll = cJSON_IsTrue(item);
-                        if ((item = cJSON_GetObjectItem(gyroEye, "bgR"))) scene.gyroEye.bgR = item->valueint;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "bgG"))) scene.gyroEye.bgG = item->valueint;
-                        if ((item = cJSON_GetObjectItem(gyroEye, "bgB"))) scene.gyroEye.bgB = item->valueint;
+                    // New AnimationSystem fields (flat format from new Scene page)
+                    cJSON* item;
+                    if ((item = cJSON_GetObjectItem(root, "animType")) && cJSON_IsString(item)) {
+                        scene.animType = item->valuestring;
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "transition")) && cJSON_IsString(item)) {
+                        scene.transition = item->valuestring;
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "spriteId"))) {
+                        if (cJSON_IsNumber(item)) {
+                            scene.spriteId = item->valueint;
+                        } else if (cJSON_IsNull(item)) {
+                            scene.spriteId = -1;
+                        }
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "mirrorSprite")) && cJSON_IsBool(item)) {
+                        scene.mirrorSprite = cJSON_IsTrue(item);
                     }
                     
-                    // Update static sprite config
-                    cJSON* staticSprite = cJSON_GetObjectItem(config, "staticSprite");
-                    if (staticSprite && scene.type == 2) {
-                        scene.hasStaticSpriteConfig = true;
+                    // Update params object
+                    cJSON* params = cJSON_GetObjectItem(root, "params");
+                    if (params && cJSON_IsObject(params)) {
+                        scene.params.clear();
+                        cJSON* param = NULL;
+                        cJSON_ArrayForEach(param, params) {
+                            if (cJSON_IsNumber(param) && param->string) {
+                                scene.params[param->string] = (float)param->valuedouble;
+                            }
+                        }
+                    }
+                    
+                    // Update effects object
+                    cJSON* effects = cJSON_GetObjectItem(root, "effects");
+                    if (effects && cJSON_IsObject(effects)) {
+                        scene.effects.clear();
+                        cJSON* effect = NULL;
+                        cJSON_ArrayForEach(effect, effects) {
+                            if (cJSON_IsObject(effect) && effect->string) {
+                                SavedScene::Effect eff;
+                                cJSON* enabledItem = cJSON_GetObjectItem(effect, "enabled");
+                                cJSON* intensityItem = cJSON_GetObjectItem(effect, "intensity");
+                                if (enabledItem) eff.enabled = cJSON_IsTrue(enabledItem);
+                                if (intensityItem && cJSON_IsNumber(intensityItem)) {
+                                    eff.intensity = (float)intensityItem->valuedouble;
+                                }
+                                scene.effects[effect->string] = eff;
+                            }
+                        }
+                    }
+                    
+                    // Legacy config format support
+                    cJSON* config = cJSON_GetObjectItem(root, "config");
+                    if (config) {
+                        // Update gyro eye config
+                        cJSON* gyroEye = cJSON_GetObjectItem(config, "gyroEye");
+                        if (gyroEye && scene.type == 1) {
+                            scene.hasGyroEyeConfig = true;
+                            
+                            if ((item = cJSON_GetObjectItem(gyroEye, "spriteId"))) scene.gyroEye.spriteId = item->valueint;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "intensity"))) scene.gyroEye.intensity = item->valuedouble;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "maxOffsetX"))) scene.gyroEye.maxOffsetX = item->valuedouble;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "maxOffsetY"))) scene.gyroEye.maxOffsetY = item->valuedouble;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "smoothingFactor"))) scene.gyroEye.smoothingFactor = item->valuedouble;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "eyeOffset"))) scene.gyroEye.eyeOffset = item->valueint;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "leftEyeCenterX"))) scene.gyroEye.leftEyeCenterX = item->valueint;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "leftEyeCenterY"))) scene.gyroEye.leftEyeCenterY = item->valueint;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "rightEyeCenterX"))) scene.gyroEye.rightEyeCenterX = item->valueint;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "rightEyeCenterY"))) scene.gyroEye.rightEyeCenterY = item->valueint;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "invertPitch"))) scene.gyroEye.invertPitch = cJSON_IsTrue(item);
+                            if ((item = cJSON_GetObjectItem(gyroEye, "invertRoll"))) scene.gyroEye.invertRoll = cJSON_IsTrue(item);
+                            if ((item = cJSON_GetObjectItem(gyroEye, "bgR"))) scene.gyroEye.bgR = item->valueint;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "bgG"))) scene.gyroEye.bgG = item->valueint;
+                            if ((item = cJSON_GetObjectItem(gyroEye, "bgB"))) scene.gyroEye.bgB = item->valueint;
+                        }
                         
-                        cJSON* item;
-                        if ((item = cJSON_GetObjectItem(staticSprite, "spriteId"))) scene.staticSprite.spriteId = item->valueint;
-                        if ((item = cJSON_GetObjectItem(staticSprite, "posX"))) scene.staticSprite.posX = item->valueint;
-                        if ((item = cJSON_GetObjectItem(staticSprite, "posY"))) scene.staticSprite.posY = item->valueint;
-                        if ((item = cJSON_GetObjectItem(staticSprite, "bgR"))) scene.staticSprite.bgR = item->valueint;
-                        if ((item = cJSON_GetObjectItem(staticSprite, "bgG"))) scene.staticSprite.bgG = item->valueint;
-                        if ((item = cJSON_GetObjectItem(staticSprite, "bgB"))) scene.staticSprite.bgB = item->valueint;
+                        // Update static sprite config
+                        cJSON* staticSprite = cJSON_GetObjectItem(config, "staticSprite");
+                        if (staticSprite && scene.type == 2) {
+                            scene.hasStaticSpriteConfig = true;
+                            
+                            if ((item = cJSON_GetObjectItem(staticSprite, "spriteId"))) scene.staticSprite.spriteId = item->valueint;
+                            if ((item = cJSON_GetObjectItem(staticSprite, "posX"))) scene.staticSprite.posX = item->valueint;
+                            if ((item = cJSON_GetObjectItem(staticSprite, "posY"))) scene.staticSprite.posY = item->valueint;
+                            if ((item = cJSON_GetObjectItem(staticSprite, "bgR"))) scene.staticSprite.bgR = item->valueint;
+                            if ((item = cJSON_GetObjectItem(staticSprite, "bgG"))) scene.staticSprite.bgG = item->valueint;
+                            if ((item = cJSON_GetObjectItem(staticSprite, "bgB"))) scene.staticSprite.bgB = item->valueint;
+                        }
                     }
                     
                     success = true;
@@ -3312,7 +3619,8 @@ private:
                         callback(scene);
                     }
                     
-                    ESP_LOGI(HTTP_TAG, "Updated scene config: %s (id %d)", scene.name.c_str(), scene.id);
+                    ESP_LOGI(HTTP_TAG, "Updated scene: %s (id %d, animType=%s, transition=%s)", 
+                             scene.name.c_str(), scene.id, scene.animType.c_str(), scene.transition.c_str());
                     break;
                 }
             }

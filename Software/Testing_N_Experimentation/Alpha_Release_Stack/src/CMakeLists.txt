@@ -94,6 +94,13 @@ elseif(CPU_SIMPLE_SPRITE_TEST)
 elseif(CPU_SDCARD_TEST)
     set(SOURCE_FILE "CPU_SdCardTest.cpp")
     message(STATUS "Building CPU SD Card Test")
+elseif(CPU_WEB_CONFIG_TEST)
+    set(SOURCE_FILES
+        "CPU_WebConfigTest.cpp"
+        "SystemAPI/GPU/GpuDriver.cpp"
+        "Drivers/ImuDriver.cpp"
+    )
+    message(STATUS "Building CPU Web Config Test")
 # GPU Build selections
 elseif(BAUD_TEST_MODE)
     set(SOURCE_FILE "GPU_BaudTest.cpp")
