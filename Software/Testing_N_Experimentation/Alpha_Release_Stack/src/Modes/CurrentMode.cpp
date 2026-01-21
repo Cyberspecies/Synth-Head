@@ -33,6 +33,15 @@
 #include "Drivers/ImuDriver.hpp"
 #include "Drivers/FanDriver.hpp"
 
+// LED Strip support (ESP-IDF RMT driver)
+#include "driver/rmt_tx.h"
+#include "HAL/led_strip_encoder.h"
+#include "HAL/CPU_HAL_Config.hpp"
+
+// Test harness for console-based scene testing
+#include "SystemAPI/Testing/SceneTestHarness.hpp"
+#include "SystemAPI/Testing/LedStripTestHarness.hpp"
+
 #include "esp_timer.h"
 #include <cstdio>
 #include <cstdlib>
@@ -90,13 +99,70 @@ namespace GpuDriverState {
     static bool autoRotate = false;         // Auto-rotate flag (true for test, false for web uploads)
     
     // ====== SANDBOX MODE STATE ======
-    static bool sandboxEnabled = true;  // Enable sandbox by default (SDF_MORPH animation)
+    static bool sandboxEnabled = false;  // Disabled - use scene-based rendering
     static float sandboxPitch = 0.0f;
     static float sandboxRoll = 0.0f;
     static float sandboxAudioLevel = 0.0f;
     
+    // ====== LED STRIP STATE (RMT-based) ======
+    struct LedStripHandle {
+        rmt_channel_handle_t channel;
+        rmt_encoder_handle_t encoder;
+        uint8_t* pixelBuffer;   // GRB format
+        uint8_t ledCount;
+        gpio_num_t pin;
+        bool initialized;
+    };
+    static LedStripHandle ledStrips[6] = {};
+    static bool ledsInitialized = false;
+    static uint8_t currentLedR = 0, currentLedG = 0, currentLedB = 0;
+    static uint8_t currentLedBrightness = 80;
+    static bool ledsEnabled = false;
+    
+    // LED strip configuration from PIN_MAPPING_CPU.md
+    static const gpio_num_t LED_PINS[6] = {
+        GPIO_NUM_16, GPIO_NUM_18, GPIO_NUM_8, 
+        GPIO_NUM_39, GPIO_NUM_38, GPIO_NUM_37
+    };
+    static const uint8_t LED_COUNTS[6] = {0, 13, 9, 0, 13, 14};
+    static const char* LED_NAMES[6] = {
+        "Unused0", "LeftFin", "Tongue", "Unused3", "RightFin", "ScaleLEDs"
+    };
+    
     // Initialize sandbox on first use
     static bool sandboxInitialized = false;
+    
+    // ====== SCENE-BASED ANIMATION STATE ======
+    // Animation modes from scene manager
+    enum class SceneAnimMode {
+        NONE,           // No animation (shows black)
+        GYRO_EYES,      // Gyro-controlled eyes
+        STATIC_IMAGE,   // Static sprite display
+        SWAY,           // Swaying sprite animation
+        SDF_MORPH       // SDF morphing animation (legacy)
+    };
+    static SceneAnimMode currentAnimMode = SceneAnimMode::GYRO_EYES;  // Default to gyro eyes
+    static bool sceneAnimInitialized = false;
+    
+    // Gyro eyes state
+    static float eyeSize = 12.0f;
+    static float eyeSensitivity = 1.0f;
+    static bool eyeMirror = true;
+    static int eyeSpriteId = -1;  // -1 = use default circle
+    
+    // Sway animation state  
+    static float swayTime = 0.0f;
+    static float swayXIntensity = 10.0f;
+    static float swayYIntensity = 5.0f;
+    static float swayRotRange = 15.0f;
+    static float swaySpeed = 1.0f;
+    static bool swayCosX = false;
+    
+    // Static image state
+    static float staticScale = 1.0f;
+    static float staticRotation = 0.0f;
+    static float staticPosX = 64.0f;
+    static float staticPosY = 16.0f;
     
     // ====== COMPLEX TRANSITION ANIMATION ======
     static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
@@ -371,58 +437,139 @@ namespace GpuDriverState {
                            renderFrameCount, (int)complexAnim.currentStage, complexAnim.stageTime, ax, ay, az);
                 }
             }
-            // Check if sandbox mode is enabled
-            else if (sandboxEnabled) {
-                // Initialize sandbox callbacks on first use
-                if (!sandboxInitialized) {
-                    auto& sandbox = AnimationSystem::Sandbox::getSandbox();
-                    
-                    // Set up GPU callbacks for sandbox
-                    sandbox.clear = [](uint8_t r, uint8_t g, uint8_t b) {
-                        g_gpu.clear(r, g, b);
-                    };
-                    sandbox.fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
-                        if (w > 0 && h > 0) {
-                            g_gpu.drawRect(x, y, w, h, r, g, b);
+            // ====== SCENE-BASED ANIMATION RENDERING ======
+            else if (currentAnimMode != SceneAnimMode::NONE) {
+                // Get gyro data for animations that use it
+                auto& syncState = SystemAPI::SYNC_STATE.state();
+                float pitch = syncState.gyroX * eyeSensitivity;
+                float roll = syncState.gyroY * eyeSensitivity;
+                
+                switch (currentAnimMode) {
+                    case SceneAnimMode::GYRO_EYES: {
+                        // Gyro-controlled eyes animation
+                        g_gpu.clear(0, 0, 0);
+                        
+                        // Left eye position (panel 0, center = 32, 16)
+                        float leftCenterX = 32.0f;
+                        float leftCenterY = 16.0f;
+                        
+                        // Right eye position (panel 1, center = 96, 16)
+                        float rightCenterX = 96.0f;
+                        float rightCenterY = 16.0f;
+                        
+                        // Calculate eye offset from gyro (clamp to reasonable range)
+                        float maxOffsetX = 12.0f;
+                        float maxOffsetY = 6.0f;
+                        float offsetX = fmaxf(-maxOffsetX, fminf(maxOffsetX, roll * 0.3f));
+                        float offsetY = fmaxf(-maxOffsetY, fminf(maxOffsetY, -pitch * 0.3f));
+                        
+                        // Draw left eye
+                        float leftX = leftCenterX + offsetX;
+                        float leftY = leftCenterY + offsetY;
+                        
+                        // Draw right eye (optionally mirrored)
+                        float rightX = rightCenterX + (eyeMirror ? -offsetX : offsetX);
+                        float rightY = rightCenterY + offsetY;
+                        
+                        // Use sprite if available, otherwise draw circles
+                        if (eyeSpriteId >= 0 && spriteReady) {
+                            g_gpu.blitSpriteF(activeSpriteId, leftX, leftY);
+                            g_gpu.blitSpriteF(activeSpriteId, rightX, rightY);
+                        } else {
+                            // Draw filled circles for eyes
+                            g_gpu.drawCircleF(leftX, leftY, eyeSize, 255, 255, 255);
+                            g_gpu.drawCircleF(rightX, rightY, eyeSize, 255, 255, 255);
                         }
-                    };
-                    sandbox.drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-                        g_gpu.drawPixel(x, y, r, g, b);
-                    };
-                    sandbox.drawCircleF = [](float x, float y, float radius, uint8_t r, uint8_t g, uint8_t b) {
-                        g_gpu.drawCircleF(x, y, radius, r, g, b);
-                    };
-                    sandbox.present = []() {
+                        
                         g_gpu.present();
-                        vTaskDelay(pdMS_TO_TICKS(2));  // Longer delay for UART stability
-                    };
+                        
+                        if (renderFrameCount % 60 == 0) {
+                            printf("GYRO_EYES: Frame %lu - offset=(%.1f,%.1f) pitch=%.1f roll=%.1f\n",
+                                   renderFrameCount, offsetX, offsetY, pitch, roll);
+                        }
+                        break;
+                    }
                     
-                    // Enable sandbox and force SDF_MORPH animation
-                    sandbox.setEnabled(true);
-                    sandbox.setAnimation(AnimationSystem::Sandbox::SandboxController::Animation::SDF_MORPH);
+                    case SceneAnimMode::STATIC_IMAGE: {
+                        // Static sprite display
+                        g_gpu.clear(bgR, bgG, bgB);
+                        
+                        if (spriteReady) {
+                            g_gpu.blitSpriteRotated(activeSpriteId, staticPosX, staticPosY, staticRotation);
+                        } else {
+                            // No sprite, show placeholder
+                            g_gpu.drawRect(54, 6, 20, 20, 128, 128, 128);
+                        }
+                        
+                        g_gpu.present();
+                        break;
+                    }
                     
-                    sandboxInitialized = true;
-                    printf("SANDBOX: Initialized with SDF_MORPH animation\n");
-                }
-                
-                // Sandbox handles its own rendering through the loop
-                auto& sandbox = AnimationSystem::Sandbox::getSandbox();
-                sandbox.gyroX = sandboxPitch;
-                sandbox.gyroY = sandboxRoll;
-                sandbox.gyroZ = sandboxAudioLevel;
-                sandbox.update(RENDER_INTERVAL_MS);
-                
-                // Add small delay before rendering to prevent watchdog timeout
-                vTaskDelay(pdMS_TO_TICKS(1));
-                
-                // Sandbox renders directly to GPU
-                // Note: sandbox.render() calls clear/draw/present internally
-                sandbox.render();
-                
-                // Debug every 30 frames
-                if (renderFrameCount % 30 == 0) {
-                    printf("SANDBOX: Frame %lu - anim=%d gyroX=%.1f gyroY=%.1f gyroZ=%.1f\n",
-                           renderFrameCount, (int)sandbox.currentAnim, sandboxPitch, sandboxRoll, sandboxAudioLevel);
+                    case SceneAnimMode::SWAY: {
+                        // Swaying sprite animation
+                        swayTime += (float)RENDER_INTERVAL_MS / 1000.0f * swaySpeed;
+                        
+                        float swayX = swayCosX ? cosf(swayTime * 2.0f) * swayXIntensity : sinf(swayTime * 2.0f) * swayXIntensity;
+                        float swayY = sinf(swayTime * 1.5f) * swayYIntensity;
+                        float swayRot = sinf(swayTime) * swayRotRange;
+                        
+                        g_gpu.clear(bgR, bgG, bgB);
+                        
+                        // Sway around center of display
+                        float centerX = 64.0f + swayX;
+                        float centerY = 16.0f + swayY;
+                        
+                        if (spriteReady) {
+                            g_gpu.blitSpriteRotated(activeSpriteId, centerX, centerY, swayRot);
+                        } else {
+                            // No sprite, draw swaying circle
+                            g_gpu.drawCircleF(centerX, centerY, 10.0f, 255, 255, 255);
+                        }
+                        
+                        g_gpu.present();
+                        
+                        if (renderFrameCount % 60 == 0) {
+                            printf("SWAY: Frame %lu - pos=(%.1f,%.1f) rot=%.1f time=%.2f\n",
+                                   renderFrameCount, centerX, centerY, swayRot, swayTime);
+                        }
+                        break;
+                    }
+                    
+                    case SceneAnimMode::SDF_MORPH: {
+                        // SDF morphing uses sandbox
+                        if (!sandboxInitialized) {
+                            auto& sandbox = AnimationSystem::Sandbox::getSandbox();
+                            
+                            sandbox.clear = [](uint8_t r, uint8_t g, uint8_t b) { g_gpu.clear(r, g, b); };
+                            sandbox.fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+                                if (w > 0 && h > 0) g_gpu.drawRect(x, y, w, h, r, g, b);
+                            };
+                            sandbox.drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+                                g_gpu.drawPixel(x, y, r, g, b);
+                            };
+                            sandbox.drawCircleF = [](float x, float y, float radius, uint8_t r, uint8_t g, uint8_t b) {
+                                g_gpu.drawCircleF(x, y, radius, r, g, b);
+                            };
+                            sandbox.present = []() { g_gpu.present(); vTaskDelay(pdMS_TO_TICKS(2)); };
+                            
+                            sandbox.setEnabled(true);
+                            sandbox.setAnimation(AnimationSystem::Sandbox::SandboxController::Animation::SDF_MORPH);
+                            sandboxInitialized = true;
+                            printf("SDF_MORPH: Initialized\n");
+                        }
+                        
+                        auto& sandbox = AnimationSystem::Sandbox::getSandbox();
+                        sandbox.gyroX = sandboxPitch;
+                        sandbox.gyroY = sandboxRoll;
+                        sandbox.gyroZ = sandboxAudioLevel;
+                        sandbox.update(RENDER_INTERVAL_MS);
+                        vTaskDelay(pdMS_TO_TICKS(1));
+                        sandbox.render();
+                        break;
+                    }
+                    
+                    default:
+                        break;
                 }
             }
             else if (spriteReady) {
@@ -484,17 +631,209 @@ namespace GpuDriverState {
     }
     
     bool isSandboxEnabled() { return sandboxEnabled; }
+    bool isSpriteReady() { return spriteReady; }
+    bool isConnected() { return connected; }
     
+    // ====== SCENE-BASED ANIMATION ======
+    void setSceneAnimation(const std::string& animType) {
+        printf("  SCENE: Setting animation type to '%s'\n", animType.c_str());
+        
+        if (animType == "gyro_eyes") {
+            currentAnimMode = SceneAnimMode::GYRO_EYES;
+        } else if (animType == "static_image") {
+            currentAnimMode = SceneAnimMode::STATIC_IMAGE;
+        } else if (animType == "sway") {
+            currentAnimMode = SceneAnimMode::SWAY;
+        } else if (animType == "sdf_morph") {
+            currentAnimMode = SceneAnimMode::SDF_MORPH;
+            sandboxEnabled = true;  // SDF morph uses sandbox
+        } else {
+            currentAnimMode = SceneAnimMode::GYRO_EYES;  // Default
+        }
+        
+        // Reset animation state
+        sceneAnimInitialized = false;
+        swayTime = 0.0f;
+        
+        // Disable sandbox for non-SDF modes
+        if (currentAnimMode != SceneAnimMode::SDF_MORPH) {
+            sandboxEnabled = false;
+        }
+        
+        printf("  SCENE: Animation mode set to %d\n", (int)currentAnimMode);
+    }
+    
+    SceneAnimMode getSceneAnimMode() { return currentAnimMode; }
+    
+    void setGyroEyeParams(float size, float sensitivity, bool mirror, int spriteId) {
+        eyeSize = size;
+        eyeSensitivity = sensitivity;
+        eyeMirror = mirror;
+        eyeSpriteId = spriteId;
+    }
+    
+    void setSwayParams(float xInt, float yInt, float rotRange, float speed, bool cosX) {
+        swayXIntensity = xInt;
+        swayYIntensity = yInt;
+        swayRotRange = rotRange;
+        swaySpeed = speed;
+        swayCosX = cosX;
+    }
+    
+    void setStaticParams(float scale, float rotation, float posX, float posY) {
+        staticScale = scale;
+        staticRotation = rotation;
+        staticPosX = posX;
+        staticPosY = posY;
+    }
+
     void updateSandboxSensors(float gyroX, float gyroY, float gyroZ) {
         sandboxPitch = gyroX;
         sandboxRoll = gyroY;
         sandboxAudioLevel = gyroZ;
     }
     
+    // ====== LED STRIP CONTROL (RMT-based) ======
+    static const uint32_t RMT_LED_RESOLUTION_HZ = 10000000; // 10MHz for WS2812
+    
+    bool initLedStrips() {
+        if (ledsInitialized) return true;
+        
+        printf("  LED: Initializing LED strips (RMT driver)...\n");
+        
+        int initCount = 0;
+        for (int i = 0; i < 6; i++) {
+            if (LED_COUNTS[i] > 0) {
+                // Configure RMT TX channel
+                rmt_tx_channel_config_t tx_config = {};
+                tx_config.gpio_num = LED_PINS[i];
+                tx_config.clk_src = RMT_CLK_SRC_DEFAULT;
+                tx_config.resolution_hz = RMT_LED_RESOLUTION_HZ;
+                tx_config.mem_block_symbols = 64;  // 64 symbols per block
+                tx_config.trans_queue_depth = 4;
+                
+                esp_err_t err = rmt_new_tx_channel(&tx_config, &ledStrips[i].channel);
+                if (err != ESP_OK) {
+                    printf("  LED: Strip %d RMT channel failed (err=%d)\n", i, err);
+                    continue;
+                }
+                
+                // Create LED strip encoder
+                led_strip_encoder_config_t encoder_config = {};
+                encoder_config.resolution = RMT_LED_RESOLUTION_HZ;
+                err = rmt_new_led_strip_encoder(&encoder_config, &ledStrips[i].encoder);
+                if (err != ESP_OK) {
+                    printf("  LED: Strip %d encoder failed (err=%d)\n", i, err);
+                    rmt_del_channel(ledStrips[i].channel);
+                    continue;
+                }
+                
+                // Enable channel
+                err = rmt_enable(ledStrips[i].channel);
+                if (err != ESP_OK) {
+                    printf("  LED: Strip %d enable failed (err=%d)\n", i, err);
+                    rmt_del_encoder(ledStrips[i].encoder);
+                    rmt_del_channel(ledStrips[i].channel);
+                    continue;
+                }
+                
+                // Allocate pixel buffer (GRB format, 3 bytes per LED)
+                ledStrips[i].pixelBuffer = (uint8_t*)malloc(LED_COUNTS[i] * 3);
+                if (!ledStrips[i].pixelBuffer) {
+                    printf("  LED: Strip %d buffer alloc failed\n", i);
+                    rmt_disable(ledStrips[i].channel);
+                    rmt_del_encoder(ledStrips[i].encoder);
+                    rmt_del_channel(ledStrips[i].channel);
+                    continue;
+                }
+                
+                memset(ledStrips[i].pixelBuffer, 0, LED_COUNTS[i] * 3);
+                ledStrips[i].ledCount = LED_COUNTS[i];
+                ledStrips[i].pin = LED_PINS[i];
+                ledStrips[i].initialized = true;
+                
+                printf("  LED: Strip %d (%s) init OK: pin=%d, LEDs=%d\n", 
+                       i, LED_NAMES[i], LED_PINS[i], LED_COUNTS[i]);
+                initCount++;
+            }
+        }
+        
+        ledsInitialized = (initCount > 0);
+        printf("  LED: %d strips initialized, %s\n", initCount, ledsInitialized ? "Ready" : "FAILED");
+        return ledsInitialized;
+    }
+    
+    // Send pixel buffer to LED strip via RMT
+    void showStrip(int index) {
+        if (index < 0 || index >= 6 || !ledStrips[index].initialized) return;
+        
+        rmt_transmit_config_t tx_config = {};
+        tx_config.loop_count = 0;  // No loop
+        
+        rmt_transmit(ledStrips[index].channel, ledStrips[index].encoder, 
+                     ledStrips[index].pixelBuffer, ledStrips[index].ledCount * 3, 
+                     &tx_config);
+        rmt_tx_wait_all_done(ledStrips[index].channel, pdMS_TO_TICKS(100));
+    }
+    
+    void setLedColor(uint8_t r, uint8_t g, uint8_t b, uint8_t brightness) {
+        if (!ledsInitialized) {
+            initLedStrips();
+        }
+        
+        currentLedR = r;
+        currentLedG = g;
+        currentLedB = b;
+        currentLedBrightness = brightness;
+        
+        // Apply brightness (scale RGB values)
+        uint8_t scaledR = (r * brightness) / 255;
+        uint8_t scaledG = (g * brightness) / 255;
+        uint8_t scaledB = (b * brightness) / 255;
+        
+        // Apply to all strips
+        for (int i = 0; i < 6; i++) {
+            if (ledStrips[i].initialized) {
+                // Fill pixel buffer (GRB format for WS2812)
+                for (int j = 0; j < ledStrips[i].ledCount; j++) {
+                    ledStrips[i].pixelBuffer[j * 3 + 0] = scaledG;  // G
+                    ledStrips[i].pixelBuffer[j * 3 + 1] = scaledR;  // R
+                    ledStrips[i].pixelBuffer[j * 3 + 2] = scaledB;  // B
+                }
+                showStrip(i);
+            }
+        }
+        printf("  LED: Color set R=%d G=%d B=%d Brightness=%d\n", r, g, b, brightness);
+    }
+    
+    void setLedsEnabled(bool enabled) {
+        if (!ledsInitialized) {
+            initLedStrips();
+        }
+        
+        ledsEnabled = enabled;
+        
+        if (enabled) {
+            // Apply current color
+            setLedColor(currentLedR, currentLedG, currentLedB, currentLedBrightness);
+        } else {
+            // Turn off all LEDs
+            for (int i = 0; i < 6; i++) {
+                if (ledStrips[i].initialized) {
+                    memset(ledStrips[i].pixelBuffer, 0, ledStrips[i].ledCount * 3);
+                    showStrip(i);
+                }
+            }
+            printf("  LED: Off\n");
+        }
+    }
+    
+    bool areLedsEnabled() { return ledsEnabled; }
+    
     // Getters - provide access to the global GpuDriver
     SystemAPI::GpuDriver& getGpu() { return g_gpu; }
     uint32_t getGpuUptime() { return gpuUptimeMs; }
-    bool isConnected() { return connected; }
+    // Note: isSpriteReady() and isConnected() are defined earlier in this namespace
 }
 
 // Simulated sensor values (for sensors not yet implemented)
@@ -659,9 +998,14 @@ void CurrentMode::onStart() {
         // Small yield to let GPU process (prevents UART buffer overflow at high FPS)
         vTaskDelay(1);  // 1 tick = ~1ms - gives GPU time to drain command buffer
     };
-    sandbox.setEnabled(true);  // Mark sandbox as enabled
-    GpuDriverState::enableSandbox(true);  // Enable sandbox in render loop
-    printf("  AnimationSandbox: Enabled (5s cycle: GYRO_EYES -> GLITCH_TV -> SDF_MORPH)\n");
+    // Don't enable sandbox by default - use scene-based animation instead
+    // sandbox.setEnabled(true);
+    // GpuDriverState::enableSandbox(true);
+    printf("  AnimationSandbox: Configured (will be enabled when scene uses SDF_MORPH)\n");
+    
+    // Set default animation to GYRO_EYES (the main expected animation)
+    GpuDriverState::setSceneAnimation("gyro_eyes");
+    printf("  Default Animation: GYRO_EYES\n");
     
     // Upload eye sprites for AA rendering
     printf("  Uploading eye sprites for AA rendering...\n");
@@ -787,6 +1131,63 @@ void CurrentMode::onStart() {
         printf("  Display cleared\n");
     });
     
+    // Callback for scene activation - switches animation mode based on scene settings
+    httpServer.setSceneActivatedCallback([](const SystemAPI::Web::SavedScene& scene) {
+        printf("\n  ========================================\n");
+        printf("  SCENE ACTIVATED: %s (id=%d)\n", scene.name.c_str(), scene.id);
+        printf("  Animation Type: %s\n", scene.animType.c_str());
+        printf("  Display Enabled: %s\n", scene.displayEnabled ? "YES" : "NO");
+        printf("  LEDs Enabled: %s\n", scene.ledsEnabled ? "YES" : "NO");
+        printf("  ========================================\n\n");
+        
+        // Update animation mode based on scene settings
+        if (scene.displayEnabled) {
+            // Set the animation type
+            GpuDriverState::setSceneAnimation(scene.animType);
+            
+            // Apply animation-specific parameters from scene.params
+            // Note: params is a map<string, float>
+            
+            // Handle sprite upload if scene uses a sprite
+            if (scene.spriteId >= 0) {
+                auto* sprite = SystemAPI::Web::HttpServer::findSpriteById(scene.spriteId);
+                if (sprite && !sprite->pixelData.empty()) {
+                    printf("  Uploading scene sprite %d to GPU...\n", scene.spriteId);
+                    uint8_t gpuSpriteId = 0;
+                    GpuDriverState::getGpu().deleteSprite(gpuSpriteId);
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                    
+                    if (GpuDriverState::getGpu().uploadSprite(gpuSpriteId,
+                                                              sprite->width,
+                                                              sprite->height,
+                                                              sprite->pixelData.data(),
+                                                              SpriteFormat::RGB888)) {
+                        vTaskDelay(pdMS_TO_TICKS(100));
+                        GpuDriverState::setSpriteScene(gpuSpriteId, 64.0f, 16.0f, 0.0f, 0, 0, 0);
+                        printf("  Sprite uploaded to GPU slot 0\n");
+                    }
+                }
+            }
+        } else {
+            // Display disabled - show nothing or just LEDs
+            GpuDriverState::setSceneAnimation("none");
+        }
+        
+        // Handle LED control from scene settings
+        if (scene.ledsEnabled) {
+            // Set LED color and brightness from scene
+            GpuDriverState::setLedColor(scene.ledR, scene.ledG, scene.ledB, 
+                                        (uint8_t)(scene.ledBrightness * 255 / 100));
+            GpuDriverState::setLedsEnabled(true);
+            printf("  LEDs: Enabled with color R=%d G=%d B=%d Brightness=%d%%\n",
+                   scene.ledR, scene.ledG, scene.ledB, scene.ledBrightness);
+        } else {
+            // Turn off LEDs
+            GpuDriverState::setLedsEnabled(false);
+            printf("  LEDs: Disabled\n");
+        }
+    });
+    
     printf("  Web-GPU Callbacks: Registered\n");
     
     // Print sprite storage summary
@@ -823,10 +1224,53 @@ void CurrentMode::onStart() {
     printf("  Easy URL:  Type ANY domain (e.g. go.to, a.a)\n");
     printf("\n");
     
+    // Initialize Scene Test Harness
+    SystemAPI::Testing::SceneTestHarness::init();
+    
+    // Initialize LED Strip Test Harness
+    SystemAPI::Testing::LedStripTestHarness::init();
+    
+    // Set state query callback for test harness
+    SystemAPI::Testing::SceneTestHarness::setStateQueryCallback([]() -> std::string {
+        char buf[512];
+        snprintf(buf, sizeof(buf),
+            "║ Animation Mode:    %d (%s)\n"
+            "║ Sandbox Enabled:   %s\n"
+            "║ Sprite Ready:      %s\n"
+            "║ GPU Connected:     %s\n"
+            "║ Active Scene ID:   %d\n"
+            "║ Eye Size:          %.1f\n"
+            "║ Eye Sensitivity:   %.2f\n"
+            "║ Eye Sprite ID:     %d",
+            (int)GpuDriverState::getSceneAnimMode(),
+            GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::GYRO_EYES ? "GYRO_EYES" :
+            GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::STATIC_IMAGE ? "STATIC_IMAGE" :
+            GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::SWAY ? "SWAY" :
+            GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::SDF_MORPH ? "SDF_MORPH" : "NONE",
+            GpuDriverState::isSandboxEnabled() ? "YES" : "NO",
+            GpuDriverState::isSpriteReady() ? "YES" : "NO",
+            GpuDriverState::isConnected() ? "YES" : "NO",
+            SystemAPI::Web::activeSceneId_,
+            12.0f,  // TODO: expose actual eye params
+            1.0f,
+            0
+        );
+        return std::string(buf);
+    });
+    
+    // Set animation change callback for test harness
+    SystemAPI::Testing::SceneTestHarness::setAnimationChangeCallback(
+        [](const std::string& animType, int spriteId) {
+            printf("[TEST] Animation change requested: type='%s', spriteId=%d\n", 
+                   animType.c_str(), spriteId);
+            GpuDriverState::setSceneAnimation(animType);
+        }
+    );
+    
     m_updateCount = 0;
     m_totalTime = 0;
     m_credentialPrintTime = 0;
-    
+
     // Initialize SyncState with simulated data
     auto& state = SystemAPI::SYNC_STATE.state();
     state.mode = SystemAPI::SystemMode::RUNNING;
@@ -837,6 +1281,30 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
     m_updateCount++;
     m_totalTime += deltaMs;
     m_credentialPrintTime += deltaMs;
+    
+    // Check for serial test commands (using stdio since we're on USB CDC)
+    static char cmdBuffer[128] = {0};
+    static int cmdPos = 0;
+    
+    // Non-blocking check for input from USB serial
+    int c = getchar_unlocked();
+    while (c != EOF) {
+        if (c == '\n' || c == '\r') {
+            if (cmdPos > 0) {
+                cmdBuffer[cmdPos] = '\0';
+                // Process the command - check both test harnesses
+                if (strncmp(cmdBuffer, "TEST:", 5) == 0) {
+                    SystemAPI::Testing::SceneTestHarness::processCommand(cmdBuffer);
+                } else if (strncmp(cmdBuffer, "LED:", 4) == 0) {
+                    SystemAPI::Testing::LedStripTestHarness::handleCommand(cmdBuffer);
+                }
+                cmdPos = 0;
+            }
+        } else if (cmdPos < 127) {
+            cmdBuffer[cmdPos++] = (char)c;
+        }
+        c = getchar_unlocked();
+    }
     
     // Update captive portal (handles DNS, HTTP, WebSocket)
     auto& portal = SystemAPI::Web::CaptivePortal::instance();

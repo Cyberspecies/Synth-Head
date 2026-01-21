@@ -43,6 +43,7 @@
 #include <map>
 #include <functional>
 #include <string>
+#include <algorithm>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
@@ -129,12 +130,30 @@ struct SavedScene {
     int type = 0;
     bool active = false;
     
+    // Modular scene system - LED and Display are independent
+    bool displayEnabled = true;   // Controls HUB75 displays
+    bool ledsEnabled = false;     // Controls WS2812 LEDs
+    bool effectsOnly = false;     // Effect overlay (no primary animation)
+    int order = 0;                // For drag-drop reordering
+    
     // New AnimationSystem fields
-    std::string animType;       // Animation type ID: static_image, gyro_eyes
-    std::string transition;     // Transition type: none, sdf_morph, glitch, particles
+    std::string animType = "gyro_eyes";  // Animation type ID: static_image, gyro_eyes, sway
+    std::string transition = "none";     // Transition type: none, sdf, glitch, particle
     int spriteId = -1;          // Overlay sprite ID (-1 = none)
     bool mirrorSprite = false;  // Mirror sprite on right panel
     std::map<std::string, float> params;  // Animation-specific parameters
+    
+    // Shader settings
+    bool shaderAA = true;
+    bool shaderInvert = false;
+    std::string shaderColorMode = "none"; // none, solid, rainbow
+    std::string shaderColor = "#ffffff";
+    
+    // LED settings
+    uint8_t ledR = 255;
+    uint8_t ledG = 0;
+    uint8_t ledB = 255;
+    uint8_t ledBrightness = 80;
     
     // Effects (constant overlays like glitch, scanlines, color_shift)
     struct Effect {
@@ -313,6 +332,27 @@ public:
      * @brief Get the httpd handle (for advanced use)
      */
     httpd_handle_t getHandle() const { return server_; }
+    
+    /**
+     * @brief Force save scenes to storage (for testing)
+     */
+    void forceSaveScenes() {
+        saveScenesStorage();
+    }
+    
+    /**
+     * @brief Force load scenes from storage (for testing)
+     */
+    void forceLoadScenes() {
+        loadScenesFromStorage();
+    }
+    
+    /**
+     * @brief Get scene activated callback (for test harness)
+     */
+    static std::function<void(const SavedScene&)>& getSceneActivatedCallback() {
+        return instance().sceneActivatedCallback_;
+    }
 
 private:
     HttpServer() = default;
@@ -336,7 +376,8 @@ private:
         registerHandler("/system", HTTP_GET, handlePageSystem);
         registerHandler("/advanced", HTTP_GET, handlePageAdvancedMenu);
         registerHandler("/advanced/sprites", HTTP_GET, handlePageSprite);
-        registerHandler("/advanced/scenes", HTTP_GET, handlePageScenes);
+        registerHandler("/advanced/scenes", HTTP_GET, handlePageSceneList);
+        registerHandler("/advanced/scenes/edit", HTTP_GET, handlePageSceneEdit);
         registerHandler("/sprites", HTTP_GET, handlePageSprite);  // Legacy redirect
         registerHandler("/settings", HTTP_GET, handlePageSettings);
         registerHandler("/sdcard", HTTP_GET, handlePageSdCard);  // SD Card Browser
@@ -376,6 +417,7 @@ private:
         registerHandler("/api/scene/update", HTTP_POST, handleApiSceneUpdate);
         registerHandler("/api/scene/display", HTTP_POST, handleApiSceneDisplay);
         registerHandler("/api/scene/clear", HTTP_POST, handleApiSceneClear);
+        registerHandler("/api/scenes/reorder", HTTP_POST, handleApiScenesReorder);
         
         // Equation Editor page and API endpoints
         registerHandler("/advanced/equations", HTTP_GET, handlePageEquations);
@@ -1070,7 +1112,25 @@ private:
             cJSON_AddNumberToObject(item, "type", s.type);
             cJSON_AddBoolToObject(item, "active", s.active);
             
-            // New AnimationSystem fields
+            // Modular scene fields (new system)
+            cJSON_AddBoolToObject(item, "displayEnabled", s.displayEnabled);
+            cJSON_AddBoolToObject(item, "ledsEnabled", s.ledsEnabled);
+            cJSON_AddBoolToObject(item, "effectsOnly", s.effectsOnly);
+            cJSON_AddNumberToObject(item, "order", s.order);
+            
+            // Shader settings
+            cJSON_AddBoolToObject(item, "shaderAA", s.shaderAA);
+            cJSON_AddBoolToObject(item, "shaderInvert", s.shaderInvert);
+            cJSON_AddStringToObject(item, "shaderColorMode", s.shaderColorMode.c_str());
+            cJSON_AddStringToObject(item, "shaderColor", s.shaderColor.c_str());
+            
+            // LED settings
+            cJSON_AddNumberToObject(item, "ledR", s.ledR);
+            cJSON_AddNumberToObject(item, "ledG", s.ledG);
+            cJSON_AddNumberToObject(item, "ledB", s.ledB);
+            cJSON_AddNumberToObject(item, "ledBrightness", s.ledBrightness);
+            
+            // AnimationSystem fields
             cJSON_AddStringToObject(item, "animType", s.animType.c_str());
             cJSON_AddStringToObject(item, "transition", s.transition.c_str());
             cJSON_AddNumberToObject(item, "spriteId", s.spriteId);
@@ -1229,8 +1289,50 @@ private:
                 if (type && cJSON_IsNumber(type)) scene.type = type->valueint;
                 if (active) scene.active = cJSON_IsTrue(active);
                 
-                // Load new AnimationSystem fields
+                // Load modular scene fields (new system)
                 cJSON* val;
+                if ((val = cJSON_GetObjectItem(item, "displayEnabled"))) {
+                    scene.displayEnabled = cJSON_IsTrue(val);
+                }
+                if ((val = cJSON_GetObjectItem(item, "ledsEnabled"))) {
+                    scene.ledsEnabled = cJSON_IsTrue(val);
+                }
+                if ((val = cJSON_GetObjectItem(item, "effectsOnly"))) {
+                    scene.effectsOnly = cJSON_IsTrue(val);
+                }
+                if ((val = cJSON_GetObjectItem(item, "order")) && cJSON_IsNumber(val)) {
+                    scene.order = val->valueint;
+                }
+                
+                // Load shader settings
+                if ((val = cJSON_GetObjectItem(item, "shaderAA"))) {
+                    scene.shaderAA = cJSON_IsTrue(val);
+                }
+                if ((val = cJSON_GetObjectItem(item, "shaderInvert"))) {
+                    scene.shaderInvert = cJSON_IsTrue(val);
+                }
+                if ((val = cJSON_GetObjectItem(item, "shaderColorMode")) && cJSON_IsString(val)) {
+                    scene.shaderColorMode = val->valuestring;
+                }
+                if ((val = cJSON_GetObjectItem(item, "shaderColor")) && cJSON_IsString(val)) {
+                    scene.shaderColor = val->valuestring;
+                }
+                
+                // Load LED settings
+                if ((val = cJSON_GetObjectItem(item, "ledR")) && cJSON_IsNumber(val)) {
+                    scene.ledR = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "ledG")) && cJSON_IsNumber(val)) {
+                    scene.ledG = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "ledB")) && cJSON_IsNumber(val)) {
+                    scene.ledB = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "ledBrightness")) && cJSON_IsNumber(val)) {
+                    scene.ledBrightness = (uint8_t)val->valueint;
+                }
+                
+                // Load AnimationSystem fields
                 if ((val = cJSON_GetObjectItem(item, "animType")) && cJSON_IsString(val)) {
                     scene.animType = val->valuestring;
                 }
@@ -1789,13 +1891,23 @@ private:
         return ESP_OK;
     }
     
-    static esp_err_t handlePageScenes(httpd_req_t* req) {
+    static esp_err_t handlePageSceneList(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return redirectToLogin(req);
         
-        ESP_LOGI(HTTP_TAG, "Serving Scenes page (redirecting to Scene Composition)");
+        ESP_LOGI(HTTP_TAG, "Serving Scene List page");
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-        httpd_resp_send(req, Content::PAGE_SCENE_COMPOSITION, HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send(req, Content::PAGE_SCENE_LIST, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    static esp_err_t handlePageSceneEdit(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return redirectToLogin(req);
+        
+        ESP_LOGI(HTTP_TAG, "Serving Scene Edit page");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_send(req, Content::PAGE_SCENE_EDIT, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     
@@ -3149,6 +3261,16 @@ private:
             cJSON_AddNumberToObject(item, "type", scene.type);
             cJSON_AddBoolToObject(item, "active", scene.active);
             
+            // Modular scene fields
+            cJSON_AddBoolToObject(item, "displayEnabled", scene.displayEnabled);
+            cJSON_AddBoolToObject(item, "ledsEnabled", scene.ledsEnabled);
+            cJSON_AddBoolToObject(item, "effectsOnly", scene.effectsOnly);
+            cJSON_AddNumberToObject(item, "order", scene.order);
+            
+            // Animation type (for list display)
+            cJSON_AddStringToObject(item, "animationType", scene.animType.c_str());
+            cJSON_AddStringToObject(item, "transition", scene.transition.c_str());
+            
             // Add gyro eye config if type is GYRO_EYES
             if (scene.type == 1 && scene.hasGyroEyeConfig) {
                 cJSON* gyroEye = cJSON_CreateObject();
@@ -3222,16 +3344,32 @@ private:
         bool success = false;
         int newId = -1;
         
-        if (name && cJSON_IsString(name) && type && cJSON_IsNumber(type)) {
+        if (name && cJSON_IsString(name)) {
             SavedScene scene;
             scene.id = nextSceneId_++;
             scene.name = name->valuestring;
-            scene.type = type->valueint;
+            scene.type = (type && cJSON_IsNumber(type)) ? type->valueint : 0;
             scene.active = false;
             scene.hasGyroEyeConfig = false;
             scene.hasStaticSpriteConfig = false;
             
-            // Initialize default configs based on type
+            // Set modular scene defaults
+            scene.displayEnabled = true;
+            scene.ledsEnabled = false;
+            scene.effectsOnly = false;
+            scene.order = (int)savedScenes_.size();
+            scene.animType = "gyro_eyes";
+            scene.transition = "none";
+            scene.shaderAA = true;
+            scene.shaderInvert = false;
+            scene.shaderColorMode = "none";
+            scene.shaderColor = "#ffffff";
+            scene.ledR = 255;
+            scene.ledG = 0;
+            scene.ledB = 255;
+            scene.ledBrightness = 80;
+            
+            // Initialize default configs based on type (legacy)
             if (scene.type == 1) {
                 scene.hasGyroEyeConfig = true;
                 scene.gyroEye = GyroEyeSceneConfig();  // Default values
@@ -3351,6 +3489,63 @@ private:
     }
     
     /**
+     * @brief Reorder scenes (for drag-drop in scene list)
+     * Expects: { "order": [id1, id2, id3, ...] }
+     */
+    static esp_err_t handleApiScenesReorder(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[1024];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* order = cJSON_GetObjectItem(root, "order");
+        bool success = false;
+        
+        if (order && cJSON_IsArray(order)) {
+            int newOrder = 0;
+            cJSON* item;
+            cJSON_ArrayForEach(item, order) {
+                if (cJSON_IsNumber(item)) {
+                    int sceneId = item->valueint;
+                    for (auto& scene : savedScenes_) {
+                        if (scene.id == sceneId) {
+                            scene.order = newOrder++;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Sort savedScenes_ by order field
+            std::sort(savedScenes_.begin(), savedScenes_.end(), 
+                [](const SavedScene& a, const SavedScene& b) {
+                    return a.order < b.order;
+                });
+            
+            success = true;
+            saveScenesStorage();
+            ESP_LOGI(HTTP_TAG, "Reordered %d scenes", (int)savedScenes_.size());
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
      * @brief Get a single scene by ID
      */
     static esp_err_t handleApiSceneGet(httpd_req_t* req) {
@@ -3391,18 +3586,42 @@ private:
         cJSON_AddNumberToObject(sceneObj, "type", found->type);
         cJSON_AddBoolToObject(sceneObj, "active", found->active);
         
-        // New AnimationSystem fields
-        cJSON_AddStringToObject(sceneObj, "animType", found->animType.c_str());
+        // Modular scene fields
+        cJSON_AddBoolToObject(sceneObj, "displayEnabled", found->displayEnabled);
+        cJSON_AddBoolToObject(sceneObj, "ledsEnabled", found->ledsEnabled);
+        cJSON_AddBoolToObject(sceneObj, "effectsOnly", found->effectsOnly);
+        cJSON_AddNumberToObject(sceneObj, "order", found->order);
+        
+        // Animation fields
+        cJSON_AddStringToObject(sceneObj, "animationType", found->animType.c_str());
         cJSON_AddStringToObject(sceneObj, "transition", found->transition.c_str());
+        
+        // Shader settings
+        cJSON_AddBoolToObject(sceneObj, "shaderAA", found->shaderAA);
+        cJSON_AddBoolToObject(sceneObj, "shaderInvert", found->shaderInvert);
+        cJSON_AddStringToObject(sceneObj, "shaderColorMode", found->shaderColorMode.c_str());
+        cJSON_AddStringToObject(sceneObj, "shaderColor", found->shaderColor.c_str());
+        
+        // LED settings
+        cJSON* ledColorObj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(ledColorObj, "r", found->ledR);
+        cJSON_AddNumberToObject(ledColorObj, "g", found->ledG);
+        cJSON_AddNumberToObject(ledColorObj, "b", found->ledB);
+        cJSON_AddItemToObject(sceneObj, "ledColor", ledColorObj);
+        cJSON_AddNumberToObject(sceneObj, "ledBrightness", found->ledBrightness);
+        
+        // Legacy AnimationSystem fields
+        cJSON_AddStringToObject(sceneObj, "animType", found->animType.c_str());
         cJSON_AddNumberToObject(sceneObj, "spriteId", found->spriteId);
         cJSON_AddBoolToObject(sceneObj, "mirrorSprite", found->mirrorSprite);
         
-        // Animation parameters as object
+        // Animation parameters as object (for new page, also as animParams)
         cJSON* paramsObj = cJSON_CreateObject();
         for (const auto& kv : found->params) {
             cJSON_AddNumberToObject(paramsObj, kv.first.c_str(), kv.second);
         }
         cJSON_AddItemToObject(sceneObj, "params", paramsObj);
+        cJSON_AddItemToObject(sceneObj, "animParams", cJSON_Duplicate(paramsObj, 1));
         
         // Effects as object
         cJSON* effectsObj = cJSON_CreateObject();
@@ -3540,7 +3759,68 @@ private:
                         scene.mirrorSprite = cJSON_IsTrue(item);
                     }
                     
-                    // Update params object
+                    // Modular scene fields (new LED/Display system)
+                    if ((item = cJSON_GetObjectItem(root, "displayEnabled")) && cJSON_IsBool(item)) {
+                        scene.displayEnabled = cJSON_IsTrue(item);
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "ledsEnabled")) && cJSON_IsBool(item)) {
+                        scene.ledsEnabled = cJSON_IsTrue(item);
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "effectsOnly")) && cJSON_IsBool(item)) {
+                        scene.effectsOnly = cJSON_IsTrue(item);
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "name")) && cJSON_IsString(item)) {
+                        scene.name = item->valuestring;
+                    }
+                    
+                    // Shader settings
+                    if ((item = cJSON_GetObjectItem(root, "shaderAA")) && cJSON_IsBool(item)) {
+                        scene.shaderAA = cJSON_IsTrue(item);
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "shaderInvert")) && cJSON_IsBool(item)) {
+                        scene.shaderInvert = cJSON_IsTrue(item);
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "shaderColorMode")) && cJSON_IsString(item)) {
+                        scene.shaderColorMode = item->valuestring;
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "shaderColor")) && cJSON_IsString(item)) {
+                        scene.shaderColor = item->valuestring;
+                    }
+                    
+                    // LED settings
+                    cJSON* ledColor = cJSON_GetObjectItem(root, "ledColor");
+                    if (ledColor && cJSON_IsObject(ledColor)) {
+                        if ((item = cJSON_GetObjectItem(ledColor, "r")) && cJSON_IsNumber(item)) {
+                            scene.ledR = (uint8_t)item->valueint;
+                        }
+                        if ((item = cJSON_GetObjectItem(ledColor, "g")) && cJSON_IsNumber(item)) {
+                            scene.ledG = (uint8_t)item->valueint;
+                        }
+                        if ((item = cJSON_GetObjectItem(ledColor, "b")) && cJSON_IsNumber(item)) {
+                            scene.ledB = (uint8_t)item->valueint;
+                        }
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "ledBrightness")) && cJSON_IsNumber(item)) {
+                        scene.ledBrightness = (uint8_t)item->valueint;
+                    }
+                    
+                    // Animation parameters from nested 'animParams' object (new page format)
+                    cJSON* animParams = cJSON_GetObjectItem(root, "animParams");
+                    if (animParams && cJSON_IsObject(animParams)) {
+                        scene.params.clear();
+                        cJSON* param = NULL;
+                        cJSON_ArrayForEach(param, animParams) {
+                            if (param->string) {
+                                if (cJSON_IsNumber(param)) {
+                                    scene.params[param->string] = (float)param->valuedouble;
+                                } else if (cJSON_IsBool(param)) {
+                                    scene.params[param->string] = cJSON_IsTrue(param) ? 1.0f : 0.0f;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Update params object (legacy format)
                     cJSON* params = cJSON_GetObjectItem(root, "params");
                     if (params && cJSON_IsObject(params)) {
                         scene.params.clear();
@@ -5591,9 +5871,7 @@ public:
     static std::function<void()>& getDisplayClearCallback() {
         return instance().displayClearCallback_;
     }
-    static std::function<void(const SavedScene&)>& getSceneActivatedCallback() {
-        return instance().sceneActivatedCallback_;
-    }
+    // Note: getSceneActivatedCallback() is defined earlier as a public method
     static std::function<void(const SavedScene&)>& getSceneUpdatedCallback() {
         return instance().sceneUpdatedCallback_;
     }

@@ -17,6 +17,7 @@ elseif(CPU_MAIN_MODE)
         "Drivers/ImuDriver.cpp"
         "Drivers/FanDriver.cpp"
         "SystemAPI/GPU/GpuDriver.cpp"
+        "HAL/led_strip_encoder.c"
     )
     message(STATUS "Building CPU Main (Lifecycle Architecture + Dual-Core Application Layer)")
 elseif(CPU_MODE_TOGGLE_MODE)

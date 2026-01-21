@@ -147,29 +147,31 @@ inline const char PAGE_BASIC[] = R"rawliteral(
   <div id="toast" class="toast"></div>
   
   <script>
-  var configs = [];
-  var activeDisplay = -1;
-  var activeLeds = -1;
+  var scenes = [];
+  var activeSceneId = -1;
   
-  function fetchConfigs() {
-    fetch('/api/configs')
+  function fetchScenes() {
+    fetch('/api/scenes')
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        configs = data.configs || [];
-        activeDisplay = data.activeDisplay !== undefined ? data.activeDisplay : -1;
-        activeLeds = data.activeLeds !== undefined ? data.activeLeds : -1;
+        scenes = data.scenes || [];
+        // Find active scene
+        for (var i = 0; i < scenes.length; i++) {
+          if (scenes[i].active) {
+            activeSceneId = scenes[i].id;
+            break;
+          }
+        }
         renderPresets();
       })
       .catch(function(err) {
-        console.error('Config fetch error:', err);
+        console.error('Scene fetch error:', err);
         // Fallback demo data
-        configs = [
-          {name: 'Rainbow', target: 1, index: 0},
-          {name: 'Solid Red', target: 1, index: 1},
-          {name: 'LED Rainbow', target: 2, index: 2},
-          {name: 'LED Breathing', target: 2, index: 3},
-          {name: 'Fire Effect', target: 3, index: 4},
-          {name: 'Wave Sync', target: 3, index: 5}
+        scenes = [
+          {id: 1, name: 'Gyro Eyes Default', displayEnabled: true, ledsEnabled: false},
+          {id: 2, name: 'Static Image', displayEnabled: true, ledsEnabled: false},
+          {id: 3, name: 'Purple LEDs', displayEnabled: false, ledsEnabled: true},
+          {id: 4, name: 'Cyberpunk Mode', displayEnabled: true, ledsEnabled: true}
         ];
         renderPresets();
       });
@@ -179,23 +181,26 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     var list = document.getElementById('preset-list');
     list.innerHTML = '';
     
-    configs.forEach(function(cfg) {
-      // Determine if this config's display/led is currently active
-      var thisDisplayActive = (activeDisplay === cfg.index);
-      var thisLedsActive = (activeLeds === cfg.index);
+    if (scenes.length === 0) {
+      list.innerHTML = '<div class="preset-item"><span class="preset-name" style="color:var(--text-muted)">No scenes configured. Create scenes in Advanced tab.</span></div>';
+      return;
+    }
+    
+    scenes.forEach(function(scene) {
+      var isActive = (scene.id === activeSceneId);
+      var supportsDisplay = scene.displayEnabled !== false;
+      var supportsLeds = scene.ledsEnabled === true;
       
-      // This config supports: 1=display, 2=leds, 3=both
-      var supportsDisplay = (cfg.target === 1 || cfg.target === 3);
-      var supportsLeds = (cfg.target === 2 || cfg.target === 3);
-      
-      // Highlight class based on what's active FROM this config
+      // Highlight class based on active state and what it supports
       var activeClass = '';
-      if (thisDisplayActive && thisLedsActive) {
-        activeClass = 'active-both';
-      } else if (thisDisplayActive) {
-        activeClass = 'active-display';
-      } else if (thisLedsActive) {
-        activeClass = 'active-leds';
+      if (isActive) {
+        if (supportsDisplay && supportsLeds) {
+          activeClass = 'active-both';
+        } else if (supportsDisplay) {
+          activeClass = 'active-display';
+        } else if (supportsLeds) {
+          activeClass = 'active-leds';
+        }
       }
       
       // Build indicator HTML
@@ -203,20 +208,25 @@ inline const char PAGE_BASIC[] = R"rawliteral(
       
       // Display indicator
       if (supportsDisplay) {
-        var dispClass = thisDisplayActive ? 'indicator display' : 'indicator display off';
+        var dispClass = isActive ? 'indicator display' : 'indicator display off';
         indicatorsHtml += '<span class="' + dispClass + '">Display</span>';
       }
       
       // LEDs indicator  
       if (supportsLeds) {
-        var ledClass = thisLedsActive ? 'indicator leds' : 'indicator leds off';
+        var ledClass = isActive ? 'indicator leds' : 'indicator leds off';
         indicatorsHtml += '<span class="' + ledClass + '">LEDs</span>';
       }
       
-      var html = '<div class="preset-item ' + activeClass + '" data-index="' + cfg.index + '">' +
-        '<span class="preset-name">' + escapeHtml(cfg.name) + '</span>' +
+      // Effects-only indicator
+      if (scene.effectsOnly) {
+        indicatorsHtml += '<span class="indicator" style="color:var(--accent);background:rgba(255,107,0,0.15);">Effect</span>';
+      }
+      
+      var html = '<div class="preset-item ' + activeClass + '" data-id="' + scene.id + '">' +
+        '<span class="preset-name">' + escapeHtml(scene.name) + '</span>' +
         '<div class="preset-indicators">' + indicatorsHtml + '</div>' +
-        '<button class="apply-btn" onclick="applyConfig(' + cfg.index + ')">Apply</button>' +
+        '<button class="apply-btn" onclick="applyScene(' + scene.id + ')">Apply</button>' +
       '</div>';
       
       list.innerHTML += html;
@@ -229,33 +239,22 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     return div.innerHTML;
   }
   
-  function applyConfig(index) {
-    fetch('/api/config/apply', {
+  function applyScene(id) {
+    fetch('/api/scene/activate', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({index: index})
+      body: JSON.stringify({id: id})
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.success) {
-        showToast('Configuration applied', 'success');
-        // Update active states based on what was applied
-        var cfg = configs.find(function(c) { return c.index === index; });
-        if (cfg) {
-          // If config targets display (1 or 3), this becomes active display
-          if (cfg.target === 1 || cfg.target === 3) {
-            activeDisplay = index;
-          }
-          // If config targets leds (2 or 3), this becomes active leds
-          if (cfg.target === 2 || cfg.target === 3) {
-            activeLeds = index;
-          }
-        }
+        showToast('Scene applied', 'success');
+        activeSceneId = id;
         renderPresets();
         // Re-fetch to ensure sync with server
-        setTimeout(fetchConfigs, 500);
+        setTimeout(fetchScenes, 500);
       } else {
-        showToast('Failed to apply', 'error');
+        showToast('Failed to apply scene', 'error');
       }
     })
     .catch(function(err) {
@@ -272,7 +271,7 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     }, 3000);
   }
   
-  fetchConfigs();
+  fetchScenes();
   </script>
 </body>
 </html>
