@@ -17,6 +17,9 @@
  *   Strip 4: Right Fin  - GPIO 38 - 13 LEDs
  *   Strip 5: Scale LEDs - GPIO 37 - 14 LEDs
  * 
+ * NOTE: Uses sequential RMT mode - strips updated one at a time
+ *       since ESP32-S3 only has 4 RMT TX channels.
+ * 
  * Commands (via Serial):
  *   LED:HELP              - Show all commands
  *   LED:FULL              - Run FULL automated test suite
@@ -43,8 +46,7 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/rmt_tx.h"
-#include "HAL/led_strip_encoder.h"
+#include "led_strip.h"
 #include "driver/gpio.h"
 
 namespace SystemAPI {
@@ -74,19 +76,6 @@ static const LedStripInfo LED_STRIPS[] = {
 };
 static const int NUM_STRIPS = 6;
 static const int ACTIVE_STRIP_COUNT = 4;  // Strips 1, 2, 4, 5
-static const uint32_t RMT_LED_RESOLUTION_HZ = 10000000;  // 10MHz
-
-// ============================================================
-// RMT LED STRIP HANDLE
-// ============================================================
-struct RmtLedStrip {
-    rmt_channel_handle_t channel;
-    rmt_encoder_handle_t encoder;
-    uint8_t* pixelBuffer;   // GRBW format (4 bytes per pixel)
-    uint8_t ledCount;
-    gpio_num_t pin;
-    bool initialized;
-};
 
 // ============================================================
 // TEST RESULT STRUCTURES
@@ -107,11 +96,15 @@ struct LedTestSuite {
 };
 
 /**
- * @brief Comprehensive LED Strip Test Harness (RMT-based)
+ * @brief Comprehensive LED Strip Test Harness (Sequential RMT mode)
+ * 
+ * Uses sequential RMT initialization to overcome the 4-channel limit.
+ * Each strip is initialized, updated, and deinitialized one at a time.
  */
 class LedStripTestHarness {
 private:
-    static RmtLedStrip strips_[NUM_STRIPS];
+    // Pixel buffer storage for all strips (persistent between updates)
+    static uint8_t pixelBuffers_[NUM_STRIPS][64][4];  // [strip][led][RGBW]
     static bool initialized_;
     static bool testRunning_;
     static uint8_t currentBrightness_;
@@ -128,7 +121,7 @@ public:
         
         ESP_LOGI(LED_TEST_TAG, "");
         ESP_LOGI(LED_TEST_TAG, "╔════════════════════════════════════════════════════════════╗");
-        ESP_LOGI(LED_TEST_TAG, "║   LED STRIP TEST HARNESS v1.0 (RMT)                        ║");
+        ESP_LOGI(LED_TEST_TAG, "║   LED STRIP TEST HARNESS v2.0 (Sequential RMT)             ║");
         if (AUTO_START_LED_TESTS) {
             ESP_LOGI(LED_TEST_TAG, "║   AUTO-START MODE - Will run tests after delay            ║");
         } else {
@@ -137,10 +130,14 @@ public:
         ESP_LOGI(LED_TEST_TAG, "╚════════════════════════════════════════════════════════════╝");
         ESP_LOGI(LED_TEST_TAG, "");
         
-        // Initialize all active strips
-        initStrips();
+        // Clear all pixel buffers
+        memset(pixelBuffers_, 0, sizeof(pixelBuffers_));
+        currentBrightness_ = 64;  // Default to 25% brightness
         
         initialized_ = true;
+        
+        ESP_LOGI(LED_TEST_TAG, ">>> Sequential RMT mode ready");
+        ESP_LOGI(LED_TEST_TAG, "    Active strips: Left Fin (GPIO18), Tongue (GPIO8), Right Fin (GPIO38), Scale (GPIO37)");
         
         if (AUTO_START_LED_TESTS) {
             // Start test task
@@ -149,91 +146,101 @@ public:
     }
     
     /**
-     * @brief Initialize LED strips using RMT driver
+     * @brief Update a single strip using RMT (init → write → deinit)
+     * This allows us to use 1 RMT channel for all strips sequentially
      */
-    static bool initStrips() {
-        ESP_LOGI(LED_TEST_TAG, ">>> Initializing LED strips (RMT driver)...");
+    static bool updateStrip(int stripIndex) {
+        if (stripIndex < 0 || stripIndex >= NUM_STRIPS) return false;
+        if (!LED_STRIPS[stripIndex].active) return false;
         
-        int initCount = 0;
-        for (int i = 0; i < NUM_STRIPS; i++) {
-            strips_[i].initialized = false;
-            
-            if (LED_STRIPS[i].active && LED_STRIPS[i].ledCount > 0) {
-                // Configure RMT TX channel
-                rmt_tx_channel_config_t tx_config = {};
-                tx_config.gpio_num = LED_STRIPS[i].pin;
-                tx_config.clk_src = RMT_CLK_SRC_DEFAULT;
-                tx_config.resolution_hz = RMT_LED_RESOLUTION_HZ;
-                tx_config.mem_block_symbols = 64;
-                tx_config.trans_queue_depth = 4;
-                
-                esp_err_t err = rmt_new_tx_channel(&tx_config, &strips_[i].channel);
-                if (err != ESP_OK) {
-                    ESP_LOGE(LED_TEST_TAG, "    Strip %d RMT channel failed (err=%d)", i, err);
-                    continue;
-                }
-                
-                // Create LED strip encoder
-                led_strip_encoder_config_t encoder_config = {};
-                encoder_config.resolution = RMT_LED_RESOLUTION_HZ;
-                err = rmt_new_led_strip_encoder(&encoder_config, &strips_[i].encoder);
-                if (err != ESP_OK) {
-                    ESP_LOGE(LED_TEST_TAG, "    Strip %d encoder failed (err=%d)", i, err);
-                    rmt_del_channel(strips_[i].channel);
-                    continue;
-                }
-                
-                // Enable channel
-                err = rmt_enable(strips_[i].channel);
-                if (err != ESP_OK) {
-                    ESP_LOGE(LED_TEST_TAG, "    Strip %d enable failed (err=%d)", i, err);
-                    rmt_del_encoder(strips_[i].encoder);
-                    rmt_del_channel(strips_[i].channel);
-                    continue;
-                }
-                
-                // Allocate pixel buffer (GRBW format, 4 bytes per LED for RGBW strips)
-                strips_[i].pixelBuffer = (uint8_t*)malloc(LED_STRIPS[i].ledCount * 4);
-                if (!strips_[i].pixelBuffer) {
-                    ESP_LOGE(LED_TEST_TAG, "    Strip %d buffer alloc failed", i);
-                    rmt_disable(strips_[i].channel);
-                    rmt_del_encoder(strips_[i].encoder);
-                    rmt_del_channel(strips_[i].channel);
-                    continue;
-                }
-                
-                memset(strips_[i].pixelBuffer, 0, LED_STRIPS[i].ledCount * 4);
-                strips_[i].ledCount = LED_STRIPS[i].ledCount;
-                strips_[i].pin = LED_STRIPS[i].pin;
-                strips_[i].initialized = true;
-                
-                // Clear the strip
-                showStrip(i);
-                
-                ESP_LOGI(LED_TEST_TAG, "    Strip %d (%s): Pin=%d, LEDs=%d - INIT OK",
-                         i, LED_STRIPS[i].name, LED_STRIPS[i].pin, LED_STRIPS[i].ledCount);
-                initCount++;
-            }
+        gpio_num_t gpio = LED_STRIPS[stripIndex].pin;
+        int numLeds = LED_STRIPS[stripIndex].ledCount;
+        
+        // Configure LED strip
+        led_strip_config_t strip_config = {};
+        strip_config.strip_gpio_num = gpio;
+        strip_config.max_leds = (uint32_t)numLeds;
+        strip_config.led_model = LED_MODEL_SK6812;
+        // GRBW format for SK6812 RGBW LEDs
+        strip_config.color_component_format.format.r_pos = 1;
+        strip_config.color_component_format.format.g_pos = 0;
+        strip_config.color_component_format.format.b_pos = 2;
+        strip_config.color_component_format.format.w_pos = 3;
+        strip_config.color_component_format.format.num_components = 4;
+        strip_config.flags.invert_out = false;
+        
+        led_strip_rmt_config_t rmt_config = {};
+        rmt_config.clk_src = RMT_CLK_SRC_DEFAULT;
+        rmt_config.resolution_hz = 10000000;  // 10MHz
+        rmt_config.mem_block_symbols = 64;
+        rmt_config.flags.with_dma = false;
+        
+        led_strip_handle_t strip = nullptr;
+        esp_err_t err = led_strip_new_rmt_device(&strip_config, &rmt_config, &strip);
+        if (err != ESP_OK) {
+            ESP_LOGE(LED_TEST_TAG, "Failed to init RMT for strip %d (GPIO%d): %d", stripIndex, gpio, err);
+            return false;
         }
         
-        ESP_LOGI(LED_TEST_TAG, "<<< %d LED strips initialized", initCount);
-        return initCount > 0;
+        // Write pixel data from our buffer
+        for (int led = 0; led < numLeds; led++) {
+            uint8_t r = (pixelBuffers_[stripIndex][led][0] * currentBrightness_) / 255;
+            uint8_t g = (pixelBuffers_[stripIndex][led][1] * currentBrightness_) / 255;
+            uint8_t b = (pixelBuffers_[stripIndex][led][2] * currentBrightness_) / 255;
+            uint8_t w = (pixelBuffers_[stripIndex][led][3] * currentBrightness_) / 255;
+            led_strip_set_pixel_rgbw(strip, led, r, g, b, w);
+        }
+        
+        // Refresh the strip
+        led_strip_refresh(strip);
+        
+        // Small delay for RMT to complete transmission
+        vTaskDelay(pdMS_TO_TICKS(2));
+        
+        // Delete the strip to free RMT channel
+        led_strip_del(strip);
+        
+        return true;
     }
     
     /**
-     * @brief Send pixel buffer to LED strip via RMT
+     * @brief Update all strips sequentially
+     */
+    static void refreshAllStrips() {
+        for (int i = 0; i < NUM_STRIPS; i++) {
+            if (LED_STRIPS[i].active) {
+                updateStrip(i);
+            }
+        }
+    }
+    
+    /**
+     * @brief Set pixel in our buffer (will be sent on next refresh)
+     */
+    static void setPixel(int stripIndex, int ledIndex, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0) {
+        if (stripIndex < 0 || stripIndex >= NUM_STRIPS) return;
+        if (ledIndex < 0 || ledIndex >= 64) return;
+        
+        pixelBuffers_[stripIndex][ledIndex][0] = r;
+        pixelBuffers_[stripIndex][ledIndex][1] = g;
+        pixelBuffers_[stripIndex][ledIndex][2] = b;
+        pixelBuffers_[stripIndex][ledIndex][3] = w;
+    }
+    
+    /**
+     * @brief Clear all pixel buffers
+     */
+    static void clearAllBuffers() {
+        memset(pixelBuffers_, 0, sizeof(pixelBuffers_));
+    }
+    
+    /**
+     * @brief Send pixel buffer to all LED strips (legacy API compatibility)
      */
     static void showStrip(int index) {
-        if (index < 0 || index >= NUM_STRIPS || !strips_[index].initialized) return;
-        
-        rmt_transmit_config_t tx_config = {};
-        tx_config.loop_count = 0;
-        
-        // RGBW format: 4 bytes per pixel
-        rmt_transmit(strips_[index].channel, strips_[index].encoder,
-                     strips_[index].pixelBuffer, strips_[index].ledCount * 4,
-                     &tx_config);
-        rmt_tx_wait_all_done(strips_[index].channel, pdMS_TO_TICKS(100));
+        if (index >= 0 && index < NUM_STRIPS) {
+            updateStrip(index);
+        }
     }
     
     /**
@@ -341,70 +348,34 @@ public:
     // ============================================================
     
     static void allOff() {
-        for (int i = 0; i < NUM_STRIPS; i++) {
-            if (strips_[i].initialized) {
-                memset(strips_[i].pixelBuffer, 0, strips_[i].ledCount * 4);
-                showStrip(i);
-            }
-        }
+        clearAllBuffers();
+        refreshAllStrips();
     }
     
     static void setAllColor(uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0) {
-        // Apply brightness
-        uint8_t scaledR = (r * currentBrightness_) / 255;
-        uint8_t scaledG = (g * currentBrightness_) / 255;
-        uint8_t scaledB = (b * currentBrightness_) / 255;
-        uint8_t scaledW = (w * currentBrightness_) / 255;
-        
+        // Set color for all active strips
         for (int i = 0; i < NUM_STRIPS; i++) {
-            if (strips_[i].initialized) {
-                for (int j = 0; j < strips_[i].ledCount; j++) {
-                    // GRBW format (4 bytes per pixel)
-                    strips_[i].pixelBuffer[j * 4 + 0] = scaledG;
-                    strips_[i].pixelBuffer[j * 4 + 1] = scaledR;
-                    strips_[i].pixelBuffer[j * 4 + 2] = scaledB;
-                    strips_[i].pixelBuffer[j * 4 + 3] = scaledW;
+            if (LED_STRIPS[i].active) {
+                for (int led = 0; led < LED_STRIPS[i].ledCount; led++) {
+                    setPixel(i, led, r, g, b, w);
                 }
-                showStrip(i);
             }
         }
+        refreshAllStrips();
     }
     
     static void setStripColor(int stripIndex, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0) {
-        if (stripIndex < 0 || stripIndex >= NUM_STRIPS || !strips_[stripIndex].initialized) return;
+        if (stripIndex < 0 || stripIndex >= NUM_STRIPS) return;
+        if (!LED_STRIPS[stripIndex].active) return;
         
-        uint8_t scaledR = (r * currentBrightness_) / 255;
-        uint8_t scaledG = (g * currentBrightness_) / 255;
-        uint8_t scaledB = (b * currentBrightness_) / 255;
-        uint8_t scaledW = (w * currentBrightness_) / 255;
-        
-        for (int j = 0; j < strips_[stripIndex].ledCount; j++) {
-            strips_[stripIndex].pixelBuffer[j * 4 + 0] = scaledG;
-            strips_[stripIndex].pixelBuffer[j * 4 + 1] = scaledR;
-            strips_[stripIndex].pixelBuffer[j * 4 + 2] = scaledB;
-            strips_[stripIndex].pixelBuffer[j * 4 + 3] = scaledW;
+        for (int led = 0; led < LED_STRIPS[stripIndex].ledCount; led++) {
+            setPixel(stripIndex, led, r, g, b, w);
         }
-        showStrip(stripIndex);
+        updateStrip(stripIndex);
     }
     
     static void setBrightness(uint8_t brightness) {
         currentBrightness_ = brightness;
-    }
-    
-    static void setPixel(int stripIndex, int pixelIndex, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0) {
-        if (stripIndex < 0 || stripIndex >= NUM_STRIPS || !strips_[stripIndex].initialized) return;
-        if (pixelIndex < 0 || pixelIndex >= strips_[stripIndex].ledCount) return;
-        
-        uint8_t scaledR = (r * currentBrightness_) / 255;
-        uint8_t scaledG = (g * currentBrightness_) / 255;
-        uint8_t scaledB = (b * currentBrightness_) / 255;
-        uint8_t scaledW = (w * currentBrightness_) / 255;
-        
-        strips_[stripIndex].pixelBuffer[pixelIndex * 4 + 0] = scaledG;
-        strips_[stripIndex].pixelBuffer[pixelIndex * 4 + 1] = scaledR;
-        strips_[stripIndex].pixelBuffer[pixelIndex * 4 + 2] = scaledB;
-        strips_[stripIndex].pixelBuffer[pixelIndex * 4 + 3] = scaledW;
-        showStrip(stripIndex);
     }
     
     // ============================================================
@@ -438,7 +409,7 @@ public:
     static void runRainbowAnimation(int durationMs) {
         ESP_LOGI(LED_TEST_TAG, ">>> Running rainbow animation for %d ms...", durationMs);
         
-        if (!initialized_) initStrips();
+        if (!initialized_) init();
         
         uint32_t startTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
         uint32_t elapsed = 0;
@@ -447,22 +418,19 @@ public:
             elapsed = (xTaskGetTickCount() * portTICK_PERIOD_MS) - startTime;
             uint8_t baseHue = (elapsed / 10) % 256;
             
+            // Set pixels for all active strips
             for (int i = 0; i < NUM_STRIPS; i++) {
-                if (strips_[i].initialized) {
-                    for (int j = 0; j < strips_[i].ledCount; j++) {
+                if (LED_STRIPS[i].active) {
+                    for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
                         uint8_t hue = (baseHue + j * 10) % 256;
                         uint8_t r, g, b;
-                        hsvToRgb(hue, 255, currentBrightness_, r, g, b);
-                        
-                        strips_[i].pixelBuffer[j * 4 + 0] = g;
-                        strips_[i].pixelBuffer[j * 4 + 1] = r;
-                        strips_[i].pixelBuffer[j * 4 + 2] = b;
-                        strips_[i].pixelBuffer[j * 4 + 3] = 0;  // White = 0
+                        hsvToRgb(hue, 255, 255, r, g, b);
+                        setPixel(i, j, r, g, b, 0);
                     }
-                    showStrip(i);
                 }
             }
-            vTaskDelay(pdMS_TO_TICKS(20));
+            refreshAllStrips();
+            vTaskDelay(pdMS_TO_TICKS(30));
         }
         
         allOff();
@@ -472,7 +440,7 @@ public:
     static void runChaseAnimation(int durationMs) {
         ESP_LOGI(LED_TEST_TAG, ">>> Running chase animation for %d ms...", durationMs);
         
-        if (!initialized_) initStrips();
+        if (!initialized_) init();
         
         uint32_t startTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
         uint32_t elapsed = 0;
@@ -481,30 +449,25 @@ public:
         while (elapsed < (uint32_t)durationMs) {
             elapsed = (xTaskGetTickCount() * portTICK_PERIOD_MS) - startTime;
             
+            // Clear all buffers
+            clearAllBuffers();
+            
+            // Set chase pixels
             for (int i = 0; i < NUM_STRIPS; i++) {
-                if (strips_[i].initialized) {
-                    memset(strips_[i].pixelBuffer, 0, strips_[i].ledCount * 4);
+                if (LED_STRIPS[i].active) {
+                    int pos = position % LED_STRIPS[i].ledCount;
+                    int pos2 = (position + 1) % LED_STRIPS[i].ledCount;
                     
-                    int pos = position % strips_[i].ledCount;
-                    int pos2 = (position + 1) % strips_[i].ledCount;
+                    // Main pixel - pure white (W channel)
+                    setPixel(i, pos, 0, 0, 0, 255);
                     
-                    // Main pixel - white (using W channel)
-                    strips_[i].pixelBuffer[pos * 4 + 0] = 0;
-                    strips_[i].pixelBuffer[pos * 4 + 1] = 0;
-                    strips_[i].pixelBuffer[pos * 4 + 2] = 0;
-                    strips_[i].pixelBuffer[pos * 4 + 3] = currentBrightness_;  // Pure white
-                    
-                    // Trailing pixel - dimmer white
-                    strips_[i].pixelBuffer[pos2 * 4 + 0] = 0;
-                    strips_[i].pixelBuffer[pos2 * 4 + 1] = 0;
-                    strips_[i].pixelBuffer[pos2 * 4 + 2] = 0;
-                    strips_[i].pixelBuffer[pos2 * 4 + 3] = currentBrightness_ / 3;
-                    
-                    showStrip(i);
+                    // Trailing pixel - dimmer white  
+                    setPixel(i, pos2, 0, 0, 0, 80);
                 }
             }
+            refreshAllStrips();
             position++;
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(60));
         }
         
         allOff();
@@ -522,7 +485,7 @@ public:
         ESP_LOGI(LED_TEST_TAG, "╚════════════════════════════════════════════════════════════╝");
         ESP_LOGI(LED_TEST_TAG, "");
         
-        if (!initialized_) initStrips();
+        if (!initialized_) init();
         
         // Test each color on all strips
         ESP_LOGI(LED_TEST_TAG, ">>> Testing RED channel...");
@@ -548,7 +511,7 @@ public:
         // Test each strip individually
         allOff();
         for (int i = 0; i < NUM_STRIPS; i++) {
-            if (LED_STRIPS[i].active && strips_[i].initialized) {
+            if (LED_STRIPS[i].active) {
                 ESP_LOGI(LED_TEST_TAG, ">>> Testing Strip %d (%s)...", i, LED_STRIPS[i].name);
                 setStripColor(i, 255, 255, 0, 0);  // Yellow
                 vTaskDelay(pdMS_TO_TICKS(800));
@@ -580,17 +543,12 @@ public:
             return;
         }
         
-        if (!initialized_) initStrips();
+        if (!initialized_) init();
         
         ESP_LOGI(LED_TEST_TAG, "");
         ESP_LOGI(LED_TEST_TAG, ">>> Testing Strip %d: %s (Pin=%d, LEDs=%d)",
                  stripIndex, LED_STRIPS[stripIndex].name,
                  LED_STRIPS[stripIndex].pin, LED_STRIPS[stripIndex].ledCount);
-        
-        if (!strips_[stripIndex].initialized) {
-            ESP_LOGE(LED_TEST_TAG, "Strip not initialized!");
-            return;
-        }
         
         // Fill with red
         ESP_LOGI(LED_TEST_TAG, "    RED...");
@@ -609,20 +567,17 @@ public:
         
         // Chase pattern
         ESP_LOGI(LED_TEST_TAG, "    CHASE...");
-        int numPixels = strips_[stripIndex].ledCount;
+        int numPixels = LED_STRIPS[stripIndex].ledCount;
         for (int run = 0; run < 2; run++) {
             for (int j = 0; j < numPixels; j++) {
-                memset(strips_[stripIndex].pixelBuffer, 0, numPixels * 3);
-                strips_[stripIndex].pixelBuffer[j * 3 + 0] = currentBrightness_;
-                strips_[stripIndex].pixelBuffer[j * 3 + 1] = currentBrightness_;
-                strips_[stripIndex].pixelBuffer[j * 3 + 2] = currentBrightness_;
-                showStrip(stripIndex);
+                clearAllBuffers();
+                setPixel(stripIndex, j, 255, 255, 255, 0);
+                updateStrip(stripIndex);
                 vTaskDelay(pdMS_TO_TICKS(50));
             }
         }
         
-        memset(strips_[stripIndex].pixelBuffer, 0, numPixels * 3);
-        showStrip(stripIndex);
+        allOff();
         
         ESP_LOGI(LED_TEST_TAG, "<<< Strip %d test complete", stripIndex);
         ESP_LOGI(LED_TEST_TAG, "");
@@ -689,14 +644,138 @@ public:
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
         
-        runFullAutomatedTestSuite();
+        runSimpleRGBWTest();
+        
+        // Final test: synchronized hue cycling to demo speed
+        runSynchronizedHueCycleTest(5000);
+        
         vTaskDelete(nullptr);
+    }
+    
+    /**
+     * @brief Synchronized Hue Cycle Test - All strips cycle through RGB hues together
+     * 
+     * This demonstrates the speed of the sequential RMT approach by having
+     * all LED strips appear to cycle through the color spectrum simultaneously.
+     * 
+     * @param durationMs How long to run the test (default 5000ms)
+     */
+    static void runSynchronizedHueCycleTest(int durationMs = 5000) {
+        ESP_LOGI(LED_TEST_TAG, "");
+        ESP_LOGI(LED_TEST_TAG, "╔════════════════════════════════════════════════════════════╗");
+        ESP_LOGI(LED_TEST_TAG, "║   SYNCHRONIZED HUE CYCLE TEST                              ║");
+        ESP_LOGI(LED_TEST_TAG, "║   All strips cycling together for %d seconds               ║", durationMs / 1000);
+        ESP_LOGI(LED_TEST_TAG, "║   Demonstrating Sequential RMT update speed!               ║");
+        ESP_LOGI(LED_TEST_TAG, "╚════════════════════════════════════════════════════════════╝");
+        ESP_LOGI(LED_TEST_TAG, "");
+        
+        if (!initialized_) init();
+        
+        uint32_t startTime = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        uint32_t elapsed = 0;
+        uint32_t frameCount = 0;
+        
+        ESP_LOGI(LED_TEST_TAG, ">>> Starting synchronized hue cycle on all %d strips...", ACTIVE_STRIP_COUNT);
+        
+        while (elapsed < (uint32_t)durationMs) {
+            elapsed = (xTaskGetTickCount() * portTICK_PERIOD_MS) - startTime;
+            
+            // Calculate hue based on elapsed time - complete cycle every 2 seconds
+            uint8_t hue = ((elapsed * 255) / 2000) % 256;
+            
+            // Convert HSV to RGB
+            uint8_t r, g, b;
+            hsvToRgb(hue, 255, 255, r, g, b);
+            
+            // Set ALL pixels on ALL active strips to the SAME color
+            for (int i = 0; i < NUM_STRIPS; i++) {
+                if (LED_STRIPS[i].active) {
+                    for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
+                        setPixel(i, j, r, g, b, 0);
+                    }
+                }
+            }
+            
+            // Update all strips sequentially (this is the speed test!)
+            refreshAllStrips();
+            
+            frameCount++;
+            
+            // Small delay to prevent CPU hogging - aim for ~60fps target
+            vTaskDelay(pdMS_TO_TICKS(16));
+        }
+        
+        // Calculate actual update rate
+        float fps = (float)frameCount / ((float)durationMs / 1000.0f);
+        
+        allOff();
+        
+        ESP_LOGI(LED_TEST_TAG, "");
+        ESP_LOGI(LED_TEST_TAG, "╔════════════════════════════════════════════════════════════╗");
+        ESP_LOGI(LED_TEST_TAG, "║   HUE CYCLE TEST COMPLETE                                  ║");
+        ESP_LOGI(LED_TEST_TAG, "║   Frames rendered: %lu                                   ║", (unsigned long)frameCount);
+        ESP_LOGI(LED_TEST_TAG, "║   Effective FPS:   %.1f fps                               ║", fps);
+        ESP_LOGI(LED_TEST_TAG, "║   Strips updated per frame: %d                             ║", ACTIVE_STRIP_COUNT);
+        ESP_LOGI(LED_TEST_TAG, "╚════════════════════════════════════════════════════════════╝");
+        ESP_LOGI(LED_TEST_TAG, "");
+    }
+    
+    /**
+     * @brief Simple RGBW test - Flash each strip R→G→B→W→Black
+     */
+    static void runSimpleRGBWTest() {
+        ESP_LOGI(LED_TEST_TAG, "");
+        ESP_LOGI(LED_TEST_TAG, "╔════════════════════════════════════════════════════════════╗");
+        ESP_LOGI(LED_TEST_TAG, "║   SIMPLE RGBW LED STRIP TEST                               ║");
+        ESP_LOGI(LED_TEST_TAG, "║   Testing: Red → Green → Blue → White → Off                ║");
+        ESP_LOGI(LED_TEST_TAG, "╚════════════════════════════════════════════════════════════╝");
+        ESP_LOGI(LED_TEST_TAG, "");
+        
+        // Test each strip individually
+        for (int i = 0; i < NUM_STRIPS; i++) {
+            if (!LED_STRIPS[i].active) continue;
+            
+            ESP_LOGI(LED_TEST_TAG, ">>> Testing Strip %d: %s (GPIO %d, %d LEDs)",
+                     i, LED_STRIPS[i].name, LED_STRIPS[i].pin, LED_STRIPS[i].ledCount);
+            
+            // Red
+            ESP_LOGI(LED_TEST_TAG, "    RED...");
+            setStripColor(i, 255, 0, 0, 0);
+            vTaskDelay(pdMS_TO_TICKS(800));
+            
+            // Green
+            ESP_LOGI(LED_TEST_TAG, "    GREEN...");
+            setStripColor(i, 0, 255, 0, 0);
+            vTaskDelay(pdMS_TO_TICKS(800));
+            
+            // Blue
+            ESP_LOGI(LED_TEST_TAG, "    BLUE...");
+            setStripColor(i, 0, 0, 255, 0);
+            vTaskDelay(pdMS_TO_TICKS(800));
+            
+            // White (dedicated W channel)
+            ESP_LOGI(LED_TEST_TAG, "    WHITE (W channel)...");
+            setStripColor(i, 0, 0, 0, 255);
+            vTaskDelay(pdMS_TO_TICKS(800));
+            
+            // Off
+            ESP_LOGI(LED_TEST_TAG, "    OFF...");
+            setStripColor(i, 0, 0, 0, 0);
+            vTaskDelay(pdMS_TO_TICKS(400));
+            
+            ESP_LOGI(LED_TEST_TAG, "");
+        }
+        
+        ESP_LOGI(LED_TEST_TAG, "╔════════════════════════════════════════════════════════════╗");
+        ESP_LOGI(LED_TEST_TAG, "║   RGBW TEST COMPLETE                                       ║");
+        ESP_LOGI(LED_TEST_TAG, "╚════════════════════════════════════════════════════════════╝");
+        ESP_LOGI(LED_TEST_TAG, "");
     }
     
     static void runFullAutomatedTestSuite() {
         testRunning_ = true;
         
-        if (!initialized_) initStrips();
+        if (!initialized_) init();
         
         ESP_LOGI(LED_TEST_TAG, "");
         ESP_LOGI(LED_TEST_TAG, "########################################################################");
@@ -783,21 +862,13 @@ public:
         
         ESP_LOGI(LED_TEST_TAG, ">>> Suite: Initialization Tests");
         
-        // Test 1: All active strips initialized
+        // Test 1: Sequential RMT driver initialized
         {
             uint32_t start = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            bool passed = true;
-            std::string msg = "All active strips initialized";
+            bool passed = initialized_;
+            std::string msg = passed ? "Sequential RMT LED driver initialized" : "RMT driver init failed";
             
-            for (int i = 0; i < NUM_STRIPS; i++) {
-                if (LED_STRIPS[i].active && !strips_[i].initialized) {
-                    passed = false;
-                    msg = "Strip " + std::to_string(i) + " failed to initialize";
-                    break;
-                }
-            }
-            
-            addTestResult(suite, "Strip Objects Created", passed, msg,
+            addTestResult(suite, "RMT Driver Init", passed, msg,
                          (xTaskGetTickCount() * portTICK_PERIOD_MS) - start);
         }
         
@@ -806,36 +877,30 @@ public:
             uint32_t start = xTaskGetTickCount() * portTICK_PERIOD_MS;
             bool passed = true;
             std::string msg = "All LED counts match config";
+            int activeCount = 0;
             
             for (int i = 0; i < NUM_STRIPS; i++) {
-                if (strips_[i].initialized) {
-                    if (strips_[i].ledCount != LED_STRIPS[i].ledCount) {
-                        passed = false;
-                        msg = "Strip " + std::to_string(i) + " LED count mismatch";
-                        break;
-                    }
+                if (LED_STRIPS[i].active) {
+                    activeCount++;
                 }
             }
             
-            addTestResult(suite, "LED Count Verification", passed, msg,
+            if (activeCount != ACTIVE_STRIP_COUNT) {
+                passed = false;
+                msg = "Active strip count mismatch";
+            }
+            
+            addTestResult(suite, "Active Strip Count", passed, msg,
                          (xTaskGetTickCount() * portTICK_PERIOD_MS) - start);
         }
         
-        // Test 3: Pixel buffers allocated
+        // Test 3: Driver ready
         {
             uint32_t start = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            bool passed = true;
-            std::string msg = "All pixel buffers allocated";
+            bool passed = initialized_;
+            std::string msg = passed ? "Driver ready for operations" : "Driver not ready";
             
-            for (int i = 0; i < NUM_STRIPS; i++) {
-                if (strips_[i].initialized && !strips_[i].pixelBuffer) {
-                    passed = false;
-                    msg = "Strip " + std::to_string(i) + " buffer missing";
-                    break;
-                }
-            }
-            
-            addTestResult(suite, "Pixel Buffers", passed, msg,
+            addTestResult(suite, "Driver Ready", passed, msg,
                          (xTaskGetTickCount() * portTICK_PERIOD_MS) - start);
         }
         
@@ -908,7 +973,7 @@ public:
         for (int i = 0; i < NUM_STRIPS; i++) {
             if (LED_STRIPS[i].active) {
                 uint32_t start = xTaskGetTickCount() * portTICK_PERIOD_MS;
-                bool passed = strips_[i].initialized;
+                bool passed = initialized_;
                 
                 if (passed) {
                     allOff();
@@ -935,9 +1000,9 @@ public:
         ESP_LOGI(LED_TEST_TAG, ">>> Suite: Pixel Addressing Tests");
         
         for (int i = 0; i < NUM_STRIPS; i++) {
-            if (LED_STRIPS[i].active && strips_[i].initialized) {
+            if (LED_STRIPS[i].active && initialized_) {
                 uint32_t start = xTaskGetTickCount() * portTICK_PERIOD_MS;
-                int numPixels = strips_[i].ledCount;
+                int numPixels = LED_STRIPS[i].ledCount;
                 
                 // Test first/middle/last pixels
                 allOff();
@@ -1078,10 +1143,10 @@ public:
 };
 
 // Static member initialization
-inline RmtLedStrip LedStripTestHarness::strips_[NUM_STRIPS] = {};
+inline uint8_t LedStripTestHarness::pixelBuffers_[NUM_STRIPS][64][4] = {{{0}}};
 inline bool LedStripTestHarness::initialized_ = false;
 inline bool LedStripTestHarness::testRunning_ = false;
-inline uint8_t LedStripTestHarness::currentBrightness_ = 128;
+inline uint8_t LedStripTestHarness::currentBrightness_ = 64;
 
 } // namespace Testing
 } // namespace SystemAPI

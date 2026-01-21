@@ -1230,6 +1230,11 @@ void CurrentMode::onStart() {
     // Initialize LED Strip Test Harness
     SystemAPI::Testing::LedStripTestHarness::init();
     
+    // Auto-run LED test after 10 second delay (allows serial monitor to connect)
+    ESP_LOGI("LED_TEST", "LED strip test will auto-start in 10 seconds...");
+    vTaskDelay(pdMS_TO_TICKS(10000));
+    SystemAPI::Testing::LedStripTestHarness::runQuickVisualTest();
+    
     // Set state query callback for test harness
     SystemAPI::Testing::SceneTestHarness::setStateQueryCallback([]() -> std::string {
         char buf[512];
