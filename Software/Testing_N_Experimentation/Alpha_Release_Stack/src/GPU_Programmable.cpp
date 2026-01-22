@@ -292,6 +292,15 @@ static uint8_t* oled_update_buffer = nullptr;  // Double buffer for safe cross-c
 // Anti-aliasing enabled by default
 static bool aa_enabled = true;
 
+// OLED orientation mode (0-7) - controlled by CPU
+// 0 = No transform, 1 = Rotate 180, 2 = Mirror X, 3 = Mirror Y
+// 4 = Mirror X+Y, 5 = Rotate 90 CW, 6 = Rotate 90 CCW, 7 = Rot90 + Mirror X
+static int oled_orientation = 0;  // CPU-controlled orientation (default: no additional transform)
+
+// Base orientation for physical mounting compensation (always applied AFTER cpu orientation)
+// Set to 1 (180° rotation) because display is physically mounted upside down
+static const int BASE_OLED_ORIENTATION = 1;
+
 // ============================================================
 // GPU Stats (for REQUEST_STATS response)
 // ============================================================
@@ -401,13 +410,94 @@ static inline void getPixelHUB75(int x, int y, uint8_t& r, uint8_t& g, uint8_t& 
   b = hub75_buffer[idx + 2];
 }
 
+// Transform coordinates based on a single orientation mode
+static inline void applyOLEDTransform(int& x, int& y, int mode) {
+  int tx, ty;
+  switch (mode) {
+    case 0:  // No transform
+      break;
+    case 1:  // Rotate 180° (mirror X and Y)
+      x = (OLED_WIDTH - 1) - x;
+      y = (OLED_HEIGHT - 1) - y;
+      break;
+    case 2:  // Mirror X only (horizontal flip)
+      x = (OLED_WIDTH - 1) - x;
+      break;
+    case 3:  // Mirror Y only (vertical flip)
+      y = (OLED_HEIGHT - 1) - y;
+      break;
+    case 4:  // Mirror X + Y (same as 180° rotate)
+      x = (OLED_WIDTH - 1) - x;
+      y = (OLED_HEIGHT - 1) - y;
+      break;
+    case 5:  // Rotate 90° CW
+      tx = (OLED_HEIGHT - 1) - y;
+      ty = x;
+      x = tx;
+      y = ty;
+      break;
+    case 6:  // Rotate 90° CCW
+      tx = y;
+      ty = (OLED_WIDTH - 1) - x;
+      x = tx;
+      y = ty;
+      break;
+    case 7:  // Rotate 90° CW + Mirror X
+      tx = y;
+      ty = x;
+      x = tx;
+      y = ty;
+      break;
+    default:
+      break;
+  }
+}
+
+// Transform coordinates: apply CPU orientation first, then base orientation for physical mounting
+static inline void transformOLEDCoords(int& x, int& y) {
+  // First apply CPU-requested orientation
+  applyOLEDTransform(x, y, oled_orientation);
+  // Then apply base orientation for physical mounting compensation
+  applyOLEDTransform(x, y, BASE_OLED_ORIENTATION);
+}
+
+// Transform for internal GPU drawing (No Signal, etc.) - only base orientation
+static inline void transformOLEDCoordsInternal(int& x, int& y) {
+  applyOLEDTransform(x, y, BASE_OLED_ORIENTATION);
+}
+
+// setPixelOLED: For CPU commands - applies CPU orientation + base orientation
 static inline void setPixelOLED(int x, int y, bool on) {
   if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return;
-  // X-mirror (flip left-right) and Y-mirror for correct orientation
-  int mx = (OLED_WIDTH - 1) - x;
-  int my = (OLED_HEIGHT - 1) - y;
-  int byte_idx = (my / 8) * OLED_WIDTH + mx;
-  int bit = my % 8;
+  
+  // Apply CPU orientation + base orientation
+  transformOLEDCoords(x, y);
+  
+  // Bounds check after transform
+  if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return;
+  
+  int byte_idx = (y / 8) * OLED_WIDTH + x;
+  int bit = y % 8;
+  if (on) {
+    oled_buffer[byte_idx] |= (1 << bit);
+  } else {
+    oled_buffer[byte_idx] &= ~(1 << bit);
+  }
+}
+
+// setPixelOLEDInternal: For GPU internal drawing (No Signal, boot animation)
+// Only applies base orientation for physical mounting, ignores CPU orientation
+static inline void setPixelOLEDInternal(int x, int y, bool on) {
+  if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return;
+  
+  // Only apply base orientation for physical mounting
+  transformOLEDCoordsInternal(x, y);
+  
+  // Bounds check after transform
+  if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return;
+  
+  int byte_idx = (y / 8) * OLED_WIDTH + x;
+  int bit = y % 8;
   if (on) {
     oled_buffer[byte_idx] |= (1 << bit);
   } else {
@@ -417,11 +507,15 @@ static inline void setPixelOLED(int x, int y, bool on) {
 
 static inline bool getPixelOLED(int x, int y) {
   if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return false;
-  // X-mirror and Y-mirror (same as setPixelOLED)
-  int mx = (OLED_WIDTH - 1) - x;
-  int my = (OLED_HEIGHT - 1) - y;
-  int byte_idx = (my / 8) * OLED_WIDTH + mx;
-  int bit = my % 8;
+  
+  // Apply orientation transform
+  transformOLEDCoords(x, y);
+  
+  // Bounds check after transform
+  if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return false;
+  
+  int byte_idx = (y / 8) * OLED_WIDTH + x;
+  int bit = y % 8;
   return (oled_buffer[byte_idx] >> bit) & 1;
 }
 
@@ -451,6 +545,7 @@ static inline uint32_t getPixel(int x, int y) {
 // ============================================================
 
 // Draw a simple Bresenham line (for boot animation - no AA needed)
+// Uses setPixelOLEDInternal for OLED to apply only base orientation
 static void bootDrawLine(int x0, int y0, int x1, int y1, uint8_t intensity, bool isOled) {
   int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
   int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
@@ -458,7 +553,7 @@ static void bootDrawLine(int x0, int y0, int x1, int y1, uint8_t intensity, bool
   
   while (true) {
     if (isOled) {
-      if (intensity > 127) setPixelOLED(x0, y0, true);
+      if (intensity > 127) setPixelOLEDInternal(x0, y0, true);
     } else {
       setPixelHUB75(x0, y0, intensity, intensity, intensity);
     }
@@ -470,6 +565,7 @@ static void bootDrawLine(int x0, int y0, int x1, int y1, uint8_t intensity, bool
 }
 
 // Draw a circle outline (for boot animation)
+// Uses setPixelOLEDInternal for OLED to apply only base orientation
 static void bootDrawCircle(int cx, int cy, int r, uint8_t intensity, bool isOled) {
   int x = r, y = 0;
   int err = 1 - r;
@@ -477,10 +573,10 @@ static void bootDrawCircle(int cx, int cy, int r, uint8_t intensity, bool isOled
   while (x >= y) {
     if (isOled) {
       if (intensity > 127) {
-        setPixelOLED(cx + x, cy + y, true); setPixelOLED(cx - x, cy + y, true);
-        setPixelOLED(cx + x, cy - y, true); setPixelOLED(cx - x, cy - y, true);
-        setPixelOLED(cx + y, cy + x, true); setPixelOLED(cx - y, cy + x, true);
-        setPixelOLED(cx + y, cy - x, true); setPixelOLED(cx - y, cy - x, true);
+        setPixelOLEDInternal(cx + x, cy + y, true); setPixelOLEDInternal(cx - x, cy + y, true);
+        setPixelOLEDInternal(cx + x, cy - y, true); setPixelOLEDInternal(cx - x, cy - y, true);
+        setPixelOLEDInternal(cx + y, cy + x, true); setPixelOLEDInternal(cx - y, cy + x, true);
+        setPixelOLEDInternal(cx + y, cy - x, true); setPixelOLEDInternal(cx - y, cy - x, true);
       }
     } else {
       setPixelHUB75(cx + x, cy + y, intensity, intensity, intensity);
@@ -570,7 +666,7 @@ static void drawNoSignalText(int x, int y, uint8_t intensity, bool isOled, bool 
             drawX = x + (textWidth - 1) - (cx - x + col);
           }
           if (isOled) {
-            if (intensity > 127) setPixelOLED(drawX, y + row, true);
+            if (intensity > 127) setPixelOLEDInternal(drawX, y + row, true);
           } else {
             setPixelHUB75(drawX, y + row, intensity, intensity, intensity);
           }
@@ -1904,6 +2000,7 @@ enum class CmdType : uint8_t {
   OLED_VLINE = 0x67,     // Vertical line (fast for text rendering)
   OLED_HLINE = 0x68,     // Horizontal line
   OLED_FILL_CIRCLE = 0x69,
+  OLED_SET_ORIENTATION = 0x6A,  // Set OLED orientation mode (0-7)
   
   // System commands
   PING = 0xF0,           // CPU ping request
@@ -2620,19 +2717,14 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         int16_t x2 = (int16_t)(payload[4] | (payload[5] << 8));
         int16_t y2 = (int16_t)(payload[6] | (payload[7] << 8));
         bool on = payload[8] > 0;
-        // Draw directly to OLED buffer using Bresenham
+        // Draw using Bresenham with orientation-aware setPixelOLED
         int dx = abs(x2 - x1);
         int dy = -abs(y2 - y1);
         int sx = x1 < x2 ? 1 : -1;
         int sy = y1 < y2 ? 1 : -1;
         int err = dx + dy;
         while (true) {
-          if (x1 >= 0 && x1 < OLED_WIDTH && y1 >= 0 && y1 < OLED_HEIGHT) {
-            int byte_idx = (y1 / 8) * OLED_WIDTH + x1;
-            int bit = y1 % 8;
-            if (on) oled_buffer[byte_idx] |= (1 << bit);
-            else oled_buffer[byte_idx] &= ~(1 << bit);
-          }
+          setPixelOLED(x1, y1, on);
           if (x1 == x2 && y1 == y2) break;
           int e2 = 2 * err;
           if (e2 >= dy) { err += dy; x1 += sx; }
@@ -2649,36 +2741,18 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         int16_t w = (int16_t)(payload[4] | (payload[5] << 8));
         int16_t h = (int16_t)(payload[6] | (payload[7] << 8));
         bool on = payload[8] > 0;
-        // Draw rectangle outline to OLED
-        for (int px = x; px < x + w && px < OLED_WIDTH; px++) {
-          if (px >= 0) {
-            if (y >= 0 && y < OLED_HEIGHT) {
-              int idx = (y / 8) * OLED_WIDTH + px;
-              if (on) oled_buffer[idx] |= (1 << (y % 8));
-              else oled_buffer[idx] &= ~(1 << (y % 8));
-            }
-            int y2 = y + h - 1;
-            if (y2 >= 0 && y2 < OLED_HEIGHT) {
-              int idx = (y2 / 8) * OLED_WIDTH + px;
-              if (on) oled_buffer[idx] |= (1 << (y2 % 8));
-              else oled_buffer[idx] &= ~(1 << (y2 % 8));
-            }
-          }
+        // Draw rectangle outline using orientation-aware setPixelOLED
+        int y2 = y + h - 1;
+        int x2 = x + w - 1;
+        // Top and bottom edges
+        for (int px = x; px <= x2; px++) {
+          setPixelOLED(px, y, on);
+          setPixelOLED(px, y2, on);
         }
-        for (int py = y; py < y + h && py < OLED_HEIGHT; py++) {
-          if (py >= 0) {
-            if (x >= 0 && x < OLED_WIDTH) {
-              int idx = (py / 8) * OLED_WIDTH + x;
-              if (on) oled_buffer[idx] |= (1 << (py % 8));
-              else oled_buffer[idx] &= ~(1 << (py % 8));
-            }
-            int x2 = x + w - 1;
-            if (x2 >= 0 && x2 < OLED_WIDTH) {
-              int idx = (py / 8) * OLED_WIDTH + x2;
-              if (on) oled_buffer[idx] |= (1 << (py % 8));
-              else oled_buffer[idx] &= ~(1 << (py % 8));
-            }
-          }
+        // Left and right edges
+        for (int py = y; py <= y2; py++) {
+          setPixelOLED(x, py, on);
+          setPixelOLED(x2, py, on);
         }
       }
       break;
@@ -2691,13 +2765,10 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         int16_t w = (int16_t)(payload[4] | (payload[5] << 8));
         int16_t h = (int16_t)(payload[6] | (payload[7] << 8));
         bool on = payload[8] > 0;
-        for (int py = y; py < y + h && py < OLED_HEIGHT; py++) {
-          if (py < 0) continue;
-          for (int px = x; px < x + w && px < OLED_WIDTH; px++) {
-            if (px < 0) continue;
-            int idx = (py / 8) * OLED_WIDTH + px;
-            if (on) oled_buffer[idx] |= (1 << (py % 8));
-            else oled_buffer[idx] &= ~(1 << (py % 8));
+        // Filled rectangle using orientation-aware setPixelOLED
+        for (int py = y; py < y + h; py++) {
+          for (int px = x; px < x + w; px++) {
+            setPixelOLED(px, py, on);
           }
         }
       }
@@ -2710,19 +2781,17 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         int16_t cy = (int16_t)(payload[2] | (payload[3] << 8));
         int16_t r = (int16_t)(payload[4] | (payload[5] << 8));
         bool on = payload[6] > 0;
-        // Bresenham circle
+        // Bresenham circle using orientation-aware setPixelOLED
         int x = r, y = 0, err = 0;
         while (x >= y) {
-          int pts[8][2] = {{cx+x,cy+y},{cx-x,cy+y},{cx+x,cy-y},{cx-x,cy-y},
-                           {cx+y,cy+x},{cx-y,cy+x},{cx+y,cy-x},{cx-y,cy-x}};
-          for (int i = 0; i < 8; i++) {
-            int px = pts[i][0], py = pts[i][1];
-            if (px >= 0 && px < OLED_WIDTH && py >= 0 && py < OLED_HEIGHT) {
-              int idx = (py / 8) * OLED_WIDTH + px;
-              if (on) oled_buffer[idx] |= (1 << (py % 8));
-              else oled_buffer[idx] &= ~(1 << (py % 8));
-            }
-          }
+          setPixelOLED(cx + x, cy + y, on);
+          setPixelOLED(cx - x, cy + y, on);
+          setPixelOLED(cx + x, cy - y, on);
+          setPixelOLED(cx - x, cy - y, on);
+          setPixelOLED(cx + y, cy + x, on);
+          setPixelOLED(cx - y, cy + x, on);
+          setPixelOLED(cx + y, cy - x, on);
+          setPixelOLED(cx - y, cy - x, on);
           y++; err += 1 + 2*y;
           if (2*(err-x) + 1 > 0) { x--; err += 1 - 2*x; }
         }
@@ -2747,11 +2816,7 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         int16_t x = (int16_t)(payload[0] | (payload[1] << 8));
         int16_t y = (int16_t)(payload[2] | (payload[3] << 8));
         bool on = payload[4] > 0;
-        if (x >= 0 && x < OLED_WIDTH && y >= 0 && y < OLED_HEIGHT) {
-          int idx = (y / 8) * OLED_WIDTH + x;
-          if (on) oled_buffer[idx] |= (1 << (y % 8));
-          else oled_buffer[idx] &= ~(1 << (y % 8));
-        }
+        setPixelOLED(x, y, on);
       }
       break;
     }
@@ -2763,14 +2828,9 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         int16_t y = (int16_t)(payload[2] | (payload[3] << 8));
         int16_t len = (int16_t)(payload[4] | (payload[5] << 8));
         bool on = payload[6] > 0;
-        if (x >= 0 && x < OLED_WIDTH) {
-          for (int py = y; py < y + len && py < OLED_HEIGHT; py++) {
-            if (py >= 0) {
-              int idx = (py / 8) * OLED_WIDTH + x;
-              if (on) oled_buffer[idx] |= (1 << (py % 8));
-              else oled_buffer[idx] &= ~(1 << (py % 8));
-            }
-          }
+        // Use orientation-aware setPixelOLED
+        for (int py = y; py < y + len; py++) {
+          setPixelOLED(x, py, on);
         }
       }
       break;
@@ -2783,16 +2843,9 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         int16_t y = (int16_t)(payload[2] | (payload[3] << 8));
         int16_t len = (int16_t)(payload[4] | (payload[5] << 8));
         bool on = payload[6] > 0;
-        if (y >= 0 && y < OLED_HEIGHT) {
-          int bit = y % 8;
-          uint8_t mask = 1 << bit;
-          for (int px = x; px < x + len && px < OLED_WIDTH; px++) {
-            if (px >= 0) {
-              int idx = (y / 8) * OLED_WIDTH + px;
-              if (on) oled_buffer[idx] |= mask;
-              else oled_buffer[idx] &= ~mask;
-            }
-          }
+        // Use orientation-aware setPixelOLED
+        for (int px = x; px < x + len; px++) {
+          setPixelOLED(px, y, on);
         }
       }
       break;
@@ -2804,19 +2857,25 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         int16_t cy = (int16_t)(payload[2] | (payload[3] << 8));
         int16_t r = (int16_t)(payload[4] | (payload[5] << 8));
         bool on = payload[6] > 0;
-        // Filled circle using scanlines
+        // Filled circle using scanlines with orientation-aware setPixelOLED
         for (int y = -r; y <= r; y++) {
           int py = cy + y;
-          if (py < 0 || py >= OLED_HEIGHT) continue;
           int dx = (int)sqrtf(r * r - y * y);
           for (int x = -dx; x <= dx; x++) {
             int px = cx + x;
-            if (px >= 0 && px < OLED_WIDTH) {
-              int idx = (py / 8) * OLED_WIDTH + px;
-              if (on) oled_buffer[idx] |= (1 << (py % 8));
-              else oled_buffer[idx] &= ~(1 << (py % 8));
-            }
+            setPixelOLED(px, py, on);
           }
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_SET_ORIENTATION: {
+      if (hdr->length >= 1) {
+        int mode = payload[0];
+        if (mode >= 0 && mode <= 7) {
+          oled_orientation = mode;
+          ESP_LOGI(TAG, "OLED orientation set to mode %d", mode);
         }
       }
       break;

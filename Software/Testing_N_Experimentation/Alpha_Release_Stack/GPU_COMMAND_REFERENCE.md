@@ -137,21 +137,20 @@ Origin (0,0) ──────────────────────�
 
 ### OLED (128x128 Monochrome)
 
-**⚠️ IMPORTANT: OLED Orientation Correction**
+**ℹ️ OLED Mounting Note**
 
-The OLED display requires transformation:
-1. **Flip horizontally** (mirror back-to-front)
-2. **Rotate 180 degrees**
+The OLED display is physically mounted 180° rotated. The GPU firmware uses
+raw coordinates without transformation to account for this mounting orientation.
 
-The GPU firmware handles this automatically. When drawing to OLED:
+When drawing to OLED, coordinates work as expected:
 ```
-Physical Screen      →    Your Coordinates
-┌─────────────┐           ┌─────────────┐
-│             │           │ (0,0)       │
-│ (mirrored)  │    →      │     ───►X   │
-│             │           │     │       │
-└─────────────┘           │     ▼Y      │
-                          └─────────────┘
+Your Coordinates (matches physical display)
+┌─────────────┐
+│ (0,0)       │
+│     ───►X   │
+│     │       │
+│     ▼Y      │
+└─────────────┘
 ```
 
 - Width: 128 pixels

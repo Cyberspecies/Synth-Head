@@ -123,6 +123,7 @@ private:
         OLED_VLINE = 0x67,
         OLED_HLINE = 0x68,
         OLED_FILL_CIRCLE = 0x69,
+        OLED_SET_ORIENTATION = 0x6A,
         
         // System commands
         PING = 0xF0,           // Send ping to GPU
@@ -1389,6 +1390,23 @@ public:
     /** Present OLED framebuffer to display */
     void oledPresent() {
         sendCmd(CmdType::OLED_PRESENT, nullptr, 0);
+    }
+    
+    /**
+     * Set OLED orientation mode
+     * @param mode Orientation mode (0-7):
+     *   0 = No transform
+     *   1 = Rotate 180° (default)
+     *   2 = Mirror X (horizontal flip)
+     *   3 = Mirror Y (vertical flip)
+     *   4 = Mirror X+Y (same as 180°)
+     *   5 = Rotate 90° CW
+     *   6 = Rotate 90° CCW
+     *   7 = Rotate 90° CW + Mirror X
+     */
+    void oledSetOrientation(uint8_t mode) {
+        uint8_t payload[1] = {mode};
+        sendCmd(CmdType::OLED_SET_ORIENTATION, payload, 1);
     }
     
     // ============================================================

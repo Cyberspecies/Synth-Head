@@ -102,6 +102,18 @@ elseif(CPU_WEB_CONFIG_TEST)
         "Drivers/ImuDriver.cpp"
     )
     message(STATUS "Building CPU Web Config Test")
+elseif(CPU_OLED_TEST)
+    set(SOURCE_FILES
+        "CPU_OledTest.cpp"
+        "SystemAPI/GPU/GpuDriver.cpp"
+    )
+    message(STATUS "Building CPU OLED Test")
+elseif(CPU_OLED_ORIENTATION_TEST)
+    set(SOURCE_FILES
+        "CPU_OledOrientationTest.cpp"
+        "SystemAPI/GPU/GpuDriver.cpp"
+    )
+    message(STATUS "Building CPU OLED Orientation Test")
 # GPU Build selections
 elseif(BAUD_TEST_MODE)
     set(SOURCE_FILE "GPU_BaudTest.cpp")
