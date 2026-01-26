@@ -120,6 +120,12 @@ elseif(CPU_SCENE_COMPOSER_TEST)
         "SystemAPI/GPU/GpuDriver.cpp"
     )
     message(STATUS "Building CPU Scene Composer Test")
+elseif(CPU_OLEDUI_TEST)
+    set(SOURCE_FILES
+        "CPU_OledUITest.cpp"
+        "SystemAPI/GPU/GpuDriver.cpp"
+    )
+    message(STATUS "Building CPU OledUI Framework Test")
 # GPU Build selections
 elseif(BAUD_TEST_MODE)
     set(SOURCE_FILE "GPU_BaudTest.cpp")
