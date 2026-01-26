@@ -4,7 +4,7 @@
  * 
  * This is the main application mode that orchestrates:
  * - Hardware drivers (GPS, Mic, IMU, Fan) via modular driver files
- * - GPU communication via GpuCommands
+ * - GPU communication via GpuCommands and SceneComposer
  * - Web server and captive portal
  * - Dual-core application layer (animation on Core 1)
  * 
@@ -20,6 +20,10 @@
 #include "SystemAPI/GPU/GpuDriver.h"  // SAME as WifiSpriteUploadTest
 #include "Application/Application.hpp"  // Dual-core application layer
 #include "Application/Pipeline/SceneRenderer.hpp"  // Scene renderer for Core 1
+
+// Scene Composition System
+#include "GpuDriver/GpuCommands.hpp"
+#include "FrameworkAPI/SceneComposer.hpp"
 
 // Animation System
 #include "AnimationSystem/AnimationSystem.hpp"
@@ -54,15 +58,25 @@ namespace Modes {
 //=============================================================================
 // GPU UART Driver - ESP-to-ESP Communication (Proper Protocol)
 //=============================================================================
-// Use the SAME GpuDriver as WifiSpriteUploadTest (from SystemAPI/GPU/GpuDriver.h)
-// Import types from SystemAPI namespace for cleaner usage
-using SystemAPI::GpuDriver;
+// Use GpuCommands for both direct GPU access and SceneComposer
+// Import types from SystemAPI namespace for cleaner usage (but use GpuCommands for GPU)
 using SystemAPI::GpuConfig;
 using SystemAPI::GpuTarget;
 using SystemAPI::SpriteFormat;
 using SystemAPI::Color;
 
-static GpuDriver g_gpu;  // Global GpuDriver instance - SAME as working test
+// NOTE: We now use GpuCommands instead of SystemAPI::GpuDriver
+// GpuCommands is required by SceneComposer and provides the same functionality
+static GpuCommands g_gpu;  // Global GpuCommands instance - used by SceneComposer
+
+//=============================================================================
+// Scene Composition System
+//=============================================================================
+// SceneComposer manages layer-based scene composition for displays
+static SceneAPI::SceneComposer g_sceneComposer;  // Scene composition system
+static bool g_sceneComposerEnabled = true;  // Use SceneComposer for HUB75 rendering
+static SceneAPI::Scene* g_activeHubScene = nullptr;  // Current active HUB75 scene
+static SceneAPI::Scene* g_activeOledScene = nullptr;  // Current active OLED scene
 
 namespace GpuDriverState {
     // GPU UART pins (from PIN_MAPPING_CPU.md)
@@ -219,13 +233,13 @@ namespace GpuDriverState {
         }
         printf("\n");
         
-        bool result0 = g_gpu.uploadSprite(0, EYE_SIZE, EYE_SIZE, spriteData, SpriteFormat::RGB888);
+        bool result0 = g_gpu.uploadSprite(0, spriteData, EYE_SIZE, EYE_SIZE);
         printf("  Eye sprite 0 upload: %s\n", result0 ? "SUCCESS" : "FAILED");
         vTaskDelay(pdMS_TO_TICKS(100));  // Give GPU time to process
         
         // Sprite 1: Right eye (same as left - white circle)
         createCircleSprite(spriteData, EYE_SIZE, 255, 255, 255);
-        bool result1 = g_gpu.uploadSprite(1, EYE_SIZE, EYE_SIZE, spriteData, SpriteFormat::RGB888);
+        bool result1 = g_gpu.uploadSprite(1, spriteData, EYE_SIZE, EYE_SIZE);
         printf("  Eye sprite 1 upload: %s\n", result1 ? "SUCCESS" : "FAILED");
         vTaskDelay(pdMS_TO_TICKS(100));
         
@@ -246,35 +260,52 @@ namespace GpuDriverState {
     bool init() {
         if (initialized) return true;
         
-        // Initialize GPU using SAME pattern as WifiSpriteUploadTest
-        GpuConfig gpuConfig;
-        gpuConfig.uartPort = UART_NUM_1;
-        gpuConfig.txPin = (gpio_num_t)GPU_TX_PIN;
-        gpuConfig.rxPin = (gpio_num_t)GPU_RX_PIN;
-        gpuConfig.baudRate = 10000000;  // 10 Mbps
-        gpuConfig.gpuBootDelayMs = 500; // Wait for GPU to boot
-        gpuConfig.weightedPixels = true; // Enable AA
-        
-        if (!g_gpu.init(gpuConfig)) {
+        // Initialize GPU using GpuCommands (required by SceneComposer)
+        // GpuCommands::init(port, txPin, rxPin, baud)
+        if (!g_gpu.init(UART_NUM_1, GPU_TX_PIN, GPU_RX_PIN, 10000000)) {
             printf("  GPU: Init failed\n");
             return false;
         }
         
-        // Start keep-alive (SAME as working test)
-        g_gpu.startKeepAlive(1000);
+        // Reset and clear display
         g_gpu.reset();
         vTaskDelay(pdMS_TO_TICKS(200));
         
-        // Clear display on init - no startup animation
-        g_gpu.setTarget(GpuTarget::HUB75);
-        g_gpu.clear(0, 0, 0);
-        g_gpu.present();
+        // Clear HUB75 display on init
+        g_gpu.hub75Clear(0, 0, 0);
+        g_gpu.hub75Present();
         
         initialized = true;
         connected = true;  // Assume connected after successful init
         lastPingTime = 0;
-        printf("  GPU: Initialized via GpuDriver (TX:%d, RX:%d @ 10Mbps)\n", GPU_TX_PIN, GPU_RX_PIN);
-        printf("  GPU: Keep-alive started, display initialized\n");
+        printf("  GPU: Initialized via GpuCommands (TX:%d, RX:%d @ 10Mbps)\n", GPU_TX_PIN, GPU_RX_PIN);
+        
+        // ====== SCENE COMPOSER INITIALIZATION ======
+        if (g_sceneComposerEnabled) {
+            printf("  SceneComposer: Initializing...\n");
+            g_sceneComposer.init(&g_gpu);
+            
+            // Create default HUB75 scene with gyro eyes
+            g_activeHubScene = g_sceneComposer.createScene(SceneAPI::DisplayTarget::HUB75, "MainHUB75");
+            if (g_activeHubScene) {
+                g_activeHubScene->backgroundColor = SceneAPI::Color(0, 0, 0);
+                g_activeHubScene->displayWidth = 128;
+                g_activeHubScene->displayHeight = 32;
+                g_sceneComposer.setActiveScene(SceneAPI::DisplayTarget::HUB75, g_activeHubScene);
+                printf("  SceneComposer: HUB75 scene created\n");
+            }
+            
+            // Create default OLED scene
+            g_activeOledScene = g_sceneComposer.createScene(SceneAPI::DisplayTarget::OLED, "MainOLED");
+            if (g_activeOledScene) {
+                g_activeOledScene->displayWidth = 128;
+                g_activeOledScene->displayHeight = 128;
+                g_sceneComposer.setActiveScene(SceneAPI::DisplayTarget::OLED, g_activeOledScene);
+                printf("  SceneComposer: OLED scene created\n");
+            }
+            
+            printf("  SceneComposer: Ready\n");
+        }
         
         // Start high-frequency IMU task (100Hz for better gyro responsiveness)
         imuTaskRunning = true;
@@ -335,7 +366,7 @@ namespace GpuDriverState {
         g_gpu.deleteSprite(spriteId);
         vTaskDelay(pdMS_TO_TICKS(50));
         
-        if (g_gpu.uploadSprite(spriteId, SPRITE_W, SPRITE_H, spriteData.data(), SpriteFormat::RGB888)) {
+        if (g_gpu.uploadSprite(spriteId, spriteData.data(), SPRITE_W, SPRITE_H)) {
             printf("  Test sprite uploaded to GPU slot %d\n", spriteId);
             vTaskDelay(pdMS_TO_TICKS(200));  // Wait for GPU to process
             
@@ -371,16 +402,17 @@ namespace GpuDriverState {
     void update(uint32_t currentTimeMs) {
         if (!initialized) return;
         
-        // Send periodic ping (GpuDriver has built-in keep-alive, so this is just for status tracking)
+        // Send periodic ping for status tracking
         if (currentTimeMs - lastPingTime >= PING_INTERVAL_MS) {
             lastPingTime = currentTimeMs;
             
-            // Use simple ping - GpuDriver handles keep-alive internally
+            // Use pingWithResponse - GpuCommands requires uptimeMs output parameter
             // NOTE: Don't block on ping response - just update status for diagnostics
-            // The GPU is responsive even if we miss PONG (it's busy processing frames)
             static int missedPongs = 0;
-            if (g_gpu.ping(10)) {  // Very short timeout - non-blocking check
+            uint32_t uptimeMs = 0;
+            if (g_gpu.pingWithResponse(uptimeMs, 10)) {  // Very short timeout - non-blocking check
                 connected = true;
+                gpuUptimeMs = uptimeMs;
                 missedPongs = 0;
             } else {
                 // Don't set connected=false on missed pong - GPU is just busy
@@ -398,7 +430,7 @@ namespace GpuDriverState {
             lastRenderTime = currentTimeMs;
             renderFrameCount++;
             
-            g_gpu.setTarget(GpuTarget::HUB75);
+            // No setTarget needed - GpuCommands uses hub75* methods directly
             
             // Check if complex transition animation is enabled (new default)
             if (complexAnimEnabled) {
@@ -411,21 +443,20 @@ namespace GpuDriverState {
                 // Update and render complex transition animation
                 complexAnim.update(RENDER_INTERVAL_MS, ax, ay, az);
                 
-                // Set up GPU callbacks (SystemAPI::GpuDriver uses drawRect, not fillRect)
+                // Set up GPU callbacks (GpuCommands uses hub75* methods)
                 auto clear = [](uint8_t r, uint8_t g, uint8_t b) {
-                    g_gpu.clear(r, g, b);
+                    g_gpu.hub75Clear(r, g, b);
                 };
                 auto fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
                     if (w > 0 && h > 0) {
-                        // Use drawRect as filled rect for SystemAPI::GpuDriver
-                        g_gpu.drawRect(x, y, w, h, r, g, b);
+                        g_gpu.hub75Fill(x, y, w, h, r, g, b);
                     }
                 };
                 auto drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-                    g_gpu.drawPixel(x, y, r, g, b);
+                    g_gpu.hub75Pixel(x, y, r, g, b);
                 };
                 auto present = []() {
-                    g_gpu.present();
+                    g_gpu.hub75Present();
                     vTaskDelay(pdMS_TO_TICKS(1));
                 };
                 
@@ -447,7 +478,7 @@ namespace GpuDriverState {
                 switch (currentAnimMode) {
                     case SceneAnimMode::GYRO_EYES: {
                         // Gyro-controlled eyes animation
-                        g_gpu.clear(0, 0, 0);
+                        g_gpu.hub75Clear(0, 0, 0);
                         
                         // Left eye position (panel 0, center = 32, 16)
                         float leftCenterX = 32.0f;
@@ -476,12 +507,12 @@ namespace GpuDriverState {
                             g_gpu.blitSpriteF(activeSpriteId, leftX, leftY);
                             g_gpu.blitSpriteF(activeSpriteId, rightX, rightY);
                         } else {
-                            // Draw filled circles for eyes
-                            g_gpu.drawCircleF(leftX, leftY, eyeSize, 255, 255, 255);
-                            g_gpu.drawCircleF(rightX, rightY, eyeSize, 255, 255, 255);
+                            // Draw filled circles for eyes (cast to int for GpuCommands)
+                            g_gpu.hub75Circle((int16_t)leftX, (int16_t)leftY, (int16_t)eyeSize, 255, 255, 255);
+                            g_gpu.hub75Circle((int16_t)rightX, (int16_t)rightY, (int16_t)eyeSize, 255, 255, 255);
                         }
                         
-                        g_gpu.present();
+                        g_gpu.hub75Present();
                         
                         if (renderFrameCount % 60 == 0) {
                             printf("GYRO_EYES: Frame %lu - offset=(%.1f,%.1f) pitch=%.1f roll=%.1f\n",
@@ -492,16 +523,16 @@ namespace GpuDriverState {
                     
                     case SceneAnimMode::STATIC_IMAGE: {
                         // Static sprite display
-                        g_gpu.clear(bgR, bgG, bgB);
+                        g_gpu.hub75Clear(bgR, bgG, bgB);
                         
                         if (spriteReady) {
                             g_gpu.blitSpriteRotated(activeSpriteId, staticPosX, staticPosY, staticRotation);
                         } else {
                             // No sprite, show placeholder
-                            g_gpu.drawRect(54, 6, 20, 20, 128, 128, 128);
+                            g_gpu.hub75Fill(54, 6, 20, 20, 128, 128, 128);
                         }
                         
-                        g_gpu.present();
+                        g_gpu.hub75Present();
                         break;
                     }
                     
@@ -513,7 +544,7 @@ namespace GpuDriverState {
                         float swayY = sinf(swayTime * 1.5f) * swayYIntensity;
                         float swayRot = sinf(swayTime) * swayRotRange;
                         
-                        g_gpu.clear(bgR, bgG, bgB);
+                        g_gpu.hub75Clear(bgR, bgG, bgB);
                         
                         // Sway around center of display
                         float centerX = 64.0f + swayX;
@@ -522,11 +553,11 @@ namespace GpuDriverState {
                         if (spriteReady) {
                             g_gpu.blitSpriteRotated(activeSpriteId, centerX, centerY, swayRot);
                         } else {
-                            // No sprite, draw swaying circle
-                            g_gpu.drawCircleF(centerX, centerY, 10.0f, 255, 255, 255);
+                            // No sprite, draw swaying circle (cast to int)
+                            g_gpu.hub75Circle((int16_t)centerX, (int16_t)centerY, 10, 255, 255, 255);
                         }
                         
-                        g_gpu.present();
+                        g_gpu.hub75Present();
                         
                         if (renderFrameCount % 60 == 0) {
                             printf("SWAY: Frame %lu - pos=(%.1f,%.1f) rot=%.1f time=%.2f\n",
@@ -540,17 +571,17 @@ namespace GpuDriverState {
                         if (!sandboxInitialized) {
                             auto& sandbox = AnimationSystem::Sandbox::getSandbox();
                             
-                            sandbox.clear = [](uint8_t r, uint8_t g, uint8_t b) { g_gpu.clear(r, g, b); };
+                            sandbox.clear = [](uint8_t r, uint8_t g, uint8_t b) { g_gpu.hub75Clear(r, g, b); };
                             sandbox.fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
-                                if (w > 0 && h > 0) g_gpu.drawRect(x, y, w, h, r, g, b);
+                                if (w > 0 && h > 0) g_gpu.hub75Fill(x, y, w, h, r, g, b);
                             };
                             sandbox.drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-                                g_gpu.drawPixel(x, y, r, g, b);
+                                g_gpu.hub75Pixel(x, y, r, g, b);
                             };
                             sandbox.drawCircleF = [](float x, float y, float radius, uint8_t r, uint8_t g, uint8_t b) {
-                                g_gpu.drawCircleF(x, y, radius, r, g, b);
+                                g_gpu.hub75Circle((int16_t)x, (int16_t)y, (int16_t)radius, r, g, b);
                             };
-                            sandbox.present = []() { g_gpu.present(); vTaskDelay(pdMS_TO_TICKS(2)); };
+                            sandbox.present = []() { g_gpu.hub75Present(); vTaskDelay(pdMS_TO_TICKS(2)); };
                             
                             sandbox.setEnabled(true);
                             sandbox.setAnimation(AnimationSystem::Sandbox::SandboxController::Animation::SDF_MORPH);
@@ -578,9 +609,9 @@ namespace GpuDriverState {
                     incrementAngle();
                 }
                 
-                g_gpu.clear(bgR, bgG, bgB);
+                g_gpu.hub75Clear(bgR, bgG, bgB);
                 g_gpu.blitSpriteRotated(activeSpriteId, spriteX, spriteY, spriteAngle);
-                g_gpu.present();
+                g_gpu.hub75Present();
                 
                 if (renderFrameCount % 30 == 0) {
                     printf("DEBUG RENDER: Frame %lu - sprite=%u pos=(%.1f,%.1f) angle=%.1f\n",
@@ -830,8 +861,8 @@ namespace GpuDriverState {
     
     bool areLedsEnabled() { return ledsEnabled; }
     
-    // Getters - provide access to the global GpuDriver
-    SystemAPI::GpuDriver& getGpu() { return g_gpu; }
+    // Getters - provide access to the global GpuCommands
+    GpuCommands& getGpu() { return g_gpu; }
     uint32_t getGpuUptime() { return gpuUptimeMs; }
     // Note: isSpriteReady() and isConnected() are defined earlier in this namespace
 }
@@ -924,12 +955,11 @@ void CurrentMode::onStart() {
     if (animHandler.init()) {
         printf("  AnimationHandler: Initialized\n");
         
-        // Wire GPU callbacks to AnimationHandler
+        // Wire GPU callbacks to AnimationHandler (using GpuCommands hub75* methods)
         animHandler.wireGpuCallbacks(
             // Clear function
             [](uint8_t r, uint8_t g, uint8_t b) {
-                GpuDriverState::getGpu().setTarget(GpuTarget::HUB75);
-                GpuDriverState::getGpu().clear(r, g, b);
+                GpuDriverState::getGpu().hub75Clear(r, g, b);
             },
             // Blit sprite function (use float for smooth sub-pixel positioning)
             [](int id, float x, float y) {
@@ -939,24 +969,24 @@ void CurrentMode::onStart() {
             [](int id, float x, float y, float angle) {
                 GpuDriverState::getGpu().blitSpriteRotated(static_cast<uint8_t>(id), x, y, angle);
             },
-            // Fill circle function (use drawCircle - no filled variant in GpuDriver)
+            // Fill circle function (GpuCommands uses hub75Circle)
             [](int cx, int cy, int r, uint8_t red, uint8_t green, uint8_t blue) {
-                GpuDriverState::getGpu().drawCircle(static_cast<int16_t>(cx), 
+                GpuDriverState::getGpu().hub75Circle(static_cast<int16_t>(cx), 
                                                      static_cast<int16_t>(cy), 
                                                      static_cast<int16_t>(r), 
                                                      red, green, blue);
             },
-            // Fill rect function (use drawFilledRect)
+            // Fill rect function (GpuCommands uses hub75Fill)
             [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
-                GpuDriverState::getGpu().drawFilledRect(static_cast<int16_t>(x), 
-                                                         static_cast<int16_t>(y), 
-                                                         static_cast<int16_t>(w), 
-                                                         static_cast<int16_t>(h), 
-                                                         r, g, b);
+                GpuDriverState::getGpu().hub75Fill(static_cast<int16_t>(x), 
+                                                   static_cast<int16_t>(y), 
+                                                   static_cast<int16_t>(w), 
+                                                   static_cast<int16_t>(h), 
+                                                   r, g, b);
             },
             // Present function
             []() {
-                GpuDriverState::getGpu().present();
+                GpuDriverState::getGpu().hub75Present();
             }
         );
         printf("  AnimationHandler: GPU callbacks wired\n");
@@ -969,18 +999,17 @@ void CurrentMode::onStart() {
     // =====================================================
     auto& sandbox = AnimationSystem::Sandbox::getSandbox();
     sandbox.clear = [](uint8_t r, uint8_t g, uint8_t b) {
-        GpuDriverState::getGpu().setTarget(GpuTarget::HUB75);
-        GpuDriverState::getGpu().clear(r, g, b);
+        GpuDriverState::getGpu().hub75Clear(r, g, b);
     };
     sandbox.fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
-        GpuDriverState::getGpu().drawFilledRect(static_cast<int16_t>(x), 
-                                                 static_cast<int16_t>(y), 
-                                                 static_cast<int16_t>(w), 
-                                                 static_cast<int16_t>(h), 
-                                                 r, g, b);
+        GpuDriverState::getGpu().hub75Fill(static_cast<int16_t>(x), 
+                                           static_cast<int16_t>(y), 
+                                           static_cast<int16_t>(w), 
+                                           static_cast<int16_t>(h), 
+                                           r, g, b);
     };
     sandbox.drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-        GpuDriverState::getGpu().drawPixel(static_cast<int16_t>(x), 
+        GpuDriverState::getGpu().hub75Pixel(static_cast<int16_t>(x), 
                                             static_cast<int16_t>(y), 
                                             r, g, b);
     };
@@ -991,10 +1020,10 @@ void CurrentMode::onStart() {
         GpuDriverState::getGpu().blitSpriteRotated(static_cast<uint8_t>(id), x, y, angle);
     };
     sandbox.drawCircleF = [](float x, float y, float radius, uint8_t r, uint8_t g, uint8_t b) {
-        GpuDriverState::getGpu().drawCircleF(x, y, radius, r, g, b);
+        GpuDriverState::getGpu().hub75Circle((int16_t)x, (int16_t)y, (int16_t)radius, r, g, b);
     };
     sandbox.present = []() {
-        GpuDriverState::getGpu().present();
+        GpuDriverState::getGpu().hub75Present();
         // Small yield to let GPU process (prevents UART buffer overflow at high FPS)
         vTaskDelay(1);  // 1 tick = ~1ms - gives GPU time to drain command buffer
     };
@@ -1078,12 +1107,11 @@ void CurrentMode::onStart() {
                 GpuDriverState::getGpu().deleteSprite(gpuSpriteId);
                 vTaskDelay(pdMS_TO_TICKS(10));  // Small delay
                 
-                // Upload sprite (id, width, height, data, format)
+                // Upload sprite (GpuCommands signature: id, data, width, height)
                 if (GpuDriverState::getGpu().uploadSprite(gpuSpriteId, 
-                                                          sprite->width, 
-                                                          sprite->height,
                                                           sprite->pixelData.data(),
-                                                          SpriteFormat::RGB888)) {
+                                                          sprite->width, 
+                                                          sprite->height)) {
                     // CRITICAL: Wait for GPU to fully process sprite upload
                     vTaskDelay(pdMS_TO_TICKS(200));  // 200ms for safety
                     
@@ -1118,15 +1146,14 @@ void CurrentMode::onStart() {
     
     // Callback for clearing the display (returns to animation mode)
     httpServer.setDisplayClearCallback([]() {
-        printf("  Clearing display via GpuDriver\n");
+        printf("  Clearing display via GpuCommands\n");
         
         // Stop continuous sprite rendering
         GpuDriverState::clearSpriteScene();
         
         // Clear the HUB75 display
-        GpuDriverState::getGpu().setTarget(GpuTarget::HUB75);
-        GpuDriverState::getGpu().clear(0, 0, 0);
-        GpuDriverState::getGpu().present();
+        GpuDriverState::getGpu().hub75Clear(0, 0, 0);
+        GpuDriverState::getGpu().hub75Present();
         
         printf("  Display cleared\n");
     });
@@ -1157,11 +1184,11 @@ void CurrentMode::onStart() {
                     GpuDriverState::getGpu().deleteSprite(gpuSpriteId);
                     vTaskDelay(pdMS_TO_TICKS(10));
                     
+                    // GpuCommands signature: id, data, width, height
                     if (GpuDriverState::getGpu().uploadSprite(gpuSpriteId,
-                                                              sprite->width,
-                                                              sprite->height,
                                                               sprite->pixelData.data(),
-                                                              SpriteFormat::RGB888)) {
+                                                              sprite->width,
+                                                              sprite->height)) {
                         vTaskDelay(pdMS_TO_TICKS(100));
                         GpuDriverState::setSpriteScene(gpuSpriteId, 64.0f, 16.0f, 0.0f, 0, 0, 0);
                         printf("  Sprite uploaded to GPU slot 0\n");
@@ -1567,10 +1594,10 @@ void CurrentMode::onUpdate(uint32_t deltaMs) {
 void CurrentMode::onStop() {
     printf("  Current mode stopped after %lu updates\\n", (unsigned long)m_updateCount);
     
-    // Stop GPU driver keep-alive
-    g_gpu.stopKeepAlive();
-    g_gpu.shutdown();
-    printf("  GpuDriver shutdown complete\\n");
+    // GpuCommands doesn't have explicit shutdown - clear the display instead
+    g_gpu.hub75Clear(0, 0, 0);
+    g_gpu.hub75Present();
+    printf("  GpuCommands shutdown complete\\n");
     
     /*
     // DISABLED: Application layer
