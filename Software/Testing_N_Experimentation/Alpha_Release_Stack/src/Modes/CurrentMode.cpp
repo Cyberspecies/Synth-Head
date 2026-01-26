@@ -182,6 +182,31 @@ namespace GpuDriverState {
     static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
     static bool complexAnimEnabled = false;  // Disabled - use sandbox instead
     
+    // ====== OLED MENU UI STATE ======
+    static int oledMenuIndex = 0;
+    static constexpr int OLED_MENU_ITEMS = 5;
+    static const char* oledMenuItems[] = {
+        "System Info",
+        "LED Control", 
+        "Animation",
+        "Settings",
+        "Debug"
+    };
+    
+    // Button state tracking for OLED menu (edge detection)
+    static bool lastBtnA_oled = true;  // true = released (pull-up)
+    static bool lastBtnB_oled = true;
+    static bool lastBtnC_oled = true;
+    static bool lastBtnD_oled = true;
+    static uint32_t lastOledButtonTime = 0;
+    static constexpr uint32_t OLED_DEBOUNCE_MS = 50;
+    static uint32_t lastOledRenderTime = 0;
+    static constexpr uint32_t OLED_RENDER_INTERVAL_MS = 100;  // Render at 10fps
+    static bool oledNeedsRender = true;  // Initial render flag
+    static bool oledSelectFlash = false;  // Flash feedback for select
+    static bool oledBackFlash = false;    // Flash feedback for back
+    static uint32_t oledFlashStartTime = 0;
+    
     // ====== HIGH-FREQUENCY IMU TASK ======
     static TaskHandle_t imuTaskHandle = nullptr;
     static bool imuTaskRunning = false;
@@ -625,6 +650,106 @@ namespace GpuDriverState {
             lastRenderDebugTime = currentTimeMs;
             printf("DEBUG STATE: sandbox=%d spriteReady=%d connected=%d frames=%lu\n",
                    sandboxEnabled, spriteReady, connected, renderFrameCount);
+        }
+        
+        // ====== OLED MENU RENDERING ======
+        // Read buttons for OLED menu navigation (edge-triggered with debounce)
+        if (currentTimeMs - lastOledButtonTime >= OLED_DEBOUNCE_MS) {
+            bool btnA = gpio_get_level(GPIO_NUM_5) != 0;   // UP
+            bool btnB = gpio_get_level(GPIO_NUM_6) != 0;   // SELECT
+            bool btnC = gpio_get_level(GPIO_NUM_7) != 0;   // DOWN
+            bool btnD = gpio_get_level(GPIO_NUM_15) != 0;  // BACK
+            
+            // Check for falling edge (button press)
+            if (lastBtnA_oled && !btnA) {
+                // UP pressed
+                if (oledMenuIndex > 0) {
+                    oledMenuIndex--;
+                    oledNeedsRender = true;
+                }
+                lastOledButtonTime = currentTimeMs;
+            } else if (lastBtnC_oled && !btnC) {
+                // DOWN pressed
+                if (oledMenuIndex < OLED_MENU_ITEMS - 1) {
+                    oledMenuIndex++;
+                    oledNeedsRender = true;
+                }
+                lastOledButtonTime = currentTimeMs;
+            } else if (lastBtnB_oled && !btnB) {
+                // SELECT pressed - flash feedback
+                oledSelectFlash = true;
+                oledFlashStartTime = currentTimeMs;
+                oledNeedsRender = true;
+                lastOledButtonTime = currentTimeMs;
+                printf("OLED_MENU: Selected '%s'\n", oledMenuItems[oledMenuIndex]);
+            } else if (lastBtnD_oled && !btnD) {
+                // BACK pressed - flash feedback and reset
+                oledBackFlash = true;
+                oledFlashStartTime = currentTimeMs;
+                oledMenuIndex = 0;
+                oledNeedsRender = true;
+                lastOledButtonTime = currentTimeMs;
+                printf("OLED_MENU: Back pressed\n");
+            }
+            
+            lastBtnA_oled = btnA;
+            lastBtnB_oled = btnB;
+            lastBtnC_oled = btnC;
+            lastBtnD_oled = btnD;
+        }
+        
+        // Handle flash timeout (200ms flash duration)
+        if ((oledSelectFlash || oledBackFlash) && (currentTimeMs - oledFlashStartTime >= 200)) {
+            oledSelectFlash = false;
+            oledBackFlash = false;
+            oledNeedsRender = true;
+        }
+        
+        // Periodic OLED render or when needed
+        if (oledNeedsRender || (currentTimeMs - lastOledRenderTime >= OLED_RENDER_INTERVAL_MS)) {
+            lastOledRenderTime = currentTimeMs;
+            oledNeedsRender = false;
+            
+            g_gpu.oledClear();
+            
+            if (oledSelectFlash) {
+                // Flash: inverted screen with "SELECTED!"
+                g_gpu.oledFill(0, 0, 128, 128, true);
+                g_gpu.oledText(15, 50, "SELECTED!", 2, false);
+                g_gpu.oledText(10, 80, oledMenuItems[oledMenuIndex], 1, false);
+            } else if (oledBackFlash) {
+                // Flash: inverted screen with "BACK!"
+                g_gpu.oledFill(0, 0, 128, 128, true);
+                g_gpu.oledText(30, 60, "BACK!", 2, false);
+            } else {
+                // Normal menu display
+                // Draw border
+                g_gpu.oledRect(0, 0, 128, 128, true);
+                
+                // Draw title
+                g_gpu.oledText(20, 5, "SYNTH HEAD", 1, true);
+                
+                // Draw horizontal line
+                g_gpu.oledLine(0, 16, 127, 16, true);
+                
+                // Draw menu items
+                for (int i = 0; i < OLED_MENU_ITEMS; i++) {
+                    int yPos = 22 + i * 18;
+                    
+                    if (i == oledMenuIndex) {
+                        // Highlight selected item
+                        g_gpu.oledFill(2, yPos - 2, 124, 16, true);
+                        g_gpu.oledText(8, yPos, oledMenuItems[i], 1, false);  // Inverted text
+                    } else {
+                        g_gpu.oledText(8, yPos, oledMenuItems[i], 1, true);
+                    }
+                }
+                
+                // Draw navigation hint at bottom
+                g_gpu.oledText(2, 115, "A=^ C=v B=OK D=<", 1, true);
+            }
+            
+            g_gpu.oledPresent();
         }
         
         // Note: GpuDriver from SystemAPI doesn't have stats/alerts like GpuCommands
