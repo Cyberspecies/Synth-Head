@@ -114,6 +114,12 @@ elseif(CPU_OLED_ORIENTATION_TEST)
         "SystemAPI/GPU/GpuDriver.cpp"
     )
     message(STATUS "Building CPU OLED Orientation Test")
+elseif(CPU_SCENE_COMPOSER_TEST)
+    set(SOURCE_FILES
+        "CPU_SceneComposerTest.cpp"
+        "SystemAPI/GPU/GpuDriver.cpp"
+    )
+    message(STATUS "Building CPU Scene Composer Test")
 # GPU Build selections
 elseif(BAUD_TEST_MODE)
     set(SOURCE_FILE "GPU_BaudTest.cpp")
