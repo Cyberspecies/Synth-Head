@@ -195,8 +195,10 @@ private:
     int pageIndex_ = 0;
     int sensorIndex_ = 0;
     int sensorPageIndex_ = 0;
-    float scrollOffset_ = 0.0f;
+    float scrollOffset_ = 0.0f;      // Mode select scroll
     float targetOffset_ = 0.0f;
+    float sensorScrollOffset_ = 0.0f; // Sensor list scroll (separate from mode)
+    float sensorTargetOffset_ = 0.0f;
     
     // Sensor data cache
     ImuData imuData_ = {};
@@ -229,13 +231,23 @@ private:
     uint32_t lastRenderTime_ = 0;
     bool needsRender_ = true;
     
-    // Marquee state
-    int marqueeOffset_ = 0;
-    uint32_t lastMarqueeTime_ = 0;
-    int marqueePauseCounter_ = 8;
-    bool marqueeScrollRight_ = true;
+    // Multi-slot auto-scroll marquee system
+    // Each slot tracks a unique text by its screen position (y*256 + x)
+    static constexpr int MAX_MARQUEE_SLOTS = 8;
+    static constexpr int MARQUEE_PAUSE_FRAMES = 12;  // Pause at ends
     
-    // Breadcrumb marquee state
+    struct MarqueeSlot {
+        uint16_t posId;         // Position ID (y*256 + x) for tracking
+        int8_t offset;          // Current scroll offset
+        int8_t maxOffset;       // Maximum offset for this text
+        uint8_t pauseCounter;   // Pause frames remaining
+        bool scrollRight;       // Scroll direction
+        bool active;            // Slot in use this frame
+    };
+    MarqueeSlot marqueeSlots_[MAX_MARQUEE_SLOTS] = {};
+    uint32_t lastMarqueeTime_ = 0;
+    
+    // Breadcrumb marquee state (separate for header)
     int breadcrumbOffset_ = 0;
     uint32_t lastBreadcrumbTime_ = 0;
     bool breadcrumbScrollRight_ = true;
@@ -335,8 +347,7 @@ private:
         } else if (select) {
             state_ = MenuState::PAGE_VIEW;
             pageIndex_ = 0;
-            marqueeOffset_ = 0;
-            marqueePauseCounter_ = 8;
+            resetAllMarqueeSlots();  // Clear scroll states when changing views
             printf("OLED_MENU: Entered mode '%s'\n", modeNames_[modeIndex_]);
         }
         // back does nothing at top level
@@ -347,16 +358,20 @@ private:
         if (modeIndex_ == (int)Mode::SYSTEM_INFO) {
             if (up && pageIndex_ > 0) {
                 pageIndex_--;
+                resetAllMarqueeSlots();
             } else if (down && pageIndex_ < 1) {
                 pageIndex_++;
+                resetAllMarqueeSlots();
             } else if (select && pageIndex_ == 1) {
                 // Page 2 = Sensor List, enter sensor selection
                 state_ = MenuState::SENSOR_LIST;
                 sensorIndex_ = 0;
-                scrollOffset_ = 0;
-                targetOffset_ = 0;
+                sensorScrollOffset_ = 0;
+                sensorTargetOffset_ = 0;
+                resetAllMarqueeSlots();
             } else if (back) {
                 state_ = MenuState::MODE_SELECT;
+                resetAllMarqueeSlots();
                 printf("OLED_MENU: Back to mode select\n");
             }
         }
@@ -365,17 +380,19 @@ private:
     void handleSensorListInput(bool up, bool select, bool down, bool back) {
         if (up) {
             sensorIndex_ = (sensorIndex_ - 1 + sensorCount_) % sensorCount_;
-            targetOffset_ = (float)sensorIndex_;
+            sensorTargetOffset_ = (float)sensorIndex_;
         } else if (down) {
             sensorIndex_ = (sensorIndex_ + 1) % sensorCount_;
-            targetOffset_ = (float)sensorIndex_;
+            sensorTargetOffset_ = (float)sensorIndex_;
         } else if (select) {
             state_ = MenuState::SENSOR_DETAIL;
             sensorPageIndex_ = 0;
+            resetAllMarqueeSlots();  // Reset scroll states for new view
             printf("OLED_MENU: Viewing sensor '%s'\n", sensorNames_[sensorIndex_]);
         } else if (back) {
             state_ = MenuState::PAGE_VIEW;
             pageIndex_ = 1;  // Back to sensor list page
+            resetAllMarqueeSlots();
         }
     }
     
@@ -429,6 +446,10 @@ private:
     // ========================================================================
     
     void render(uint32_t currentTimeMs) {
+        // Update marquee animations
+        updateMarqueeAnimations(currentTimeMs);
+        beginMarqueeFrame();
+        
         gpu_->oledClear();
         
         switch (state_) {
@@ -449,6 +470,7 @@ private:
         // Always render breadcrumb at bottom
         renderBreadcrumb(currentTimeMs);
         
+        endMarqueeFrame();
         gpu_->oledPresent();
     }
     
@@ -498,12 +520,14 @@ private:
             if (pageIndex_ == 0) {
                 renderSystemInfoPage1(currentTimeMs);
             } else {
-                renderSystemInfoPage2();
+                renderSystemInfoPage2(currentTimeMs);
             }
         }
     }
     
     void renderSystemInfoPage1(uint32_t currentTimeMs) {
+        (void)currentTimeMs;  // Now handled by auto-scroll system
+        
         // Title
         gpu_->oledFill(0, 0, 128, HEADER_HEIGHT, true);
         gpu_->oledTextNative(8, 3, "SYSTEM INFO (1/2)", 1, false);
@@ -511,73 +535,75 @@ private:
         int y = CONTENT_START_Y;
         char buf[64];
         
-        // Device Name
+        // Device Name - auto-scrolls if too long
         snprintf(buf, sizeof(buf), "Name: %s", deviceName_);
-        gpu_->oledTextNative(2, y, buf, 1, true);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
-        // Model
+        // Model - auto-scrolls if too long
         snprintf(buf, sizeof(buf), "Model: %s", deviceModel_);
-        gpu_->oledTextNative(2, y, buf, 1, true);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
-        // Project (may need marquee)
-        gpu_->oledTextNative(2, y, "Project:", 1, true);
-        y += LINE_HEIGHT - 2;
-        renderMarqueeText(2, y, projectName_, MAX_CHARS_PER_LINE - 1, currentTimeMs);
+        // Project - auto-scrolls if too long
+        snprintf(buf, sizeof(buf), "Proj: %s", projectName_);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
         // Get WiFi credentials from security driver
         auto& security = arcos::security::SecurityDriver::instance();
         
-        // WiFi SSID
+        // WiFi SSID - auto-scrolls if too long
         snprintf(buf, sizeof(buf), "SSID: %s", security.getSSID());
-        renderMarqueeText(2, y, buf, MAX_CHARS_PER_LINE - 1, currentTimeMs);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
-        // WiFi Password
+        // WiFi Password - auto-scrolls if too long
         snprintf(buf, sizeof(buf), "Pass: %s", security.getPassword());
-        renderMarqueeText(2, y, buf, MAX_CHARS_PER_LINE - 1, currentTimeMs);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
         // Manufactured Date
         snprintf(buf, sizeof(buf), "Mfg: %s", manufacturedDate_);
-        gpu_->oledTextNative(2, y, buf, 1, true);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
-        // On Time
+        // On Time - auto-scrolls if too long
         char timeBuf[24];
         formatOnTime(timeBuf, sizeof(timeBuf), getCurrentOnTime());
         snprintf(buf, sizeof(buf), "On-Time: %s", timeBuf);
-        gpu_->oledTextNative(2, y, buf, 1, true);
+        oledText(2, y, buf);
     }
     
-    void renderSystemInfoPage2() {
+    void renderSystemInfoPage2(uint32_t currentTimeMs) {
+        (void)currentTimeMs;  // Now handled by auto-scroll system
+        
         // Title
         gpu_->oledFill(0, 0, 128, HEADER_HEIGHT, true);
         gpu_->oledTextNative(8, 3, "SENSORS (2/2)", 1, false);
         
         int y = CONTENT_START_Y;
         
-        gpu_->oledTextNative(2, y, "Press B to view sensors", 1, true);
+        // Auto-scrolls: "Press B to view sensors"
+        oledText(2, y, "Press B to view sensors");
         y += LINE_HEIGHT * 2;
         
         // Quick sensor status overview
         char buf[32];
         snprintf(buf, sizeof(buf), "IMU: %s", imuData_.connected ? "OK" : "N/A");
-        gpu_->oledTextNative(2, y, buf, 1, true);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
         snprintf(buf, sizeof(buf), "BME: %s", bmeData_.connected ? "OK" : "N/A");
-        gpu_->oledTextNative(2, y, buf, 1, true);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
         snprintf(buf, sizeof(buf), "GPS: %s", gpsData_.connected ? (gpsData_.hasFix ? "Fix" : "No Fix") : "N/A");
-        gpu_->oledTextNative(2, y, buf, 1, true);
+        oledText(2, y, buf);
         y += LINE_HEIGHT;
         
         snprintf(buf, sizeof(buf), "MIC: %s", micData_.connected ? "OK" : "N/A");
-        gpu_->oledTextNative(2, y, buf, 1, true);
+        oledText(2, y, buf);
     }
     
     void renderSensorList() {
@@ -585,29 +611,32 @@ private:
         gpu_->oledFill(0, 0, 128, HEADER_HEIGHT, true);
         gpu_->oledTextNative(16, 3, "SENSORS", 1, false);
         
+        // Smooth scroll animation for sensor list
+        if (sensorScrollOffset_ != sensorTargetOffset_) {
+            float diff = sensorTargetOffset_ - sensorScrollOffset_;
+            sensorScrollOffset_ += diff * 0.3f;  // Smooth interpolation
+            if (fabsf(diff) < 0.05f) sensorScrollOffset_ = sensorTargetOffset_;
+        }
+        
         const int centerY = 64;
         const int itemHeight = 16;
         
-        // Render sensor list centered on selection
-        int displayRange = 3;
-        bool drawn[16] = {false};
-        
-        for (int i = -displayRange; i <= displayRange; i++) {
-            int idx = ((int)scrollOffset_ + i + sensorCount_ * 10) % sensorCount_;
-            if (idx < 0) idx += sensorCount_;
-            if (drawn[idx]) continue;
-            drawn[idx] = true;
-            
-            float offset = (float)i - (scrollOffset_ - floorf(scrollOffset_));
+        // Render all sensors in a vertical list centered on selection
+        for (int i = 0; i < sensorCount_; i++) {
+            // Calculate position relative to current selection
+            float offset = (float)i - sensorScrollOffset_;
             int yPos = centerY + (int)(offset * itemHeight) - 4;
-            if (yPos < 18 || yPos > 100) continue;
             
-            bool selected = (i == 0);
+            // Skip if outside visible area
+            if (yPos < 16 || yPos > 104) continue;
+            
+            bool selected = (i == sensorIndex_);
             if (selected) {
                 gpu_->oledFill(2, yPos - 2, 124, 14, true);
-                gpu_->oledTextNative(6, yPos, sensorNames_[idx], 1, false);
+                // Use auto-scroll for long sensor names
+                oledText(6, yPos, sensorNames_[i], 19, false);
             } else {
-                gpu_->oledTextNative(6, yPos, sensorNames_[idx], 1, true);
+                oledText(6, yPos, sensorNames_[i], 19, true);
             }
         }
     }
@@ -856,6 +885,8 @@ private:
     // ========================================================================
     
     void renderBreadcrumb(uint32_t currentTimeMs) {
+        (void)currentTimeMs;  // Now using auto-scroll system
+        
         // Draw separator line
         gpu_->oledLine(0, CONTENT_END_Y + 1, 127, CONTENT_END_Y + 1, true);
         
@@ -871,15 +902,8 @@ private:
             int xPos = (OLED_WIDTH - textLen * CHAR_WIDTH) / 2;
             gpu_->oledTextNative(xPos, CONTENT_END_Y + 3, breadcrumb, 1, true);
         } else {
-            // Too long - marquee scroll
-            updateBreadcrumbMarquee(currentTimeMs, textLen - maxChars);
-            
-            char displayBuf[32];
-            int offset = breadcrumbOffset_;
-            if (offset > textLen - maxChars) offset = textLen - maxChars;
-            strncpy(displayBuf, breadcrumb + offset, maxChars);
-            displayBuf[maxChars] = '\0';
-            gpu_->oledTextNative(2, CONTENT_END_Y + 3, displayBuf, 1, true);
+            // Too long - use auto-scroll system (position 2, CONTENT_END_Y+3 is unique)
+            oledText(2, CONTENT_END_Y + 3, breadcrumb, maxChars);
         }
     }
     
@@ -902,11 +926,11 @@ private:
                 {
                     int maxPages = getSensorPageCount((Sensor)sensorIndex_);
                     if (maxPages > 1) {
-                        snprintf(buf, bufSize, "Sensors > %s > %d/%d", 
+                        snprintf(buf, bufSize, "SysInfo > Sensors > %s > %d/%d", 
                                  getSensorShortName((Sensor)sensorIndex_),
                                  sensorPageIndex_ + 1, maxPages);
                     } else {
-                        snprintf(buf, bufSize, "Sensors > %s", 
+                        snprintf(buf, bufSize, "SysInfo > Sensors > %s", 
                                  getSensorShortName((Sensor)sensorIndex_));
                     }
                 }
@@ -953,46 +977,157 @@ private:
     }
     
     // ========================================================================
-    // MARQUEE TEXT
+    // AUTO-SCROLL TEXT SYSTEM
+    // ========================================================================
+    // Automatically scrolls any text that's too long for the display.
+    // Use oledText() instead of oledTextNative() for auto-scroll support.
+    // Each screen position (x,y) gets its own independent scroll state.
     // ========================================================================
     
-    void renderMarqueeText(int x, int y, const char* text, int maxChars, uint32_t currentTimeMs) {
-        int textLen = strlen(text);
-        if (textLen <= maxChars) {
-            gpu_->oledTextNative(x, y, text, 1, true);
-            return;
+    // Call at start of each render frame to mark all slots inactive
+    void beginMarqueeFrame() {
+        for (int i = 0; i < MAX_MARQUEE_SLOTS; i++) {
+            marqueeSlots_[i].active = false;
         }
+    }
+    
+    // Call at end of render frame to clean up unused slots
+    void endMarqueeFrame() {
+        for (int i = 0; i < MAX_MARQUEE_SLOTS; i++) {
+            if (!marqueeSlots_[i].active && marqueeSlots_[i].posId != 0) {
+                // Slot was used last frame but not this frame - reset it
+                marqueeSlots_[i].posId = 0;
+                marqueeSlots_[i].offset = 0;
+                marqueeSlots_[i].pauseCounter = MARQUEE_PAUSE_FRAMES;
+                marqueeSlots_[i].scrollRight = true;
+            }
+        }
+    }
+    
+    // Reset all marquee slots (call when changing menu views)
+    void resetAllMarqueeSlots() {
+        for (int i = 0; i < MAX_MARQUEE_SLOTS; i++) {
+            marqueeSlots_[i].posId = 0;
+            marqueeSlots_[i].offset = 0;
+            marqueeSlots_[i].pauseCounter = MARQUEE_PAUSE_FRAMES;
+            marqueeSlots_[i].scrollRight = true;
+            marqueeSlots_[i].active = false;
+        }
+    }
+    
+    // Find or create a marquee slot for this position
+    MarqueeSlot* getMarqueeSlot(int x, int y, int maxOffset) {
+        uint16_t posId = (uint16_t)(y * 256 + x);
         
-        // Update marquee position
-        if (currentTimeMs - lastMarqueeTime_ >= RENDER_MARQUEE_MS) {
-            lastMarqueeTime_ = currentTimeMs;
-            int maxOffset = textLen - maxChars;
-            
-            if (marqueePauseCounter_ > 0) {
-                marqueePauseCounter_--;
-            } else if (marqueeScrollRight_) {
-                marqueeOffset_++;
-                if (marqueeOffset_ >= maxOffset) {
-                    marqueeOffset_ = maxOffset;
-                    marqueeScrollRight_ = false;
-                    marqueePauseCounter_ = 8;
-                }
-            } else {
-                marqueeOffset_--;
-                if (marqueeOffset_ <= 0) {
-                    marqueeOffset_ = 0;
-                    marqueeScrollRight_ = true;
-                    marqueePauseCounter_ = 8;
-                }
+        // Look for existing slot
+        for (int i = 0; i < MAX_MARQUEE_SLOTS; i++) {
+            if (marqueeSlots_[i].posId == posId) {
+                marqueeSlots_[i].active = true;
+                marqueeSlots_[i].maxOffset = (int8_t)maxOffset;
+                return &marqueeSlots_[i];
             }
         }
         
+        // Find empty slot
+        for (int i = 0; i < MAX_MARQUEE_SLOTS; i++) {
+            if (marqueeSlots_[i].posId == 0) {
+                marqueeSlots_[i].posId = posId;
+                marqueeSlots_[i].offset = 0;
+                marqueeSlots_[i].maxOffset = (int8_t)maxOffset;
+                marqueeSlots_[i].pauseCounter = MARQUEE_PAUSE_FRAMES;
+                marqueeSlots_[i].scrollRight = true;
+                marqueeSlots_[i].active = true;
+                return &marqueeSlots_[i];
+            }
+        }
+        
+        // No slots available - reuse first inactive
+        for (int i = 0; i < MAX_MARQUEE_SLOTS; i++) {
+            if (!marqueeSlots_[i].active) {
+                marqueeSlots_[i].posId = posId;
+                marqueeSlots_[i].offset = 0;
+                marqueeSlots_[i].maxOffset = (int8_t)maxOffset;
+                marqueeSlots_[i].pauseCounter = MARQUEE_PAUSE_FRAMES;
+                marqueeSlots_[i].scrollRight = true;
+                marqueeSlots_[i].active = true;
+                return &marqueeSlots_[i];
+            }
+        }
+        
+        return nullptr;  // All slots full and active
+    }
+    
+    // Update all active marquee animations
+    void updateMarqueeAnimations(uint32_t currentTimeMs) {
+        if (currentTimeMs - lastMarqueeTime_ < RENDER_MARQUEE_MS) return;
+        lastMarqueeTime_ = currentTimeMs;
+        
+        for (int i = 0; i < MAX_MARQUEE_SLOTS; i++) {
+            MarqueeSlot& slot = marqueeSlots_[i];
+            if (!slot.active || slot.posId == 0) continue;
+            
+            if (slot.pauseCounter > 0) {
+                slot.pauseCounter--;
+            } else if (slot.scrollRight) {
+                slot.offset++;
+                if (slot.offset >= slot.maxOffset) {
+                    slot.offset = slot.maxOffset;
+                    slot.scrollRight = false;
+                    slot.pauseCounter = MARQUEE_PAUSE_FRAMES;
+                }
+            } else {
+                slot.offset--;
+                if (slot.offset <= 0) {
+                    slot.offset = 0;
+                    slot.scrollRight = true;
+                    slot.pauseCounter = MARQUEE_PAUSE_FRAMES;
+                }
+            }
+        }
+    }
+    
+    /**
+     * @brief Auto-scrolling text display
+     * 
+     * Displays text at the given position. If the text is longer than maxChars,
+     * it will automatically scroll back and forth to show the full content.
+     * Each unique (x,y) position maintains its own scroll state.
+     * 
+     * @param x X position on screen
+     * @param y Y position on screen  
+     * @param text The text to display
+     * @param maxChars Maximum characters that fit (default: MAX_CHARS_PER_LINE)
+     * @param white true for white text, false for black
+     */
+    void oledText(int x, int y, const char* text, int maxChars = MAX_CHARS_PER_LINE, bool white = true) {
+        int textLen = strlen(text);
+        
+        // Text fits - just display it
+        if (textLen <= maxChars) {
+            gpu_->oledTextNative(x, y, text, 1, white);
+            return;
+        }
+        
+        // Text needs scrolling
+        int maxOffset = textLen - maxChars;
+        MarqueeSlot* slot = getMarqueeSlot(x, y, maxOffset);
+        
+        int offset = 0;
+        if (slot) {
+            offset = slot->offset;
+            if (offset > maxOffset) offset = maxOffset;
+            if (offset < 0) offset = 0;
+        }
+        
         char displayBuf[32];
-        int offset = marqueeOffset_;
-        if (offset > textLen - maxChars) offset = textLen - maxChars;
         strncpy(displayBuf, text + offset, maxChars);
         displayBuf[maxChars] = '\0';
-        gpu_->oledTextNative(x, y, displayBuf, 1, true);
+        gpu_->oledTextNative(x, y, displayBuf, 1, white);
+    }
+    
+    // Legacy wrapper for compatibility
+    void renderMarqueeText(int x, int y, const char* text, int maxChars, uint32_t /*currentTimeMs*/) {
+        oledText(x, y, text, maxChars, true);
     }
     
     // ========================================================================
