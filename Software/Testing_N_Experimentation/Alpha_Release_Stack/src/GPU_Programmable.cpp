@@ -2002,6 +2002,7 @@ enum class CmdType : uint8_t {
   OLED_FILL_CIRCLE = 0x69,
   OLED_SET_ORIENTATION = 0x6A,  // Set OLED orientation mode (0-7)
   OLED_TEXT = 0x6B,      // Native text rendering: x(2), y(2), scale(1), on(1), text(N)
+  OLED_MIRROR_HUB75 = 0x6C,    // Mirror HUB75 to OLED: threshold(1), scaleMode(1), yOffset(1)
   
   // System commands
   PING = 0xF0,           // CPU ping request
@@ -3016,6 +3017,120 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
             }
           }
           cursorX += 6 * scale;  // 5 pixel char + 1 pixel spacing
+        }
+      }
+      break;
+    }
+    
+    case CmdType::OLED_MIRROR_HUB75: {
+      // Ultra-fast HUB75 to OLED mirroring using luminance threshold
+      // Payload: threshold(1), scaleMode(1), yOffset(1)
+      // threshold: 0-255 luminance cutoff (default 128)
+      // scaleMode: 0=1:1 (32 rows centered), 1=4x vertical scale (fills 128 rows)
+      // yOffset: Y offset for 1:1 mode (default 48 to center 32 in 128)
+      
+      uint8_t threshold = 128;
+      uint8_t scaleMode = 1;  // Default to 4x scale
+      uint8_t yOffset = 48;   // Center for 1:1 mode
+      
+      if (hdr->length >= 1) threshold = payload[0];
+      if (hdr->length >= 2) scaleMode = payload[1];
+      if (hdr->length >= 3) yOffset = payload[2];
+      
+      // NOTE: HUB75 buffer is stored X-mirrored globally (see setPixelHUB75).
+      // Additionally, the LEFT panel (0-63) content is pre-mirrored within the panel,
+      // while the RIGHT panel (64-127) content is stored normally.
+      // After global X-flip in setPixelHUB75, both appear correct on the physical display.
+      //
+      // To read back the visual representation:
+      // - Apply global un-mirror X: mx = 127 - x
+      // - For right panel (visual x >= 64): also mirror within panel
+      
+      if (scaleMode == 0) {
+        // 1:1 mode - direct copy with Y offset
+        // HUB75 is 128x32, OLED is 128x128
+        // Clear only the 32-pixel region we're writing to
+        for (int y = 0; y < TOTAL_HEIGHT; y++) {
+          int oledY = y + yOffset;
+          if (oledY < 0 || oledY >= OLED_HEIGHT) continue;
+          int byteIdx = (oledY / 8) * OLED_WIDTH;
+          int bitIdx = oledY % 8;
+          uint8_t clearMask = ~(1 << bitIdx);
+          for (int x = 0; x < TOTAL_WIDTH; x++) {
+            oled_buffer[byteIdx + x] &= clearMask;
+          }
+        }
+        
+        // Now draw the HUB75 content
+        for (int y = 0; y < TOTAL_HEIGHT; y++) {
+          int oledY = y + yOffset;
+          if (oledY < 0 || oledY >= OLED_HEIGHT) continue;
+          
+          for (int x = 0; x < TOTAL_WIDTH; x++) {
+            // Calculate buffer read position accounting for per-panel mirroring
+            int bufX;
+            if (x < PANEL_WIDTH) {
+              // Left panel (visual 0-63): global un-mirror only
+              bufX = (TOTAL_WIDTH - 1) - x;
+            } else {
+              // Right panel (visual 64-127): global un-mirror + local panel mirror
+              int globalUnmirror = (TOTAL_WIDTH - 1) - x;
+              bufX = (PANEL_WIDTH - 1) - globalUnmirror;
+            }
+            
+            int idx = (y * TOTAL_WIDTH + bufX) * 3;
+            uint8_t r = hub75_buffer[idx + 0];
+            uint8_t g = hub75_buffer[idx + 1];
+            uint8_t b = hub75_buffer[idx + 2];
+            
+            // Fast luminance: (77*R + 150*G + 29*B) >> 8
+            // Approximates 0.299*R + 0.587*G + 0.114*B
+            uint16_t lum = (77 * r + 150 * g + 29 * b) >> 8;
+            
+            // Apply threshold
+            if (lum >= threshold) {
+              // Set pixel in OLED buffer (1-bit per pixel, column-major pages)
+              int byteIdx = (oledY / 8) * OLED_WIDTH + x;
+              int bitIdx = oledY % 8;
+              oled_buffer[byteIdx] |= (1 << bitIdx);
+            }
+          }
+        }
+      } else {
+        // 4x vertical scale mode - fills 128x128 from 128x32
+        // Each HUB75 row becomes 4 OLED rows
+        // Clear entire OLED buffer since we fill it completely
+        memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+        
+        for (int y = 0; y < TOTAL_HEIGHT; y++) {
+          for (int x = 0; x < TOTAL_WIDTH; x++) {
+            // Calculate buffer read position accounting for per-panel mirroring
+            int bufX;
+            if (x < PANEL_WIDTH) {
+              bufX = (TOTAL_WIDTH - 1) - x;
+            } else {
+              int globalUnmirror = (TOTAL_WIDTH - 1) - x;
+              bufX = (PANEL_WIDTH - 1) - globalUnmirror;
+            }
+            
+            int idx = (y * TOTAL_WIDTH + bufX) * 3;
+            uint8_t r = hub75_buffer[idx + 0];
+            uint8_t g = hub75_buffer[idx + 1];
+            uint8_t b = hub75_buffer[idx + 2];
+            
+            // Fast luminance calculation
+            uint16_t lum = (77 * r + 150 * g + 29 * b) >> 8;
+            
+            if (lum >= threshold) {
+              // Scale 4x vertically - set 4 consecutive rows
+              for (int sy = 0; sy < 4; sy++) {
+                int oledY = y * 4 + sy;
+                int byteIdx = (oledY / 8) * OLED_WIDTH + x;
+                int bitIdx = oledY % 8;
+                oled_buffer[byteIdx] |= (1 << bitIdx);
+              }
+            }
+          }
         }
       }
       break;

@@ -36,7 +36,8 @@ enum class MenuState {
 };
 
 enum class Mode {
-    SYSTEM_INFO = 0,
+    STANDARD = 0,       // Default mode: Dashboard + Viewport + HUB75 mirror
+    SYSTEM_INFO,
     // Future modes: LED_CONTROL, ANIMATION, SETTINGS, DEBUG
     MODE_COUNT
 };
@@ -265,13 +266,14 @@ private:
     
     // Mode names
     static constexpr const char* modeNames_[] = {
+        "Standard",
         "System Info",
         // "LED Control",
         // "Animation", 
         // "Settings",
         // "Debug"
     };
-    static constexpr int modeCount_ = 1;  // Update when adding modes
+    static constexpr int modeCount_ = 2;  // Update when adding modes
     
     // Sensor names
     static constexpr const char* sensorNames_[] = {
@@ -516,6 +518,14 @@ private:
     // ========================================================================
     
     void render(uint32_t currentTimeMs) {
+        // Standard mode has its own independent rendering - no menu overhead
+        if (state_ == MenuState::PAGE_VIEW && modeIndex_ == (int)Mode::STANDARD) {
+            gpu_->oledClear();
+            renderStandardMode(currentTimeMs);
+            gpu_->oledPresent();
+            return;
+        }
+        
         // Update marquee animations
         updateMarqueeAnimations(currentTimeMs);
         beginMarqueeFrame();
@@ -537,7 +547,7 @@ private:
                 break;
         }
         
-        // Always render breadcrumb at bottom
+        // Always render breadcrumb at bottom (except Standard mode handled above)
         renderBreadcrumb(currentTimeMs);
         
         endMarqueeFrame();
@@ -586,13 +596,95 @@ private:
     }
     
     void renderPageView(uint32_t currentTimeMs) {
-        if (modeIndex_ == (int)Mode::SYSTEM_INFO) {
+        if (modeIndex_ == (int)Mode::STANDARD) {
+            renderStandardMode(currentTimeMs);
+        } else if (modeIndex_ == (int)Mode::SYSTEM_INFO) {
             if (pageIndex_ == 0) {
                 renderSystemInfoPage1(currentTimeMs);
             } else {
                 renderSystemInfoPage2(currentTimeMs);
             }
         }
+    }
+    
+    // ========================================================================
+    // STANDARD MODE - Default home screen
+    // Layout: Dashboard (32px top) + Viewport (64px middle) + HUB75 Mirror (32px bottom)
+    // ========================================================================
+    
+    void renderStandardMode(uint32_t currentTimeMs) {
+        (void)currentTimeMs;
+        
+        // OLED has Y=0 at BOTTOM, so layout is inverted:
+        // - Y 96-127 = TOP of display (Dashboard)
+        // - Y 32-95 = MIDDLE (Viewport)
+        // - Y 0-31 = BOTTOM of display (HUB75 Mirror)
+        
+        // === DASHBOARD SECTION (Top 32 pixels: Y 96-127) ===
+        // White header bar at top
+        gpu_->oledFill(0, 116, 128, 12, true);
+        gpu_->oledTextNative(4, 118, "STANDARD", 1, false);
+        
+        // Show time/status in dashboard area
+        char timeBuf[24];
+        formatOnTime(timeBuf, sizeof(timeBuf), getCurrentOnTime());
+        gpu_->oledTextNative(2, 102, timeBuf, 1, true);
+        
+        // Optional: Show sensor quick status
+        char statusBuf[32];
+        snprintf(statusBuf, sizeof(statusBuf), "%.1fC  %.0f%%", bmeData_.temperature, bmeData_.humidity);
+        gpu_->oledTextNative(64, 102, statusBuf, 1, true);
+        
+        // Separator line below dashboard (at Y=96)
+        gpu_->oledLine(0, 96, 127, 96, true);
+        
+        // === VIEWPORT SECTION (Middle 64 pixels: Y 32-95) ===
+        int viewportY = 84;  // Start from top of viewport, going down
+        
+        // Show device name centered
+        int nameLen = strlen(deviceName_);
+        int nameX = (128 - nameLen * 6) / 2;
+        gpu_->oledTextNative(nameX, viewportY, deviceName_, 1, true);
+        viewportY -= 12;
+        
+        // Show model
+        char modelBuf[32];
+        snprintf(modelBuf, sizeof(modelBuf), "Model: %s", deviceModel_);
+        gpu_->oledTextNative(4, viewportY, modelBuf, 1, true);
+        viewportY -= 11;
+        
+        // IMU quick data
+        snprintf(statusBuf, sizeof(statusBuf), "IMU: %.1f %.1f %.1f", 
+                 imuData_.accelX, imuData_.accelY, imuData_.accelZ);
+        gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
+        viewportY -= 11;
+        
+        // GPS quick data
+        if (gpsData_.hasFix) {
+            snprintf(statusBuf, sizeof(statusBuf), "GPS: %d sats", gpsData_.satellites);
+        } else {
+            snprintf(statusBuf, sizeof(statusBuf), "GPS: No Fix");
+        }
+        gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
+        viewportY -= 11;
+        
+        // Mic level bar visualization (using dB level, scale from -60dB to 0dB)
+        gpu_->oledTextNative(4, viewportY, "MIC:", 1, true);
+        // Convert dB to bar width: -60dB = 0, 0dB = 96 pixels
+        int barWidth = (int)((micData_.dbLevel + 60.0f) * 96.0f / 60.0f);
+        if (barWidth < 0) barWidth = 0;
+        if (barWidth > 96) barWidth = 96;
+        if (barWidth > 0) {
+            gpu_->oledFill(28, viewportY, barWidth, 8, true);
+        }
+        
+        // Separator line above HUB75 mirror (at Y=32)
+        gpu_->oledLine(0, 32, 127, 32, true);
+        
+        // === HUB75 MIRROR SECTION (Bottom 32 pixels: Y 0-31) ===
+        // Mirror the HUB75 panel content (128x32) to bottom of OLED at 1:1 scale
+        // scaleMode=0 for 1:1, yOffset=0 to place at bottom (Y 0-31)
+        gpu_->oledMirrorHUB75(100, 0, 0);  // threshold 100 for good visibility
     }
     
     void renderSystemInfoPage1(uint32_t currentTimeMs) {

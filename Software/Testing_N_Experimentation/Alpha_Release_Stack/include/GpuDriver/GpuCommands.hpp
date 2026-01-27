@@ -125,6 +125,7 @@ private:
         OLED_FILL_CIRCLE = 0x69,
         OLED_SET_ORIENTATION = 0x6A,
         OLED_TEXT = 0x6B,       // Native text rendering on GPU
+        OLED_MIRROR_HUB75 = 0x6C, // Mirror HUB75 to OLED with luminance threshold
         
         // System commands
         PING = 0xF0,           // Send ping to GPU
@@ -1432,6 +1433,53 @@ public:
         memcpy(&payload[6], text, textLen);
         
         sendCmd(CmdType::OLED_TEXT, payload, 6 + textLen);
+    }
+    
+    /**
+     * @brief Mirror HUB75 display to OLED using fast luminance conversion
+     * 
+     * This is an ultra-fast GPU-side operation that converts the RGB HUB75 
+     * framebuffer (128x32) to monochrome for the OLED (128x128) using 
+     * luminance-based thresholding.
+     * 
+     * The luminance formula used is: L = (77*R + 150*G + 29*B) >> 8
+     * This approximates the standard 0.299*R + 0.587*G + 0.114*B formula
+     * but uses only integer math for maximum speed.
+     * 
+     * @param threshold Luminance cutoff (0-255). Pixels with luminance >= threshold
+     *                  appear as ON (white) on OLED. Default 128 (50% brightness)
+     * @param scaleMode 0 = 1:1 mapping (32 rows centered on 128-row OLED)
+     *                  1 = 4x vertical scale (fills entire 128x128 OLED)
+     *                  Default is 1 (4x scale)
+     * @param yOffset   Y offset for 1:1 mode only. Centers the 32-row image
+     *                  on the 128-row OLED. Default 48 ((128-32)/2)
+     */
+    void oledMirrorHUB75(uint8_t threshold = 128, uint8_t scaleMode = 1, uint8_t yOffset = 48) {
+        uint8_t payload[3];
+        payload[0] = threshold;
+        payload[1] = scaleMode;
+        payload[2] = yOffset;
+        sendCmd(CmdType::OLED_MIRROR_HUB75, payload, 3);
+    }
+    
+    /**
+     * @brief Mirror HUB75 to OLED with default 4x scaling and 50% threshold
+     * 
+     * Convenience function for quick mirroring with sensible defaults.
+     * Fills the entire 128x128 OLED with a scaled version of the 128x32 HUB75.
+     */
+    void oledMirrorHUB75Scaled() {
+        oledMirrorHUB75(128, 1, 48);
+    }
+    
+    /**
+     * @brief Mirror HUB75 to OLED centered without scaling
+     * 
+     * 1:1 pixel mapping with the 32 rows centered on the 128-row OLED.
+     * @param threshold Luminance cutoff (0-255)
+     */
+    void oledMirrorHUB75Centered(uint8_t threshold = 128) {
+        oledMirrorHUB75(threshold, 0, 48);
     }
     
     // ============================================================
