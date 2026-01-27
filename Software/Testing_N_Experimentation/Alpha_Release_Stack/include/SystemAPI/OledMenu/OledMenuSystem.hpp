@@ -77,6 +77,7 @@ static constexpr uint32_t RENDER_FAST_MS = 50;      // 20fps for animations
 static constexpr uint32_t RENDER_MARQUEE_MS = 100;  // Marquee scroll speed
 static constexpr uint32_t RENDER_SENSOR_MS = 250;   // Sensor data refresh
 static constexpr uint32_t ON_TIME_SAVE_INTERVAL_MS = 60000;  // Save every minute
+static constexpr uint32_t HOLD_HOME_MS = 3000;      // Hold back for 3s to go home
 
 // ============================================================================
 // SENSOR DATA STRUCTURES
@@ -227,6 +228,16 @@ private:
     bool buttonsInitialized_ = false;
     uint32_t lastButtonTime_ = 0;
     
+    // Hold-to-home state (hold back button 3s to jump to mode select)
+    uint32_t backHoldStartTime_ = 0;  // Time when back button was pressed
+    bool backHoldActive_ = false;      // Currently tracking a hold
+    bool hasSavedState_ = false;       // True if we have a state to return to
+    MenuState savedState_ = MenuState::MODE_SELECT;
+    int savedModeIndex_ = 0;
+    int savedPageIndex_ = 0;
+    int savedSensorIndex_ = 0;
+    int savedSensorPageIndex_ = 0;
+    
     // Render state
     uint32_t lastRenderTime_ = 0;
     bool needsRender_ = true;
@@ -300,6 +311,53 @@ private:
             return;
         }
         
+        // ================================================================
+        // HOLD-TO-HOME: Hold back button for 3 seconds
+        // ================================================================
+        bool backHeld = !btnD;  // Button is active LOW, so !btnD = pressed
+        
+        if (backHeld) {
+            if (!backHoldActive_) {
+                // Just started holding back
+                backHoldActive_ = true;
+                backHoldStartTime_ = currentTimeMs;
+            } else if (currentTimeMs - backHoldStartTime_ >= HOLD_HOME_MS) {
+                // Held for 3 seconds - trigger home action
+                backHoldActive_ = false;  // Reset hold tracking
+                
+                if (state_ == MenuState::MODE_SELECT && hasSavedState_) {
+                    // Already at home with saved state - return to saved location
+                    state_ = savedState_;
+                    modeIndex_ = savedModeIndex_;
+                    pageIndex_ = savedPageIndex_;
+                    sensorIndex_ = savedSensorIndex_;
+                    sensorPageIndex_ = savedSensorPageIndex_;
+                    hasSavedState_ = false;
+                    resetAllMarqueeSlots();
+                    needsRender_ = true;
+                    printf("OLED_MENU: Returned to saved state\n");
+                } else if (state_ != MenuState::MODE_SELECT) {
+                    // Not at home - save current state and go home
+                    savedState_ = state_;
+                    savedModeIndex_ = modeIndex_;
+                    savedPageIndex_ = pageIndex_;
+                    savedSensorIndex_ = sensorIndex_;
+                    savedSensorPageIndex_ = sensorPageIndex_;
+                    hasSavedState_ = true;
+                    state_ = MenuState::MODE_SELECT;
+                    resetAllMarqueeSlots();
+                    needsRender_ = true;
+                    printf("OLED_MENU: Hold-home triggered, state saved\n");
+                }
+                // Skip normal button processing this frame
+                lastBtnD_ = btnD;
+                return;
+            }
+        } else {
+            // Back button released - cancel hold tracking
+            backHoldActive_ = false;
+        }
+        
         // Debounce
         if (currentTimeMs - lastButtonTime_ < DEBOUNCE_MS) {
             return;
@@ -347,10 +405,21 @@ private:
         } else if (select) {
             state_ = MenuState::PAGE_VIEW;
             pageIndex_ = 0;
+            hasSavedState_ = false;  // Clear saved state when entering a mode normally
             resetAllMarqueeSlots();  // Clear scroll states when changing views
             printf("OLED_MENU: Entered mode '%s'\n", modeNames_[modeIndex_]);
+        } else if (back && hasSavedState_) {
+            // Return to saved location (from hold-back shortcut)
+            state_ = savedState_;
+            modeIndex_ = savedModeIndex_;
+            pageIndex_ = savedPageIndex_;
+            sensorIndex_ = savedSensorIndex_;
+            sensorPageIndex_ = savedSensorPageIndex_;
+            hasSavedState_ = false;
+            resetAllMarqueeSlots();
+            printf("OLED_MENU: Returned to saved state via back press\n");
         }
-        // back does nothing at top level
+        // back does nothing at top level when no saved state
     }
     
     void handlePageViewInput(bool up, bool select, bool down, bool back) {
@@ -371,6 +440,7 @@ private:
                 resetAllMarqueeSlots();
             } else if (back) {
                 state_ = MenuState::MODE_SELECT;
+                hasSavedState_ = false;  // Clear saved state when navigating normally
                 resetAllMarqueeSlots();
                 printf("OLED_MENU: Back to mode select\n");
             }
