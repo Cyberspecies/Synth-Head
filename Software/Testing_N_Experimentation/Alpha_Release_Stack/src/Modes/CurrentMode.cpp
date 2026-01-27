@@ -47,6 +47,8 @@
 #include "SystemAPI/Testing/LedStripTestHarness.hpp"
 
 #include "esp_timer.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -182,30 +184,157 @@ namespace GpuDriverState {
     static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
     static bool complexAnimEnabled = false;  // Disabled - use sandbox instead
     
-    // ====== OLED MENU UI STATE ======
-    static int oledMenuIndex = 0;
-    static constexpr int OLED_MENU_ITEMS = 5;
-    static const char* oledMenuItems[] = {
-        "System Info",
-        "LED Control", 
-        "Animation",
-        "Settings",
-        "Debug"
+    // ====== OLED MENU SYSTEM ======
+    // Menu States
+    enum class OledMenuState {
+        MODE_SELECT,    // Top-level mode selection (vertically centered scrolling)
+        PAGE_VIEW,      // Viewing pages within a mode
     };
     
+    // Available Modes (each mode has its own set of pages)
+    enum class OledMode {
+        SYSTEM_INFO = 0,
+        // Future modes: LED_CONTROL, ANIMATION, SETTINGS, DEBUG
+        MODE_COUNT  // Must be last
+    };
+    
+    static const char* oledModeNames[] = {
+        "System Info",
+        // "LED Control",
+        // "Animation",
+        // "Settings",
+        // "Debug"
+    };
+    
+    // Menu state
+    static OledMenuState oledState = OledMenuState::MODE_SELECT;
+    static int oledModeIndex = 0;           // Current mode selection
+    static int oledPageIndex = 0;           // Current page within mode
+    static float oledScrollOffset = 0.0f;   // Smooth scroll animation offset
+    static float oledTargetOffset = 0.0f;   // Target scroll offset
+    
+    // System Info - stored values
+    static const char* deviceName = "Lucidius";
+    static const char* deviceModel = "DX.3";
+    static const char* projectName = "Cyberspecies/Synth-Head";
+    static const char* manufacturedDate = "2026-01-XX";  // TODO: Set actual date!
+    static uint32_t totalOnTimeSeconds = 0;     // Loaded from NVS
+    static uint32_t sessionStartTime = 0;       // When this session started
+    static bool onTimeLoaded = false;           // Has on-time been loaded from NVS?
+    static uint32_t lastOnTimeSave = 0;         // Last time we saved on-time to NVS
+    static constexpr uint32_t ON_TIME_SAVE_INTERVAL_MS = 60000;  // Save every minute
+    
+    // NVS namespace for OLED menu data
+    static const char* NVS_NAMESPACE = "oled_menu";
+    static const char* NVS_KEY_ONTIME = "total_ontime";
+    
     // Button state tracking for OLED menu (edge detection)
-    static bool lastBtnA_oled = true;  // true = released (pull-up)
+    static bool lastBtnA_oled = true;  // true = released (pull-up, active LOW)
     static bool lastBtnB_oled = true;
     static bool lastBtnC_oled = true;
     static bool lastBtnD_oled = true;
+    static bool oledButtonsInitialized = false;  // Read actual state on first update
     static uint32_t lastOledButtonTime = 0;
-    static constexpr uint32_t OLED_DEBOUNCE_MS = 50;
+    static constexpr uint32_t OLED_DEBOUNCE_MS = 150;  // Debounce time
     static uint32_t lastOledRenderTime = 0;
-    static constexpr uint32_t OLED_RENDER_INTERVAL_MS = 100;  // Render at 10fps
+    static constexpr uint32_t OLED_RENDER_INTERVAL_MS = 200;     // ~5fps for mode select menu
+    static constexpr uint32_t OLED_RENDER_INTERVAL_FAST_MS = 50;  // ~20fps during scroll animation
+    static constexpr uint32_t OLED_RENDER_INTERVAL_SLOW_MS = 1000; // 1fps for static pages (System Info)
+    static constexpr uint32_t OLED_RENDER_MARQUEE_MS = 150;       // Marquee scroll speed
     static bool oledNeedsRender = true;  // Initial render flag
-    static bool oledSelectFlash = false;  // Flash feedback for select
-    static bool oledBackFlash = false;    // Flash feedback for back
-    static uint32_t oledFlashStartTime = 0;
+    
+    // Marquee scroll state for long text
+    static int marqueeOffset = 0;           // Current scroll offset (in characters)
+    static uint32_t lastMarqueeTime = 0;    // Last marquee update time
+    static constexpr int MARQUEE_PAUSE_START = 8;  // Pause at start (in frames)
+    static constexpr int MARQUEE_PAUSE_END = 8;    // Pause at end (in frames)
+    static int marqueePauseCounter = MARQUEE_PAUSE_START;  // Current pause countdown
+    static bool marqueeScrollingRight = true;  // Direction of scroll
+    static constexpr int OLED_CHAR_WIDTH = 6;  // 5px char + 1px spacing
+    static constexpr int OLED_MAX_CHARS = 21;  // 128px / 6px = ~21 chars
+    
+    // NVS functions for total on-time
+    static void loadTotalOnTime() {
+        nvs_handle_t handle;
+        esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+        if (err == ESP_OK) {
+            err = nvs_get_u32(handle, NVS_KEY_ONTIME, &totalOnTimeSeconds);
+            if (err != ESP_OK) {
+                totalOnTimeSeconds = 0;  // First boot or key not found
+            }
+            nvs_close(handle);
+            printf("OLED_MENU: Loaded total on-time: %lu seconds\n", totalOnTimeSeconds);
+        } else {
+            totalOnTimeSeconds = 0;
+            printf("OLED_MENU: No on-time data found, starting fresh\n");
+        }
+        onTimeLoaded = true;
+        sessionStartTime = (uint32_t)(esp_timer_get_time() / 1000000);  // Current time in seconds
+    }
+    
+    static void saveTotalOnTime() {
+        nvs_handle_t handle;
+        esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+        if (err == ESP_OK) {
+            // Calculate current total = stored + session time
+            uint32_t sessionSeconds = (uint32_t)(esp_timer_get_time() / 1000000) - sessionStartTime;
+            uint32_t newTotal = totalOnTimeSeconds + sessionSeconds;
+            
+            err = nvs_set_u32(handle, NVS_KEY_ONTIME, newTotal);
+            if (err == ESP_OK) {
+                nvs_commit(handle);
+                // Update stored value and reset session timer
+                totalOnTimeSeconds = newTotal;
+                sessionStartTime = (uint32_t)(esp_timer_get_time() / 1000000);
+            }
+            nvs_close(handle);
+        }
+    }
+    
+    static void resetTotalOnTime() {
+        nvs_handle_t handle;
+        esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+        if (err == ESP_OK) {
+            nvs_erase_key(handle, NVS_KEY_ONTIME);
+            nvs_commit(handle);
+            nvs_close(handle);
+        }
+        totalOnTimeSeconds = 0;
+        sessionStartTime = (uint32_t)(esp_timer_get_time() / 1000000);
+        printf("OLED_MENU: Total on-time reset to 0\n");
+    }
+    
+    // Get current total on-time (stored + current session)
+    static uint32_t getCurrentOnTime() {
+        uint32_t sessionSeconds = (uint32_t)(esp_timer_get_time() / 1000000) - sessionStartTime;
+        return totalOnTimeSeconds + sessionSeconds;
+    }
+    
+    // Format seconds into human-readable string (XXd XXh XXm)
+    static void formatOnTime(char* buf, size_t bufSize, uint32_t seconds) {
+        uint32_t days = seconds / 86400;
+        uint32_t hours = (seconds % 86400) / 3600;
+        uint32_t mins = (seconds % 3600) / 60;
+        
+        if (days > 0) {
+            snprintf(buf, bufSize, "%lud %luh %lum", days, hours, mins);
+        } else if (hours > 0) {
+            snprintf(buf, bufSize, "%luh %lum", hours, mins);
+        } else {
+            snprintf(buf, bufSize, "%lum %lus", mins, seconds % 60);
+        }
+    }
+    
+    // Smooth scroll interpolation
+    static void updateScrollAnimation() {
+        float diff = oledTargetOffset - oledScrollOffset;
+        if (fabsf(diff) > 0.01f) {
+            oledScrollOffset += diff * 0.3f;  // Ease towards target
+            oledNeedsRender = true;
+        } else {
+            oledScrollOffset = oledTargetOffset;
+        }
+    }
     
     // ====== HIGH-FREQUENCY IMU TASK ======
     static TaskHandle_t imuTaskHandle = nullptr;
@@ -652,44 +781,102 @@ namespace GpuDriverState {
                    sandboxEnabled, spriteReady, connected, renderFrameCount);
         }
         
-        // ====== OLED MENU RENDERING ======
+        // ====== OLED MENU SYSTEM ======
+        // Load on-time from NVS on first run
+        if (!onTimeLoaded) {
+            loadTotalOnTime();
+        }
+        
+        // Periodically save on-time to NVS
+        if (currentTimeMs - lastOnTimeSave >= ON_TIME_SAVE_INTERVAL_MS) {
+            lastOnTimeSave = currentTimeMs;
+            saveTotalOnTime();
+        }
+        
+        // Update smooth scroll animation
+        updateScrollAnimation();
+        
         // Read buttons for OLED menu navigation (edge-triggered with debounce)
+        // Buttons are ACTIVE LOW (pressed = 0, released = 1 due to pull-up)
+        bool btnA = gpio_get_level(GPIO_NUM_5) != 0;   // UP - true when released
+        bool btnB = gpio_get_level(GPIO_NUM_6) != 0;   // SELECT - true when released
+        bool btnC = gpio_get_level(GPIO_NUM_7) != 0;   // DOWN - true when released
+        bool btnD = gpio_get_level(GPIO_NUM_15) != 0;  // BACK - true when released
+        
+        // Initialize button states on first run to avoid false triggers
+        if (!oledButtonsInitialized) {
+            lastBtnA_oled = btnA;
+            lastBtnB_oled = btnB;
+            lastBtnC_oled = btnC;
+            lastBtnD_oled = btnD;
+            oledButtonsInitialized = true;
+            printf("OLED_MENU: Buttons initialized A=%d B=%d C=%d D=%d\n", btnA, btnB, btnC, btnD);
+        }
+        
+        const int modeCount = (int)OledMode::MODE_COUNT;
+        
         if (currentTimeMs - lastOledButtonTime >= OLED_DEBOUNCE_MS) {
-            bool btnA = gpio_get_level(GPIO_NUM_5) != 0;   // UP
-            bool btnB = gpio_get_level(GPIO_NUM_6) != 0;   // SELECT
-            bool btnC = gpio_get_level(GPIO_NUM_7) != 0;   // DOWN
-            bool btnD = gpio_get_level(GPIO_NUM_15) != 0;  // BACK
             
             // Check for falling edge (button press)
             if (lastBtnA_oled && !btnA) {
                 // UP pressed
-                if (oledMenuIndex > 0) {
-                    oledMenuIndex--;
-                    oledNeedsRender = true;
-                }
                 lastOledButtonTime = currentTimeMs;
+                
+                if (oledState == OledMenuState::MODE_SELECT) {
+                    // Wrap around mode selection
+                    oledModeIndex = (oledModeIndex - 1 + modeCount) % modeCount;
+                    oledTargetOffset = (float)oledModeIndex;
+                    oledNeedsRender = true;
+                    printf("OLED_MENU: Mode UP -> %s\n", oledModeNames[oledModeIndex]);
+                } else if (oledState == OledMenuState::PAGE_VIEW) {
+                    // Scroll up within page (if scrollable)
+                    if (oledPageIndex > 0) {
+                        oledPageIndex--;
+                        oledNeedsRender = true;
+                    }
+                }
             } else if (lastBtnC_oled && !btnC) {
                 // DOWN pressed
-                if (oledMenuIndex < OLED_MENU_ITEMS - 1) {
-                    oledMenuIndex++;
+                lastOledButtonTime = currentTimeMs;
+                
+                if (oledState == OledMenuState::MODE_SELECT) {
+                    // Wrap around mode selection
+                    oledModeIndex = (oledModeIndex + 1) % modeCount;
+                    oledTargetOffset = (float)oledModeIndex;
+                    oledNeedsRender = true;
+                    printf("OLED_MENU: Mode DOWN -> %s\n", oledModeNames[oledModeIndex]);
+                } else if (oledState == OledMenuState::PAGE_VIEW) {
+                    // Scroll down within page (if scrollable)
+                    oledPageIndex++;
                     oledNeedsRender = true;
                 }
-                lastOledButtonTime = currentTimeMs;
             } else if (lastBtnB_oled && !btnB) {
-                // SELECT pressed - flash feedback
-                oledSelectFlash = true;
-                oledFlashStartTime = currentTimeMs;
-                oledNeedsRender = true;
+                // SELECT pressed
                 lastOledButtonTime = currentTimeMs;
-                printf("OLED_MENU: Selected '%s'\n", oledMenuItems[oledMenuIndex]);
+                
+                if (oledState == OledMenuState::MODE_SELECT) {
+                    // Enter the selected mode
+                    oledState = OledMenuState::PAGE_VIEW;
+                    oledPageIndex = 0;
+                    oledNeedsRender = true;
+                    printf("OLED_MENU: Entered mode '%s'\n", oledModeNames[oledModeIndex]);
+                } else if (oledState == OledMenuState::PAGE_VIEW) {
+                    // Action within page (mode-specific)
+                    printf("OLED_MENU: Select in page %d\n", oledPageIndex);
+                    oledNeedsRender = true;
+                }
             } else if (lastBtnD_oled && !btnD) {
-                // BACK pressed - flash feedback and reset
-                oledBackFlash = true;
-                oledFlashStartTime = currentTimeMs;
-                oledMenuIndex = 0;
-                oledNeedsRender = true;
+                // BACK pressed
                 lastOledButtonTime = currentTimeMs;
-                printf("OLED_MENU: Back pressed\n");
+                
+                if (oledState == OledMenuState::PAGE_VIEW) {
+                    // Go back to mode selection
+                    oledState = OledMenuState::MODE_SELECT;
+                    oledPageIndex = 0;
+                    oledNeedsRender = true;
+                    printf("OLED_MENU: Back to mode select\n");
+                }
+                // In MODE_SELECT, back does nothing (already at top level)
             }
             
             lastBtnA_oled = btnA;
@@ -698,55 +885,196 @@ namespace GpuDriverState {
             lastBtnD_oled = btnD;
         }
         
-        // Handle flash timeout (200ms flash duration)
-        if ((oledSelectFlash || oledBackFlash) && (currentTimeMs - oledFlashStartTime >= 200)) {
-            oledSelectFlash = false;
-            oledBackFlash = false;
-            oledNeedsRender = true;
+        // Periodic OLED render - adaptive rate based on state
+        // Fast (20fps) during scroll, Marquee (150ms) in page view for text scroll, Normal (5fps) in mode select
+        bool isScrolling = (oledScrollOffset != oledTargetOffset);
+        uint32_t renderInterval;
+        if (isScrolling) {
+            renderInterval = OLED_RENDER_INTERVAL_FAST_MS;  // Smooth vertical scrolling
+        } else if (oledState == OledMenuState::PAGE_VIEW) {
+            renderInterval = OLED_RENDER_MARQUEE_MS;        // Marquee text scrolling
+        } else {
+            renderInterval = OLED_RENDER_INTERVAL_MS;       // Mode selection menu
         }
-        
-        // Periodic OLED render or when needed
-        if (oledNeedsRender || (currentTimeMs - lastOledRenderTime >= OLED_RENDER_INTERVAL_MS)) {
+        if (oledNeedsRender || (currentTimeMs - lastOledRenderTime >= renderInterval)) {
             lastOledRenderTime = currentTimeMs;
             oledNeedsRender = false;
             
             g_gpu.oledClear();
             
-            if (oledSelectFlash) {
-                // Flash: inverted screen with "SELECTED!"
-                g_gpu.oledFill(0, 0, 128, 128, true);
-                g_gpu.oledText(15, 50, "SELECTED!", 2, false);
-                g_gpu.oledText(10, 80, oledMenuItems[oledMenuIndex], 1, false);
-            } else if (oledBackFlash) {
-                // Flash: inverted screen with "BACK!"
-                g_gpu.oledFill(0, 0, 128, 128, true);
-                g_gpu.oledText(30, 60, "BACK!", 2, false);
-            } else {
-                // Normal menu display
-                // Draw border
-                g_gpu.oledRect(0, 0, 128, 128, true);
+            if (oledState == OledMenuState::MODE_SELECT) {
+                // ====== MODE SELECTION - Vertically centered scrolling list ======
+                const int centerY = 64;           // Center of 128px display
+                const int itemHeight = 24;        // Height per menu item
                 
-                // Draw title
-                g_gpu.oledText(20, 5, "SYNTH HEAD", 1, true);
+                // Draw title bar
+                g_gpu.oledFill(0, 0, 128, 16, true);
+                g_gpu.oledTextNative(16, 3, "SELECT MODE", 1, false);
                 
-                // Draw horizontal line
-                g_gpu.oledLine(0, 16, 127, 16, true);
+                // Determine how many items to show around center
+                // For small lists, don't repeat items - only show each once
+                int displayRange = (modeCount <= 3) ? (modeCount / 2) : 2;
                 
-                // Draw menu items
-                for (int i = 0; i < OLED_MENU_ITEMS; i++) {
-                    int yPos = 22 + i * 18;
+                // Track which indices we've already drawn to prevent duplicates
+                bool drawnIndices[16] = {false};  // Support up to 16 modes
+                
+                // Draw mode items with smooth scrolling, centered on current selection
+                for (int i = -displayRange; i <= displayRange; i++) {
+                    // Calculate wrapped index
+                    int modeIdx = ((int)oledScrollOffset + i + modeCount * 10) % modeCount;
+                    if (modeIdx < 0) modeIdx += modeCount;
+                    if (modeIdx >= modeCount) continue;
                     
-                    if (i == oledMenuIndex) {
-                        // Highlight selected item
-                        g_gpu.oledFill(2, yPos - 2, 124, 16, true);
-                        g_gpu.oledText(8, yPos, oledMenuItems[i], 1, false);  // Inverted text
+                    // Skip if we've already drawn this mode (prevents duplicates)
+                    if (drawnIndices[modeIdx]) continue;
+                    drawnIndices[modeIdx] = true;
+                    
+                    // Calculate Y position relative to center
+                    float offsetFromCenter = (float)i - (oledScrollOffset - floorf(oledScrollOffset));
+                    int yPos = centerY + (int)(offsetFromCenter * itemHeight) - 8;
+                    
+                    // Skip if off screen
+                    if (yPos < 16 || yPos > 110) continue;
+                    
+                    bool isSelected = (i == 0);
+                    
+                    if (isSelected) {
+                        // Highlighted center item - draw selection box
+                        g_gpu.oledFill(4, yPos - 2, 120, 20, true);
+                        g_gpu.oledTextNative(8, yPos + 2, oledModeNames[modeIdx], 1, false);
+                        // Draw selection indicator
+                        g_gpu.oledTextNative(110, yPos + 2, "<", 1, false);
                     } else {
-                        g_gpu.oledText(8, yPos, oledMenuItems[i], 1, true);
+                        // Non-selected items
+                        g_gpu.oledTextNative(12, yPos + 2, oledModeNames[modeIdx], 1, true);
                     }
                 }
                 
+                // Draw scroll indicators if more than one mode
+                if (modeCount > 1) {
+                    g_gpu.oledTextNative(60, 20, "^", 1, true);   // Up arrow
+                    g_gpu.oledTextNative(60, 105, "v", 1, true);  // Down arrow
+                }
+                
                 // Draw navigation hint at bottom
-                g_gpu.oledText(2, 115, "A=^ C=v B=OK D=<", 1, true);
+                g_gpu.oledLine(0, 118, 127, 118, true);
+                g_gpu.oledTextNative(30, 120, "B=Enter", 1, true);
+                
+            } else if (oledState == OledMenuState::PAGE_VIEW) {
+                // ====== PAGE VIEW - Render page content based on mode ======
+                auto& security = arcos::security::SecurityDriver::instance();
+                
+                switch ((OledMode)oledModeIndex) {
+                    case OledMode::SYSTEM_INFO: {
+                        // System Info Page - full device information
+                        g_gpu.oledFill(0, 0, 128, 14, true);
+                        g_gpu.oledTextNative(16, 2, "SYSTEM INFO", 1, false);
+                        
+                        int y = 18;
+                        const int lineHeight = 11;
+                        char buf[64];
+                        char displayBuf[32];  // For marquee substring
+                        
+                        // Helper lambda for marquee text rendering
+                        auto renderMarqueeText = [&](int xPos, int yPos, const char* fullText, int maxDisplayChars) {
+                            int textLen = strlen(fullText);
+                            if (textLen <= maxDisplayChars) {
+                                // Text fits, no scrolling needed
+                                g_gpu.oledTextNative(xPos, yPos, fullText, 1, true);
+                            } else {
+                                // Text too long, apply marquee scroll
+                                int maxOffset = textLen - maxDisplayChars;
+                                int actualOffset = (marqueeOffset > maxOffset) ? maxOffset : marqueeOffset;
+                                
+                                // Copy visible portion
+                                strncpy(displayBuf, fullText + actualOffset, maxDisplayChars);
+                                displayBuf[maxDisplayChars] = '\0';
+                                g_gpu.oledTextNative(xPos, yPos, displayBuf, 1, true);
+                            }
+                        };
+                        
+                        // Update marquee position
+                        if (currentTimeMs - lastMarqueeTime >= OLED_RENDER_MARQUEE_MS) {
+                            lastMarqueeTime = currentTimeMs;
+                            
+                            // Calculate max scroll offset based on longest text
+                            int projectLen = strlen(projectName);
+                            int ssidLen = strlen(security.getSSID()) + 6;  // "SSID: " prefix
+                            int passLen = strlen(security.getPassword()) + 6;  // "Pass: " prefix
+                            int maxTextLen = projectLen;
+                            if (ssidLen > maxTextLen) maxTextLen = ssidLen;
+                            if (passLen > maxTextLen) maxTextLen = passLen;
+                            int maxOffset = maxTextLen - (OLED_MAX_CHARS - 2);  // -2 for margin
+                            if (maxOffset < 0) maxOffset = 0;
+                            
+                            if (marqueePauseCounter > 0) {
+                                marqueePauseCounter--;
+                            } else {
+                                if (marqueeScrollingRight) {
+                                    marqueeOffset++;
+                                    if (marqueeOffset >= maxOffset) {
+                                        marqueeOffset = maxOffset;
+                                        marqueeScrollingRight = false;
+                                        marqueePauseCounter = MARQUEE_PAUSE_END;
+                                    }
+                                } else {
+                                    marqueeOffset--;
+                                    if (marqueeOffset <= 0) {
+                                        marqueeOffset = 0;
+                                        marqueeScrollingRight = true;
+                                        marqueePauseCounter = MARQUEE_PAUSE_START;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Device Name
+                        snprintf(buf, sizeof(buf), "Name: %s", deviceName);
+                        g_gpu.oledTextNative(2, y, buf, 1, true);
+                        y += lineHeight;
+                        
+                        // Model
+                        snprintf(buf, sizeof(buf), "Model: %s", deviceModel);
+                        g_gpu.oledTextNative(2, y, buf, 1, true);
+                        y += lineHeight;
+                        
+                        // Project - with marquee scroll
+                        g_gpu.oledTextNative(2, y, "Project:", 1, true);
+                        y += lineHeight - 2;
+                        renderMarqueeText(2, y, projectName, OLED_MAX_CHARS - 1);
+                        y += lineHeight;
+                        
+                        // WiFi SSID - with marquee scroll
+                        snprintf(buf, sizeof(buf), "SSID: %s", security.getSSID());
+                        renderMarqueeText(2, y, buf, OLED_MAX_CHARS - 1);
+                        y += lineHeight;
+                        
+                        // WiFi Password - with marquee scroll  
+                        snprintf(buf, sizeof(buf), "Pass: %s", security.getPassword());
+                        renderMarqueeText(2, y, buf, OLED_MAX_CHARS - 1);
+                        y += lineHeight;
+                        
+                        // Manufactured Date
+                        snprintf(buf, sizeof(buf), "Mfg: %s", manufacturedDate);
+                        g_gpu.oledTextNative(2, y, buf, 1, true);
+                        y += lineHeight;
+                        
+                        // Total On Time (updates live)
+                        char timeBuf[24];
+                        formatOnTime(timeBuf, sizeof(timeBuf), getCurrentOnTime());
+                        snprintf(buf, sizeof(buf), "On-Time: %s", timeBuf);
+                        g_gpu.oledTextNative(2, y, buf, 1, true);
+                        
+                        // Navigation hint
+                        g_gpu.oledLine(0, 118, 127, 118, true);
+                        g_gpu.oledTextNative(30, 120, "D=Back", 1, true);
+                        break;
+                    }
+                    
+                    default:
+                        g_gpu.oledTextNative(20, 50, "Unknown Mode", 1, true);
+                        break;
+                }
             }
             
             g_gpu.oledPresent();
@@ -1382,10 +1710,10 @@ void CurrentMode::onStart() {
     // Initialize LED Strip Test Harness
     SystemAPI::Testing::LedStripTestHarness::init();
     
-    // Auto-run LED test after 10 second delay (allows serial monitor to connect)
-    ESP_LOGI("LED_TEST", "LED strip test will auto-start in 10 seconds...");
-    vTaskDelay(pdMS_TO_TICKS(10000));
-    SystemAPI::Testing::LedStripTestHarness::runQuickVisualTest();
+    // LED test auto-start disabled - use LED:FULL command to run tests manually
+    // ESP_LOGI("LED_TEST", "LED strip test will auto-start in 10 seconds...");
+    // vTaskDelay(pdMS_TO_TICKS(10000));
+    // SystemAPI::Testing::LedStripTestHarness::runQuickVisualTest();
     
     // Set state query callback for test harness
     SystemAPI::Testing::SceneTestHarness::setStateQueryCallback([]() -> std::string {

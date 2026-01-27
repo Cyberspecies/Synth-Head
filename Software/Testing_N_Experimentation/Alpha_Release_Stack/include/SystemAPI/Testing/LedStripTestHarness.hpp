@@ -109,8 +109,8 @@ private:
     static bool testRunning_;
     static uint8_t currentBrightness_;
     
-    // Auto-start flag - set to true to run tests on boot
-    static constexpr bool AUTO_START_LED_TESTS = true;
+    // Auto-start flag - set to false to disable auto-run on boot
+    static constexpr bool AUTO_START_LED_TESTS = false;
     
 public:
     /**

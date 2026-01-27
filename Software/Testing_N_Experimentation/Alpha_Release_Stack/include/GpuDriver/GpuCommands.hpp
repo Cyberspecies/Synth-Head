@@ -124,6 +124,7 @@ private:
         OLED_HLINE = 0x68,
         OLED_FILL_CIRCLE = 0x69,
         OLED_SET_ORIENTATION = 0x6A,
+        OLED_TEXT = 0x6B,       // Native text rendering on GPU
         
         // System commands
         PING = 0xF0,           // Send ping to GPU
@@ -1407,6 +1408,30 @@ public:
     void oledSetOrientation(uint8_t mode) {
         uint8_t payload[1] = {mode};
         sendCmd(CmdType::OLED_SET_ORIENTATION, payload, 1);
+    }
+    
+    /**
+     * Draw text on OLED using native GPU rendering (FAST - single UART packet!)
+     * @param x Starting X position
+     * @param y Starting Y position
+     * @param text String to draw (null-terminated, max 64 chars)
+     * @param scale Font scale (1 = 5x7, 2 = 10x14, etc.)
+     * @param on Pixel state (true = on, false = off)
+     */
+    void oledTextNative(int16_t x, int16_t y, const char* text, int scale = 1, bool on = true) {
+        if (!text) return;
+        int textLen = strlen(text);
+        if (textLen > 64) textLen = 64;  // Limit to prevent huge packets
+        
+        // Payload: x(2), y(2), scale(1), on(1), text(N)
+        uint8_t payload[70];  // 6 header + 64 text max
+        encodeI16(payload, 0, x);
+        encodeI16(payload, 2, y);
+        payload[4] = (uint8_t)scale;
+        payload[5] = on ? 1 : 0;
+        memcpy(&payload[6], text, textLen);
+        
+        sendCmd(CmdType::OLED_TEXT, payload, 6 + textLen);
     }
     
     // ============================================================
