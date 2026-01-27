@@ -31,9 +31,9 @@ namespace GpsDriver {
     /// GPS UART port number
     constexpr int GPS_UART = 2;  // UART2
     
-    /// UART pins
-    constexpr int GPS_TX_PIN = 1;   // GPS TX -> CPU RX
-    constexpr int GPS_RX_PIN = 45;  // GPS RX <- CPU TX (not used)
+    /// UART pins (per PIN_MAPPING_CPU.md)
+    constexpr int CPU_TX_PIN = 43;  // CPU TX -> GPS RX (not used for receive-only)
+    constexpr int CPU_RX_PIN = 44;  // CPU RX <- GPS TX (receives NMEA data)
     
     /// Baud rate (standard for NEO-6M/8M)
     constexpr int GPS_BAUD = 9600;

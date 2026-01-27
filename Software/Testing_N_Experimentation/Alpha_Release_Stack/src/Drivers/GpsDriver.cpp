@@ -215,7 +215,8 @@ bool init() {
         return false;
     }
     
-    err = uart_set_pin((uart_port_t)GPS_UART, GPS_RX_PIN, GPS_TX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    // uart_set_pin(port, tx_io, rx_io, rts_io, cts_io)
+    err = uart_set_pin((uart_port_t)GPS_UART, CPU_TX_PIN, CPU_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (err != ESP_OK) {
         printf("  GPS: UART set pins failed: %d\n", err);
         return false;
@@ -229,7 +230,7 @@ bool init() {
     
     initialized = true;
     printf("  GPS: Initialized on UART%d (TX:%d, RX:%d @ %d baud)\n", 
-           GPS_UART, GPS_TX_PIN, GPS_RX_PIN, GPS_BAUD);
+           GPS_UART, CPU_TX_PIN, CPU_RX_PIN, GPS_BAUD);
     return true;
 }
 

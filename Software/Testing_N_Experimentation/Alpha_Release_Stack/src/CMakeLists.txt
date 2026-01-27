@@ -16,6 +16,7 @@ elseif(CPU_MAIN_MODE)
         "Drivers/MicDriver.cpp"
         "Drivers/ImuDriver.cpp"
         "Drivers/FanDriver.cpp"
+        "Drivers/BmeDriver.cpp"
         "SystemAPI/GPU/GpuDriver.cpp"
         "HAL/led_strip_encoder.c"
     )
