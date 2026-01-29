@@ -1,0 +1,417 @@
+# ============================================================
+# ARCOS Scene Schema Definition
+# ============================================================
+# This file defines how scene YAML files are structured and
+# how they should be rendered in the web UI.
+#
+# UI Control Types:
+#   dropdown   - Select from predefined options
+#   slider     - Numeric slider (float or int)
+#   toggle     - Boolean on/off switch
+#   color      - RGB color picker
+#   text       - Text input field
+#   number     - Numeric input (no slider)
+#   readonly   - Display only, not editable
+#   file       - File/sprite selector
+#   group      - Contains nested fields
+#   list       - Dynamic list of items
+#
+# Each field can have:
+#   _ui:        Control type (required for UI generation)
+#   _label:     Display name (defaults to field key)
+#   _desc:      Tooltip/help text
+#   _options:   For dropdown - list of {label, value}
+#   _min:       Minimum value (slider/number)
+#   _max:       Maximum value (slider/number)  
+#   _step:      Step increment (slider/number)
+#   _unit:      Unit suffix (px, %, ms, etc.)
+#   _default:   Default value
+#   _readonly:  Make field read-only
+#   _visible:   Show/hide field (default true)
+#   _category:  Group category name
+# ============================================================
+
+Schema:
+  version: "1.0"
+  name: "Scene Configuration"
+  description: "Standard scene format for ARCOS display system"
+
+# ============================================================
+# GLOBAL SETTINGS SECTION
+# ============================================================
+Global:
+  _ui: group
+  _label: "Scene Info"
+  _desc: "Basic scene identification"
+  _icon: "info"
+  
+  name:
+    _ui: text
+    _label: "Scene Name"
+    _desc: "Display name for this scene"
+    _default: "New Scene"
+    _max_length: 32
+  
+  id:
+    _ui: number
+    _label: "Scene ID"
+    _desc: "Unique identifier (auto-assigned)"
+    _min: 1
+    _max: 255
+    _readonly: true
+  
+  description:
+    _ui: text
+    _label: "Description"
+    _desc: "Brief description of the scene"
+    _multiline: true
+    _max_length: 128
+  
+  version:
+    _ui: readonly
+    _label: "Schema Version"
+    _default: 1.0
+  
+  author:
+    _ui: text
+    _label: "Author"
+    _default: "ARCOS"
+    _max_length: 32
+
+# ============================================================
+# DISPLAY SETTINGS SECTION
+# ============================================================
+Display:
+  _ui: group
+  _label: "Display Settings"
+  _desc: "HUB75 matrix display configuration"
+  _icon: "display"
+  
+  enabled:
+    _ui: toggle
+    _label: "Enable Display"
+    _desc: "Turn display output on/off"
+    _default: true
+  
+  animation_type:
+    _ui: dropdown
+    _label: "Animation Type"
+    _desc: "How the eye/sprite should animate"
+    _default: "static_mirrored"
+    _options:
+      - label: "Static Mirrored"
+        value: "static_mirrored"
+        desc: "Static image mirrored on both eyes"
+      - label: "Gyro Eyes"
+        value: "gyro_eyes"
+        desc: "Eyes follow device orientation"
+      - label: "Static Image"
+        value: "static_image"
+        desc: "Single static sprite"
+      - label: "Sway"
+        value: "sway"
+        desc: "Gentle swaying motion"
+      - label: "SDF Morph"
+        value: "sdf_morph"
+        desc: "Signed distance field morphing"
+      - label: "Blink"
+        value: "blink"
+        desc: "Periodic blinking animation"
+      - label: "Look Around"
+        value: "look_around"
+        desc: "Random look-around motion"
+  
+  main_sprite_id:
+    _ui: file
+    _label: "Main Sprite"
+    _desc: "Sprite to display (-1 for default)"
+    _file_type: "sprite"
+    _default: -1
+    _allow_none: true
+  
+  position:
+    _ui: group
+    _label: "Position"
+    _collapsed: true
+    
+    x:
+      _ui: slider
+      _label: "X Position"
+      _min: 0
+      _max: 128
+      _step: 1
+      _unit: "px"
+      _default: 64
+    
+    y:
+      _ui: slider
+      _label: "Y Position"
+      _min: 0
+      _max: 32
+      _step: 1
+      _unit: "px"
+      _default: 16
+  
+  rotation:
+    _ui: slider
+    _label: "Rotation"
+    _desc: "Sprite rotation angle"
+    _min: 0
+    _max: 360
+    _step: 1
+    _unit: "°"
+    _default: 0.0
+  
+  sensitivity:
+    _ui: slider
+    _label: "Sensitivity"
+    _desc: "Motion response sensitivity (for gyro modes)"
+    _min: 0.0
+    _max: 3.0
+    _step: 0.1
+    _default: 1.5
+  
+  mirror:
+    _ui: toggle
+    _label: "Mirror Mode"
+    _desc: "Mirror the display horizontally"
+    _default: false
+  
+  background:
+    _ui: color
+    _label: "Background Color"
+    _desc: "Background color behind sprite"
+    _default:
+      r: 0
+      g: 0
+      b: 0
+
+# ============================================================
+# LED STRIP SETTINGS SECTION  
+# ============================================================
+LEDS:
+  _ui: group
+  _label: "LED Strips"
+  _desc: "WS2812 LED strip configuration"
+  _icon: "lightbulb"
+  
+  enabled:
+    _ui: toggle
+    _label: "Enable LEDs"
+    _desc: "Turn LED strips on/off"
+    _default: false
+  
+  brightness:
+    _ui: slider
+    _label: "Brightness"
+    _desc: "Global LED brightness"
+    _min: 0
+    _max: 255
+    _step: 1
+    _unit: "%"
+    _default: 80
+  
+  color:
+    _ui: color
+    _label: "Global Color"
+    _desc: "Color for all strips (unless overridden)"
+    _default:
+      r: 255
+      g: 128
+      b: 0
+  
+  animation:
+    _ui: dropdown
+    _label: "LED Animation"
+    _desc: "Animation pattern for LED strips"
+    _default: "solid"
+    _options:
+      - label: "Solid"
+        value: "solid"
+      - label: "Breathe"
+        value: "breathe"
+      - label: "Rainbow"
+        value: "rainbow"
+      - label: "Chase"
+        value: "chase"
+      - label: "Pulse"
+        value: "pulse"
+      - label: "Music Reactive"
+        value: "music"
+  
+  strips:
+    _ui: group
+    _label: "Individual Strips"
+    _collapsed: true
+    
+    left_fin:
+      _ui: group
+      _label: "Left Fin"
+      enabled:
+        _ui: toggle
+        _default: true
+      color_override:
+        _ui: toggle
+        _label: "Use Custom Color"
+        _default: false
+      color:
+        _ui: color
+        _visible_if: "color_override == true"
+    
+    right_fin:
+      _ui: group
+      _label: "Right Fin"
+      enabled:
+        _ui: toggle
+        _default: true
+      color_override:
+        _ui: toggle
+        _label: "Use Custom Color"
+        _default: false
+      color:
+        _ui: color
+        _visible_if: "color_override == true"
+    
+    tongue:
+      _ui: group
+      _label: "Tongue"
+      enabled:
+        _ui: toggle
+        _default: true
+      color_override:
+        _ui: toggle
+        _label: "Use Custom Color"
+        _default: false
+      color:
+        _ui: color
+        _visible_if: "color_override == true"
+    
+    scales:
+      _ui: group
+      _label: "Scales"
+      enabled:
+        _ui: toggle
+        _default: true
+      color_override:
+        _ui: toggle
+        _label: "Use Custom Color"
+        _default: false
+      color:
+        _ui: color
+        _visible_if: "color_override == true"
+
+# ============================================================
+# SPRITE DEFINITIONS SECTION
+# ============================================================
+Sprites:
+  _ui: list
+  _label: "Sprites"
+  _desc: "Sprite definitions for this scene"
+  _icon: "image"
+  _item_template:
+    name:
+      _ui: text
+      _label: "Sprite Name"
+      _default: "new_sprite"
+    id:
+      _ui: number
+      _label: "Sprite ID"
+      _readonly: true
+    path:
+      _ui: file
+      _label: "Sprite File"
+      _file_type: "bin"
+      _browse_path: "/Sprites/"
+    width:
+      _ui: number
+      _label: "Width"
+      _min: 1
+      _max: 128
+      _unit: "px"
+    height:
+      _ui: number
+      _label: "Height"
+      _min: 1
+      _max: 64
+      _unit: "px"
+
+# ============================================================
+# AUDIO REACTIVE SECTION (Optional)
+# ============================================================
+Audio:
+  _ui: group
+  _label: "Audio Reactive"
+  _desc: "Audio-reactive animation settings"
+  _icon: "microphone"
+  _optional: true
+  
+  enabled:
+    _ui: toggle
+    _label: "Enable Audio Reactive"
+    _default: false
+  
+  source:
+    _ui: dropdown
+    _label: "Audio Source"
+    _options:
+      - label: "Built-in Microphone"
+        value: "mic"
+      - label: "Line Input"
+        value: "line"
+  
+  sensitivity:
+    _ui: slider
+    _label: "Audio Sensitivity"
+    _min: 0.0
+    _max: 2.0
+    _step: 0.1
+    _default: 1.0
+  
+  frequency_band:
+    _ui: dropdown
+    _label: "Frequency Band"
+    _options:
+      - label: "All"
+        value: "all"
+      - label: "Bass"
+        value: "bass"
+      - label: "Mid"
+        value: "mid"
+      - label: "Treble"
+        value: "treble"
+
+# ============================================================
+# TRIGGERS SECTION (Optional)
+# ============================================================
+Triggers:
+  _ui: list
+  _label: "Triggers"
+  _desc: "Event triggers for scene transitions"
+  _icon: "bolt"
+  _optional: true
+  _item_template:
+    name:
+      _ui: text
+      _label: "Trigger Name"
+    type:
+      _ui: dropdown
+      _label: "Trigger Type"
+      _options:
+        - label: "Button Press"
+          value: "button"
+        - label: "Timer"
+          value: "timer"
+        - label: "Audio Level"
+          value: "audio"
+        - label: "Motion"
+          value: "motion"
+    action:
+      _ui: dropdown
+      _label: "Action"
+      _options:
+        - label: "Switch Scene"
+          value: "switch_scene"
+        - label: "Toggle Animation"
+          value: "toggle_anim"
+        - label: "Play Effect"
+          value: "play_effect"

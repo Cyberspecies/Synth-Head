@@ -1,0 +1,1236 @@
+/*****************************************************************
+ * @file PageDisplayConfig.hpp
+ * @brief Display Configuration Page using YAML-driven UI
+ * 
+ * This page auto-generates a settings UI based on the active
+ * scene's YAML configuration. All controls are defined by the
+ * schema metadata in the YAML file itself.
+ * 
+ * @author ARCOS
+ * @version 1.0
+ *****************************************************************/
+
+#pragma once
+
+namespace SystemAPI {
+namespace Web {
+namespace Content {
+
+/**
+ * @brief Display Configuration Page HTML
+ * 
+ * The page loads the current scene YAML and renders UI controls
+ * based on the schema definitions. All updates are sent to
+ * /api/scene/update and saved back to the YAML file.
+ */
+inline const char PAGE_DISPLAY_CONFIG[] = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Lucidius - Display Config</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+/* ============================================
+   YAML UI Generator Styles
+   ============================================ */
+
+.yaml-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Section Cards */
+.yaml-section {
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.yaml-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.yaml-section-header:hover {
+  background: var(--bg-secondary);
+}
+
+.yaml-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.yaml-section-icon {
+  font-size: 16px;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.yaml-section-chevron {
+  transition: transform 0.2s ease;
+  color: var(--text-muted);
+}
+
+.yaml-section.collapsed .yaml-section-chevron {
+  transform: rotate(-90deg);
+}
+
+.yaml-section-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.yaml-section.collapsed .yaml-section-body {
+  display: none;
+}
+
+/* Field Rows */
+.yaml-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.yaml-field-row:last-child {
+  border-bottom: none;
+}
+
+.yaml-field-label {
+  flex: 0 0 40%;
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yaml-field-label .help-icon {
+  width: 14px;
+  height: 14px;
+  font-size: 10px;
+  background: var(--bg-tertiary);
+  border-radius: 50%;
+  text-align: center;
+  line-height: 14px;
+  color: var(--text-muted);
+  cursor: help;
+}
+
+.yaml-field-control {
+  flex: 0 0 55%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Text Input */
+.yaml-input-text {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: border-color 0.2s;
+}
+
+.yaml-input-text:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* Number Input */
+.yaml-input-number {
+  width: 80px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: 'SF Mono', Monaco, monospace;
+  text-align: right;
+}
+
+.yaml-input-number:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.yaml-input-unit {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 24px;
+}
+
+/* Slider */
+.yaml-slider-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.yaml-slider {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  outline: none;
+}
+
+.yaml-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.yaml-slider-value {
+  min-width: 50px;
+  text-align: right;
+  font-size: 12px;
+  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-muted);
+}
+
+/* Toggle Switch */
+.yaml-toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.yaml-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.yaml-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  transition: 0.2s;
+  border-radius: 24px;
+}
+
+.yaml-toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text-muted);
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+.yaml-toggle input:checked + .yaml-toggle-slider {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.yaml-toggle input:checked + .yaml-toggle-slider:before {
+  transform: translateX(20px);
+  background-color: white;
+}
+
+/* Dropdown Select */
+.yaml-select {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.yaml-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Color Picker */
+.yaml-color-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.yaml-color-picker {
+  width: 40px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.yaml-color-picker::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.yaml-color-picker::-webkit-color-swatch {
+  border-radius: 4px;
+  border: none;
+}
+
+.yaml-color-value {
+  font-size: 12px;
+  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--text-muted);
+}
+
+/* File Selector */
+.yaml-file-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.yaml-file-select select {
+  flex: 1;
+}
+
+/* Readonly */
+.yaml-readonly {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', Monaco, monospace;
+}
+
+/* Nested Groups */
+.yaml-nested-group {
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 8px;
+}
+
+.yaml-nested-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Section Description */
+.yaml-section-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Save indicator */
+.save-indicator {
+  margin-left: 8px;
+  font-size: 14px;
+  animation: fadeInOut 1.5s ease;
+}
+
+.save-indicator.success { color: var(--success); }
+.save-indicator.error { color: var(--danger); }
+
+@keyframes fadeInOut {
+  0% { opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Scene selector header */
+.scene-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.scene-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scene-selector label {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.scene-selector select {
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  min-width: 200px;
+}
+
+.scene-selector select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.scene-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.scene-actions button {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-apply {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+.btn-apply:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.btn-save {
+  background: var(--success);
+  color: white;
+}
+
+.btn-reset {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border) !important;
+  color: var(--text-secondary);
+}
+
+.btn-reset:hover {
+  border-color: var(--accent) !important;
+}
+
+/* Loading state */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .yaml-field-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .yaml-field-label,
+  .yaml-field-control {
+    flex: 1;
+    width: 100%;
+  }
+  
+  .scene-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .scene-selector {
+    width: 100%;
+  }
+  
+  .scene-selector select {
+    flex: 1;
+  }
+}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-content">
+        <div class="logo-section">
+          <div class="logo-icon">&#x25C8;</div>
+          <div class="logo-text">
+            <h1>Lucidius</h1>
+            <span class="model-tag" id="device-model">DX.3</span>
+          </div>
+        </div>
+      </div>
+    </header>
+    
+    <nav class="tabs">
+      <a href="/" class="tab">Basic</a>
+      <a href="/advanced" class="tab active">Advanced</a>
+      <a href="/system" class="tab">System</a>
+      <a href="/settings" class="tab">Settings</a>
+    </nav>
+    
+    <section class="tab-content active">
+      <a href="/advanced/scenes" style="display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); text-decoration: none; font-size: 0.85rem; margin-bottom: 12px;">&#x2190; Back to Scenes</a>
+      
+      <!-- Scene Selection Header -->
+      <div class="scene-header">
+        <div class="scene-selector">
+          <label for="scene-select">Active Scene:</label>
+          <select id="scene-select">
+            <option value="1">Loading...</option>
+          </select>
+        </div>
+        <div class="scene-actions">
+          <button class="btn-reset" id="btn-reset">Reset</button>
+          <button class="btn-apply" id="btn-apply">Apply Scene</button>
+        </div>
+      </div>
+      
+      <!-- Dynamic Form Container -->
+      <div id="config-form-container">
+        <!-- Form will be generated here from YAML -->
+        <div class="loading-overlay" id="loading">
+          <div class="loading-spinner"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+/* ============================================
+   Display Config Page JavaScript
+   ============================================ */
+
+const DisplayConfig = {
+  currentSceneId: null,
+  sceneData: null,
+  requestedSceneId: null,
+  
+  // Initialize
+  init: function() {
+    // Check for ?id= query parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const idParam = urlParams.get('id');
+    if (idParam) {
+      this.requestedSceneId = parseInt(idParam);
+    }
+    this.loadSceneList();
+    this.setupEventHandlers();
+  },
+  
+  // Load available scenes
+  loadSceneList: function() {
+    fetch('/api/scenes')
+      .then(r => r.json())
+      .then(data => {
+        const select = document.getElementById('scene-select');
+        select.innerHTML = '';
+        
+        if (data.scenes && data.scenes.length > 0) {
+          let targetSceneId = this.requestedSceneId;
+          
+          data.scenes.forEach(scene => {
+            const opt = document.createElement('option');
+            opt.value = scene.id;
+            opt.textContent = scene.name || ('Scene ' + scene.id);
+            
+            // If we have a requested scene ID, select it; otherwise select active
+            if (this.requestedSceneId && scene.id == this.requestedSceneId) {
+              opt.selected = true;
+              this.currentSceneId = scene.id;
+            } else if (!this.requestedSceneId && scene.active) {
+              opt.selected = true;
+              this.currentSceneId = scene.id;
+            }
+            select.appendChild(opt);
+          });
+          
+          // Load the target scene
+          if (this.currentSceneId) {
+            this.loadSceneConfig(this.currentSceneId);
+          } else {
+            this.loadSceneConfig(data.scenes[0].id);
+          }
+        } else {
+          select.innerHTML = '<option value="">No scenes found</option>';
+          this.hideLoading();
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load scenes:', err);
+        this.hideLoading();
+      });
+  },
+  
+  // Load scene configuration
+  loadSceneConfig: function(sceneId) {
+    this.showLoading();
+    this.currentSceneId = sceneId;
+    
+    fetch('/api/scene/config?id=' + sceneId)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.config) {
+          this.sceneData = data.config;
+          this.renderConfigForm(data.config);
+        } else {
+          console.error('Failed to load config:', data.error);
+        }
+        this.hideLoading();
+      })
+      .catch(err => {
+        console.error('Failed to load scene config:', err);
+        this.hideLoading();
+      });
+  },
+  
+  // Render configuration form from YAML data
+  renderConfigForm: function(config) {
+    const container = document.getElementById('config-form-container');
+    let html = `<form class="yaml-form" id="scene-form" data-scene="${this.currentSceneId}">`;
+    
+    // Process each top-level section
+    const sections = ['Global', 'Display', 'LEDS', 'Audio', 'Sprites'];
+    
+    for (const sectionKey of sections) {
+      if (config[sectionKey]) {
+        html += this.renderSection(sectionKey, config[sectionKey]);
+      }
+    }
+    
+    html += '</form>';
+    container.innerHTML = html;
+    
+    // Setup form handlers
+    this.setupFormHandlers();
+  },
+  
+  // Render a section
+  renderSection: function(key, section) {
+    const schema = this.getSchemaForSection(key);
+    const icon = schema.icon || '○';
+    const label = schema.label || key;
+    const desc = schema.desc || '';
+    
+    let html = `<div class="yaml-section">`;
+    html += `<div class="yaml-section-header">`;
+    html += `<div class="yaml-section-title">`;
+    html += `<span class="yaml-section-icon">${icon}</span>`;
+    html += `<span>${label}</span>`;
+    html += `</div>`;
+    html += `<span class="yaml-section-chevron">▼</span>`;
+    html += `</div>`;
+    html += `<div class="yaml-section-body">`;
+    
+    if (desc) {
+      html += `<div class="yaml-section-desc">${desc}</div>`;
+    }
+    
+    // Render fields
+    for (const [fieldKey, fieldValue] of Object.entries(section)) {
+      // Skip internal metadata
+      if (fieldKey.startsWith('_')) continue;
+      
+      const fieldSchema = schema.fields?.[fieldKey] || this.inferFieldSchema(fieldKey, fieldValue);
+      html += this.renderField(key + '.' + fieldKey, fieldKey, fieldValue, fieldSchema);
+    }
+    
+    html += `</div></div>`;
+    return html;
+  },
+  
+  // Render a field
+  renderField: function(path, key, value, schema) {
+    const label = schema.label || this.formatLabel(key);
+    const desc = schema.desc || '';
+    
+    let html = `<div class="yaml-field-row" data-field-path="${path}">`;
+    html += `<label class="yaml-field-label">${label}`;
+    if (desc) {
+      html += `<span class="help-icon" title="${desc}">?</span>`;
+    }
+    html += `</label>`;
+    html += `<div class="yaml-field-control">`;
+    
+    switch (schema.type) {
+      case 'toggle':
+        html += this.renderToggle(path, value);
+        break;
+      case 'dropdown':
+        html += this.renderDropdown(path, value, schema.options || []);
+        break;
+      case 'slider':
+        html += this.renderSlider(path, value, schema);
+        break;
+      case 'color':
+        html += this.renderColor(path, value);
+        break;
+      case 'number':
+        html += this.renderNumber(path, value, schema);
+        break;
+      case 'text':
+        html += this.renderText(path, value);
+        break;
+      case 'file':
+        html += this.renderFileSelect(path, value, schema);
+        break;
+      case 'readonly':
+        html += `<span class="yaml-readonly">${value}</span>`;
+        break;
+      case 'group':
+        html = this.renderNestedGroup(path, key, value, schema);
+        return html;
+      default:
+        // Auto-detect type
+        html += this.renderAutoField(path, key, value);
+    }
+    
+    html += `</div></div>`;
+    return html;
+  },
+  
+  // Render toggle
+  renderToggle: function(path, value) {
+    const checked = value ? 'checked' : '';
+    return `<label class="yaml-toggle">
+      <input type="checkbox" data-path="${path}" ${checked}>
+      <span class="yaml-toggle-slider"></span>
+    </label>`;
+  },
+  
+  // Render dropdown
+  renderDropdown: function(path, value, options) {
+    let html = `<select class="yaml-select" data-path="${path}">`;
+    for (const opt of options) {
+      const selected = (opt.value === value) ? 'selected' : '';
+      html += `<option value="${opt.value}" ${selected}>${opt.label}</option>`;
+    }
+    html += `</select>`;
+    return html;
+  },
+  
+  // Render slider
+  renderSlider: function(path, value, schema) {
+    const min = schema.min ?? 0;
+    const max = schema.max ?? 100;
+    const step = schema.step ?? 1;
+    const unit = schema.unit || '';
+    const pathId = path.replace(/\./g, '-');
+    
+    return `<div class="yaml-slider-container">
+      <input type="range" class="yaml-slider" data-path="${path}"
+        min="${min}" max="${max}" step="${step}" value="${value}">
+      <span class="yaml-slider-value" id="val-${pathId}">${value}${unit ? ' ' + unit : ''}</span>
+    </div>`;
+  },
+  
+  // Render color picker
+  renderColor: function(path, value) {
+    let hexColor = '#000000';
+    if (typeof value === 'object') {
+      hexColor = '#' + [value.r || 0, value.g || 0, value.b || 0]
+        .map(x => x.toString(16).padStart(2, '0')).join('');
+    } else if (typeof value === 'string') {
+      hexColor = value;
+    }
+    const pathId = path.replace(/\./g, '-');
+    
+    return `<div class="yaml-color-container">
+      <input type="color" class="yaml-color-picker" data-path="${path}" value="${hexColor}">
+      <span class="yaml-color-value" id="val-${pathId}">${hexColor.toUpperCase()}</span>
+    </div>`;
+  },
+  
+  // Render number input
+  renderNumber: function(path, value, schema) {
+    const min = schema.min ?? '';
+    const max = schema.max ?? '';
+    const unit = schema.unit || '';
+    
+    let html = `<input type="number" class="yaml-input-number" data-path="${path}"
+      value="${value}" ${min !== '' ? 'min="' + min + '"' : ''} ${max !== '' ? 'max="' + max + '"' : ''}>`;
+    if (unit) {
+      html += `<span class="yaml-input-unit">${unit}</span>`;
+    }
+    return html;
+  },
+  
+  // Render text input
+  renderText: function(path, value) {
+    return `<input type="text" class="yaml-input-text" data-path="${path}" value="${value || ''}">`;
+  },
+  
+  // Render file/sprite selector
+  renderFileSelect: function(path, value, schema) {
+    const fileType = schema.fileType || 'sprite';
+    const allowNone = schema.allowNone !== false;
+    
+    let html = `<div class="yaml-file-select">
+      <select class="yaml-select" data-path="${path}" data-file-type="${fileType}">`;
+    
+    if (allowNone) {
+      const selected = (value < 0) ? 'selected' : '';
+      html += `<option value="-1" ${selected}>None (default)</option>`;
+    }
+    
+    // Sprites will be populated dynamically
+    if (value >= 0) {
+      html += `<option value="${value}" selected>Sprite ${value}</option>`;
+    }
+    
+    html += `</select></div>`;
+    return html;
+  },
+  
+  // Render nested group
+  renderNestedGroup: function(path, key, value, schema) {
+    const label = schema.label || this.formatLabel(key);
+    
+    let html = `<div class="yaml-nested-group">`;
+    html += `<div class="yaml-nested-title">${label}</div>`;
+    
+    if (typeof value === 'object') {
+      for (const [subKey, subValue] of Object.entries(value)) {
+        if (subKey.startsWith('_')) continue;
+        const subSchema = schema.fields?.[subKey] || this.inferFieldSchema(subKey, subValue);
+        html += this.renderField(path + '.' + subKey, subKey, subValue, subSchema);
+      }
+    }
+    
+    html += `</div>`;
+    return html;
+  },
+  
+  // Auto-detect field type
+  renderAutoField: function(path, key, value) {
+    if (typeof value === 'boolean') {
+      return this.renderToggle(path, value);
+    } else if (typeof value === 'number') {
+      return this.renderNumber(path, value, {});
+    } else if (typeof value === 'object' && value !== null) {
+      // Check if it's a color
+      if ('r' in value && 'g' in value && 'b' in value) {
+        return this.renderColor(path, value);
+      }
+      // It's a nested object
+      return `<span class="yaml-readonly">[object]</span>`;
+    } else {
+      return this.renderText(path, value);
+    }
+  },
+  
+  // Get schema for section
+  getSchemaForSection: function(key) {
+    const schemas = {
+      'Global': {
+        icon: '○',
+        label: 'Scene Info',
+        desc: 'Basic scene identification',
+        fields: {
+          name: { type: 'text', label: 'Scene Name' },
+          id: { type: 'readonly', label: 'Scene ID' },
+          description: { type: 'text', label: 'Description' },
+          version: { type: 'readonly', label: 'Version' },
+          author: { type: 'text', label: 'Author' }
+        }
+      },
+      'Display': {
+        icon: '◐',
+        label: 'Display Settings',
+        desc: 'HUB75 matrix display configuration',
+        fields: {
+          enabled: { type: 'toggle', label: 'Enable Display' },
+          animation_type: {
+            type: 'dropdown',
+            label: 'Animation Type',
+            options: [
+              { label: 'Static Mirrored', value: 'static_mirrored' },
+              { label: 'Gyro Eyes', value: 'gyro_eyes' },
+              { label: 'Static Image', value: 'static_image' },
+              { label: 'Sway', value: 'sway' },
+              { label: 'SDF Morph', value: 'sdf_morph' },
+              { label: 'Blink', value: 'blink' },
+              { label: 'Look Around', value: 'look_around' }
+            ]
+          },
+          main_sprite_id: { type: 'file', label: 'Main Sprite', fileType: 'sprite', allowNone: true },
+          position: {
+            type: 'group',
+            label: 'Position',
+            fields: {
+              x: { type: 'slider', label: 'X', min: 0, max: 128, unit: 'px' },
+              y: { type: 'slider', label: 'Y', min: 0, max: 32, unit: 'px' }
+            }
+          },
+          rotation: { type: 'slider', label: 'Rotation', min: 0, max: 360, step: 1, unit: '°' },
+          sensitivity: { type: 'slider', label: 'Sensitivity', min: 0, max: 3, step: 0.1 },
+          mirror: { type: 'toggle', label: 'Mirror Mode' },
+          background: { type: 'color', label: 'Background Color' }
+        }
+      },
+      'LEDS': {
+        icon: '◈',
+        label: 'LED Strips',
+        desc: 'WS2812 LED strip configuration',
+        fields: {
+          enabled: { type: 'toggle', label: 'Enable LEDs' },
+          brightness: { type: 'slider', label: 'Brightness', min: 0, max: 255, unit: '%' },
+          color: { type: 'color', label: 'Global Color' },
+          strips: {
+            type: 'group',
+            label: 'Individual Strips',
+            fields: {
+              left_fin: { type: 'group', label: 'Left Fin' },
+              right_fin: { type: 'group', label: 'Right Fin' },
+              tongue: { type: 'group', label: 'Tongue' },
+              scales: { type: 'group', label: 'Scales' }
+            }
+          }
+        }
+      },
+      'Audio': {
+        icon: '◉',
+        label: 'Audio Reactive',
+        desc: 'Audio-reactive animation settings',
+        fields: {
+          enabled: { type: 'toggle', label: 'Enable Audio Reactive' },
+          source: {
+            type: 'dropdown',
+            label: 'Audio Source',
+            options: [
+              { label: 'Built-in Microphone', value: 'mic' },
+              { label: 'Line Input', value: 'line' }
+            ]
+          },
+          sensitivity: { type: 'slider', label: 'Audio Sensitivity', min: 0, max: 2, step: 0.1 }
+        }
+      },
+      'Sprites': {
+        icon: '◧',
+        label: 'Sprites',
+        desc: 'Sprite definitions for this scene',
+        fields: {}
+      }
+    };
+    
+    return schemas[key] || { icon: '○', label: key, fields: {} };
+  },
+  
+  // Infer schema from key and value
+  inferFieldSchema: function(key, value) {
+    // Common naming patterns
+    if (key.includes('enable') || key.includes('active') || key === 'mirror') {
+      return { type: 'toggle' };
+    }
+    if (key.includes('color') || key === 'background') {
+      return { type: 'color' };
+    }
+    if (key.includes('_id') || key === 'id') {
+      return { type: 'readonly' };
+    }
+    if (key.includes('brightness')) {
+      return { type: 'slider', min: 0, max: 255 };
+    }
+    if (key.includes('rotation')) {
+      return { type: 'slider', min: 0, max: 360, unit: '°' };
+    }
+    if (key.includes('position') || key === 'x' || key === 'y') {
+      return { type: 'slider', min: 0, max: 128 };
+    }
+    if (key.includes('sensitivity')) {
+      return { type: 'slider', min: 0, max: 3, step: 0.1 };
+    }
+    
+    // Type-based inference
+    if (typeof value === 'boolean') return { type: 'toggle' };
+    if (typeof value === 'number') return { type: 'number' };
+    if (typeof value === 'object' && value?.r !== undefined) return { type: 'color' };
+    if (typeof value === 'object') return { type: 'group' };
+    
+    return { type: 'text' };
+  },
+  
+  // Format field key as label
+  formatLabel: function(key) {
+    return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  },
+  
+  // Setup form handlers
+  setupFormHandlers: function() {
+    // Section toggles
+    document.querySelectorAll('.yaml-section-header').forEach(header => {
+      header.addEventListener('click', () => {
+        header.parentElement.classList.toggle('collapsed');
+      });
+    });
+    
+    // Toggle inputs
+    document.querySelectorAll('.yaml-toggle input').forEach(toggle => {
+      toggle.addEventListener('change', (e) => {
+        this.updateField(toggle.dataset.path, toggle.checked, 'boolean');
+      });
+    });
+    
+    // Slider inputs
+    document.querySelectorAll('.yaml-slider').forEach(slider => {
+      const pathId = slider.dataset.path.replace(/\./g, '-');
+      const valueSpan = document.getElementById('val-' + pathId);
+      
+      slider.addEventListener('input', (e) => {
+        if (valueSpan) {
+          valueSpan.textContent = slider.value;
+        }
+      });
+      
+      slider.addEventListener('change', (e) => {
+        this.updateField(slider.dataset.path, parseFloat(slider.value), 'number');
+      });
+    });
+    
+    // Select inputs
+    document.querySelectorAll('.yaml-select').forEach(select => {
+      select.addEventListener('change', (e) => {
+        const type = select.dataset.fileType === 'sprite' ? 'number' : 'string';
+        const value = type === 'number' ? parseInt(select.value) : select.value;
+        this.updateField(select.dataset.path, value, type);
+      });
+    });
+    
+    // Color pickers
+    document.querySelectorAll('.yaml-color-picker').forEach(picker => {
+      const pathId = picker.dataset.path.replace(/\./g, '-');
+      const valueSpan = document.getElementById('val-' + pathId);
+      
+      picker.addEventListener('input', (e) => {
+        if (valueSpan) {
+          valueSpan.textContent = picker.value.toUpperCase();
+        }
+        const rgb = this.hexToRgb(picker.value);
+        this.updateField(picker.dataset.path, rgb, 'color');
+      });
+    });
+    
+    // Text/Number inputs (debounced)
+    document.querySelectorAll('.yaml-input-text, .yaml-input-number').forEach(input => {
+      let timeout;
+      input.addEventListener('input', (e) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          const type = input.type === 'number' ? 'number' : 'string';
+          const value = type === 'number' ? parseFloat(input.value) : input.value;
+          this.updateField(input.dataset.path, value, type);
+        }, 500);
+      });
+    });
+    
+    // Populate sprite selectors
+    this.populateSpriteSelectors();
+  },
+  
+  // Populate sprite selectors
+  populateSpriteSelectors: function() {
+    fetch('/api/sprites')
+      .then(r => r.json())
+      .then(data => {
+        if (data.sprites) {
+          document.querySelectorAll('select[data-file-type="sprite"]').forEach(select => {
+            const currentValue = select.value;
+            // Keep first option
+            const firstOption = select.options[0];
+            select.innerHTML = '';
+            select.appendChild(firstOption);
+            
+            data.sprites.forEach(sprite => {
+              const opt = document.createElement('option');
+              opt.value = sprite.id;
+              opt.textContent = sprite.name || ('Sprite ' + sprite.id);
+              if (sprite.id == currentValue) opt.selected = true;
+              select.appendChild(opt);
+            });
+          });
+        }
+      })
+      .catch(err => console.log('Could not load sprites:', err));
+  },
+  
+  // Update field via API
+  updateField: function(path, value, type) {
+    fetch('/api/scene/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sceneId: this.currentSceneId,
+        path: path,
+        value: value,
+        type: type
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        this.showSaveIndicator(path, true);
+      } else {
+        console.error('Update failed:', data.error);
+        this.showSaveIndicator(path, false);
+      }
+    })
+    .catch(err => {
+      console.error('Update error:', err);
+      this.showSaveIndicator(path, false);
+    });
+  },
+  
+  // Show save indicator
+  showSaveIndicator: function(path, success) {
+    const row = document.querySelector(`[data-field-path="${path}"]`);
+    if (row) {
+      let indicator = row.querySelector('.save-indicator');
+      if (!indicator) {
+        indicator = document.createElement('span');
+        indicator.className = 'save-indicator';
+        row.querySelector('.yaml-field-control').appendChild(indicator);
+      }
+      indicator.textContent = success ? '✓' : '✗';
+      indicator.className = 'save-indicator ' + (success ? 'success' : 'error');
+      
+      setTimeout(() => indicator.remove(), 1500);
+    }
+  },
+  
+  // Hex to RGB
+  hexToRgb: function(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 0, g: 0, b: 0 };
+  },
+  
+  // Setup event handlers
+  setupEventHandlers: function() {
+    // Scene selector
+    document.getElementById('scene-select').addEventListener('change', (e) => {
+      this.loadSceneConfig(e.target.value);
+    });
+    
+    // Apply button
+    document.getElementById('btn-apply').addEventListener('click', () => {
+      this.applyScene();
+    });
+    
+    // Reset button
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      if (confirm('Reset all changes?')) {
+        this.loadSceneConfig(this.currentSceneId);
+      }
+    });
+  },
+  
+  // Apply scene
+  applyScene: function() {
+    fetch('/api/scene/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sceneId: this.currentSceneId })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        alert('Scene applied!');
+      } else {
+        alert('Failed to apply scene: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(err => {
+      alert('Error applying scene: ' + err);
+    });
+  },
+  
+  // Show loading
+  showLoading: function() {
+    const loading = document.getElementById('loading');
+    if (loading) loading.style.display = 'flex';
+  },
+  
+  // Hide loading
+  hideLoading: function() {
+    const loading = document.getElementById('loading');
+    if (loading) loading.style.display = 'none';
+  }
+};
+
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+  DisplayConfig.init();
+});
+  </script>
+</body>
+</html>
+)rawliteral";
+
+} // namespace Content
+} // namespace Web
+} // namespace SystemAPI

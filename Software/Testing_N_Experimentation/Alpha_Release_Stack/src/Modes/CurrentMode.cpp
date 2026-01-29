@@ -158,13 +158,14 @@ namespace GpuDriverState {
     // ====== SCENE-BASED ANIMATION STATE ======
     // Animation modes from scene manager
     enum class SceneAnimMode {
-        NONE,           // No animation (shows black)
-        GYRO_EYES,      // Gyro-controlled eyes
-        STATIC_IMAGE,   // Static sprite display
-        SWAY,           // Swaying sprite animation
-        SDF_MORPH       // SDF morphing animation (legacy)
+        NONE,             // No animation (shows black)
+        GYRO_EYES,        // Gyro-controlled eyes
+        STATIC_IMAGE,     // Static sprite display (single, centered)
+        STATIC_MIRRORED,  // Static sprite on both panels (mirrored right)
+        SWAY,             // Swaying sprite animation
+        SDF_MORPH         // SDF morphing animation (legacy)
     };
-    static SceneAnimMode currentAnimMode = SceneAnimMode::GYRO_EYES;  // Default to gyro eyes
+    static SceneAnimMode currentAnimMode = SceneAnimMode::STATIC_MIRRORED;  // Default to static mirrored eye
     static bool sceneAnimInitialized = false;
     
     // Gyro eyes state
@@ -198,6 +199,78 @@ namespace GpuDriverState {
     static TaskHandle_t imuTaskHandle = nullptr;
     static bool imuTaskRunning = false;
     
+    // ====== DEFAULT VECTOR EYE DRAWING ======
+    // Draw the default organic eye shape using GPU line commands
+    // SVG source: 445x308, scaled to fit 64x32 panel
+    // Scale factors: x = 64/445 = 0.144, y = 32/308 = 0.104
+    // Using y scale (0.104) to maintain aspect ratio, then center horizontally
+    static void drawDefaultVectorEye(GpuCommands& gpu, float offsetX, float offsetY, bool mirror) {
+        const float scale = 0.095f;  // Slightly smaller to fit with margin
+        const float svgCenterX = 222.5f;  // Approx center of SVG
+        const float svgCenterY = 154.0f;  // Approx center of SVG
+        
+        // Transform a point from SVG coords to panel coords
+        auto transformX = [&](float x) -> int16_t {
+            float tx = (x - svgCenterX) * scale;
+            if (mirror) tx = -tx;
+            return (int16_t)(tx + offsetX);
+        };
+        auto transformY = [&](float y) -> int16_t {
+            return (int16_t)((y - svgCenterY) * scale + offsetY);
+        };
+        
+        // Draw pupil circle (cx=216, cy=114, r=39.5)
+        int16_t pupilX = transformX(216);
+        int16_t pupilY = transformY(114);
+        int16_t pupilR = (int16_t)(39.5f * scale);
+        gpu.hub75Circle(pupilX, pupilY, pupilR, 255, 255, 255);
+        
+        // Main eye outline - key points from SVG path
+        // Simplified to major vertices for line drawing
+        const float eyeOutline[][2] = {
+            {238, 3}, {221.5, 0.5}, {161, 0.5}, {142, 1.5}, {106, 4.5}, {89, 6},
+            {72.5, 10.5}, {58.5, 16}, {48.5, 21}, {35.5, 30.5}, {27, 39}, {20, 47.5},
+            {14, 57.5}, {7, 75}, {1, 98.5}, {0.5, 109}, {0.5, 116}, {2, 122}, {5, 126},
+            {8.5, 128.5}, {21.5, 132.5}, {38, 137.5}, {58.5, 144.5}, {75, 151}, {90, 159},
+            {101.5, 167}, {117, 177.5}, {131, 189}, {139.5, 197.5}, {149, 205.5}, {158.5, 212},
+            {170.5, 218}, {186, 223.5}, {201, 226.5}, {216, 227.5}, {230, 226.5}, {242, 223.5},
+            {258.5, 218.5}, {278.5, 208.5}, {292, 198.5}, {302, 188.5}, {312, 176}, {319, 163.5},
+            {323, 153.5}, {327, 138.5}, {328.5, 122}, {328.5, 106}, {326.5, 89}, {321.5, 72.5},
+            {316.5, 61}, {310.5, 51}, {303.5, 42.5}, {293.5, 31.5}, {281, 22.5}, {267.5, 14.5},
+            {255.5, 9}, {238, 3}
+        };
+        const int numOutlinePoints = sizeof(eyeOutline) / sizeof(eyeOutline[0]);
+        
+        // Draw eye outline
+        for (int i = 0; i < numOutlinePoints - 1; i++) {
+            gpu.hub75Line(
+                transformX(eyeOutline[i][0]), transformY(eyeOutline[i][1]),
+                transformX(eyeOutline[i+1][0]), transformY(eyeOutline[i+1][1]),
+                255, 255, 255
+            );
+        }
+        
+        // Tear duct / eyebrow detail - key points from second path
+        const float tearDuct[][2] = {
+            {384.5, 130.5}, {347.5, 77.5}, {346, 76}, {343.5, 76.5}, {342, 78}, {342, 81},
+            {343.5, 88}, {345.5, 99.5}, {345.5, 112}, {345, 127}, {342.5, 140}, {338.5, 156},
+            {332, 171}, {322.5, 188.5}, {311.5, 203.5}, {297.5, 216.5}, {285.5, 225}, {284, 230},
+            {285, 235.5}, {289, 240}, {302, 242}, {320, 245}, {339, 251}, {355, 257.5},
+            {372, 266.5}, {404.5, 287.5}, {433, 305}, {439.5, 307.5}, {442.5, 307.5}, {444, 305.5},
+            {444, 290}, {441.5, 272}, {434, 240}, {419.5, 198.5}, {405, 166}, {384.5, 130.5}
+        };
+        const int numTearPoints = sizeof(tearDuct) / sizeof(tearDuct[0]);
+        
+        // Draw tear duct outline
+        for (int i = 0; i < numTearPoints - 1; i++) {
+            gpu.hub75Line(
+                transformX(tearDuct[i][0]), transformY(tearDuct[i][1]),
+                transformX(tearDuct[i+1][0]), transformY(tearDuct[i+1][1]),
+                255, 255, 255
+            );
+        }
+    }
+
     // ====== EYE SPRITE CREATION ======
     // Create a filled circle sprite for AA eye rendering
     static void createCircleSprite(uint8_t* data, int size, uint8_t r, uint8_t g, uint8_t b) {
@@ -538,7 +611,7 @@ namespace GpuDriverState {
                     }
                     
                     case SceneAnimMode::STATIC_IMAGE: {
-                        // Static sprite display
+                        // Static sprite display (single, centered on full display)
                         g_gpu.hub75Clear(bgR, bgG, bgB);
                         
                         if (spriteReady) {
@@ -549,6 +622,37 @@ namespace GpuDriverState {
                         }
                         
                         g_gpu.hub75Present();
+                        break;
+                    }
+                    
+                    case SceneAnimMode::STATIC_MIRRORED: {
+                        // Static sprite on both panels (left and right, mirrored)
+                        g_gpu.hub75Clear(bgR, bgG, bgB);
+                        
+                        // Left panel center: 32, 16
+                        // Right panel center: 96, 16
+                        const float leftCenterX = 32.0f;
+                        const float rightCenterX = 96.0f;
+                        const float panelCenterY = 16.0f;
+                        
+                        if (spriteReady) {
+                            // Draw on left panel (normal orientation)
+                            g_gpu.blitSpriteRotated(activeSpriteId, leftCenterX, panelCenterY, staticRotation);
+                            // Draw on right panel (flipped 180° for mirror effect)
+                            g_gpu.blitSpriteRotated(activeSpriteId, rightCenterX, panelCenterY, 180.0f + staticRotation);
+                        } else {
+                            // No sprite uploaded - use default vector eye drawing
+                            drawDefaultVectorEye(g_gpu, leftCenterX, panelCenterY, false);   // Left eye (normal)
+                            drawDefaultVectorEye(g_gpu, rightCenterX, panelCenterY, true);   // Right eye (mirrored)
+                        }
+                        
+                        g_gpu.hub75Present();
+                        
+                        if (renderFrameCount % 120 == 0) {
+                            printf("STATIC_MIRRORED: Frame %lu - sprite=%d, using %s\n", 
+                                   renderFrameCount, spriteReady ? activeSpriteId : -1,
+                                   spriteReady ? "uploaded sprite" : "default vector eye");
+                        }
                         break;
                     }
                     
@@ -760,8 +864,10 @@ namespace GpuDriverState {
         
         if (animType == "gyro_eyes") {
             currentAnimMode = SceneAnimMode::GYRO_EYES;
-        } else if (animType == "static_image") {
+        } else if (animType == "static_image" || animType == "static") {
             currentAnimMode = SceneAnimMode::STATIC_IMAGE;
+        } else if (animType == "static_mirrored") {
+            currentAnimMode = SceneAnimMode::STATIC_MIRRORED;
         } else if (animType == "sway") {
             currentAnimMode = SceneAnimMode::SWAY;
         } else if (animType == "sdf_morph") {
@@ -1206,9 +1312,9 @@ void CurrentMode::onStart() {
     // GpuDriverState::enableSandbox(true);
     printf("  AnimationSandbox: Configured (will be enabled when scene uses SDF_MORPH)\n");
     
-    // Set default animation to GYRO_EYES (the main expected animation)
-    GpuDriverState::setSceneAnimation("gyro_eyes");
-    printf("  Default Animation: GYRO_EYES\n");
+    // Set default animation to STATIC_MIRRORED (vector eye on both panels)
+    GpuDriverState::setSceneAnimation("static_mirrored");
+    printf("  Default Animation: STATIC_MIRRORED (vector eye)\n");
     
     // Upload eye sprites for AA rendering
     printf("  Uploading eye sprites for AA rendering...\n");
@@ -1451,6 +1557,7 @@ void CurrentMode::onStart() {
             (int)GpuDriverState::getSceneAnimMode(),
             GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::GYRO_EYES ? "GYRO_EYES" :
             GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::STATIC_IMAGE ? "STATIC_IMAGE" :
+            GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::STATIC_MIRRORED ? "STATIC_MIRRORED" :
             GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::SWAY ? "SWAY" :
             GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::SDF_MORPH ? "SDF_MORPH" : "NONE",
             GpuDriverState::isSandboxEnabled() ? "YES" : "NO",

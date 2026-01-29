@@ -15,6 +15,7 @@
 #include "SystemAPI/Web/Content/WebContent.hpp"
 #include "SystemAPI/Web/Content/PageSdCard.hpp"
 #include "SystemAPI/Web/Content/PageSceneComposition.hpp"
+#include "SystemAPI/Web/Content/PageDisplayConfig.hpp"
 #include "SystemAPI/Misc/SyncState.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
 #include "SystemAPI/Animation/AnimationConfig.hpp"
@@ -380,6 +381,7 @@ private:
         registerHandler("/advanced/scenes/edit", HTTP_GET, handlePageSceneEdit);
         registerHandler("/sprites", HTTP_GET, handlePageSprite);  // Legacy redirect
         registerHandler("/settings", HTTP_GET, handlePageSettings);
+        registerHandler("/display-config", HTTP_GET, handlePageDisplayConfig);
         registerHandler("/sdcard", HTTP_GET, handlePageSdCard);  // SD Card Browser
         
         // Static content handlers
@@ -415,6 +417,7 @@ private:
         registerHandler("/api/scene/get", HTTP_GET, handleApiSceneGet);
         registerHandler("/api/scene/activate", HTTP_POST, handleApiSceneActivate);
         registerHandler("/api/scene/update", HTTP_POST, handleApiSceneUpdate);
+        registerHandler("/api/scene/config", HTTP_GET, handleApiSceneConfig);
         registerHandler("/api/scene/display", HTTP_POST, handleApiSceneDisplay);
         registerHandler("/api/scene/clear", HTTP_POST, handleApiSceneClear);
         registerHandler("/api/scenes/reorder", HTTP_POST, handleApiScenesReorder);
@@ -438,6 +441,7 @@ private:
         registerHandler("/api/sdcard/status", HTTP_GET, handleApiSdCardStatus);
         registerHandler("/api/sdcard/format", HTTP_POST, handleApiSdCardFormat);
         registerHandler("/api/sdcard/format-init", HTTP_POST, handleApiSdCardFormatInit);
+        registerHandler("/api/sdcard/setup-defaults", HTTP_POST, handleApiSdCardSetupDefaults);
         registerHandler("/api/sdcard/setup", HTTP_POST, handleApiSdCardSetup);
         registerHandler("/api/sdcard/clear", HTTP_POST, handleApiSdCardClear);
         registerHandler("/api/sdcard/list", HTTP_GET, handleApiSdCardList);
@@ -1422,6 +1426,21 @@ private:
                 ESP_LOGI(HTTP_TAG, "Saving scenes to SD card after migration");
                 saveScenesStorage();
             }
+            
+            // Auto-activate the scene that was marked as active
+            if (activeSceneId_ >= 0) {
+                for (auto& s : savedScenes_) {
+                    if (s.id == activeSceneId_ && s.active) {
+                        ESP_LOGI(HTTP_TAG, "Auto-activating scene: %s (id=%d, animType=%s)", 
+                                 s.name.c_str(), s.id, s.animType.c_str());
+                        auto& callback = getSceneActivatedCallback();
+                        if (callback) {
+                            callback(s);
+                        }
+                        break;
+                    }
+                }
+            }
         }
         
         cJSON_Delete(root);
@@ -1939,6 +1958,143 @@ private:
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
         httpd_resp_send(req, Content::PAGE_SETTINGS, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Serve the Display Configuration page
+     * Uses YAML-driven UI generation
+     */
+    static esp_err_t handlePageDisplayConfig(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return redirectToLogin(req);
+        
+        ESP_LOGI(HTTP_TAG, "Serving Display Config page");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_send(req, Content::PAGE_DISPLAY_CONFIG, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief API: Get scene configuration as JSON
+     * GET /api/scene/config?id=<sceneId>
+     * Returns the full scene YAML as JSON for the UI to render
+     */
+    static esp_err_t handleApiSceneConfig(httpd_req_t* req) {
+        if (requiresAuthJson(req)) return sendJsonError(req, 401, "Authentication required");
+        
+        // Parse query parameters
+        char query[64] = {0};
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+            // No query - return active scene
+            for (const auto& scene : savedScenes_) {
+                if (scene.active) {
+                    return sendSceneConfigJson(req, scene);
+                }
+            }
+            // No active scene - return first or empty
+            if (!savedScenes_.empty()) {
+                return sendSceneConfigJson(req, savedScenes_[0]);
+            }
+            return sendJsonError(req, 404, "No scenes found");
+        }
+        
+        // Get scene ID
+        char param[16] = {0};
+        if (httpd_query_key_value(query, "id", param, sizeof(param)) == ESP_OK) {
+            int sceneId = atoi(param);
+            for (const auto& scene : savedScenes_) {
+                if (scene.id == sceneId) {
+                    return sendSceneConfigJson(req, scene);
+                }
+            }
+            return sendJsonError(req, 404, "Scene not found");
+        }
+        
+        return sendJsonError(req, 400, "Missing scene id");
+    }
+    
+    /**
+     * @brief Helper: Send scene config as JSON
+     */
+    static esp_err_t sendSceneConfigJson(httpd_req_t* req, const SavedScene& scene) {
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", true);
+        
+        // Create config object matching YAML structure
+        cJSON* config = cJSON_CreateObject();
+        
+        // Global section
+        cJSON* global = cJSON_CreateObject();
+        cJSON_AddStringToObject(global, "name", scene.name.c_str());
+        cJSON_AddNumberToObject(global, "id", scene.id);
+        cJSON_AddStringToObject(global, "description", "Scene configuration");
+        cJSON_AddNumberToObject(global, "version", 1.0);
+        cJSON_AddStringToObject(global, "author", "ARCOS");
+        cJSON_AddItemToObject(config, "Global", global);
+        
+        // Display section
+        cJSON* display = cJSON_CreateObject();
+        cJSON_AddBoolToObject(display, "enabled", scene.displayEnabled);
+        cJSON_AddStringToObject(display, "animation_type", scene.animType.c_str());
+        cJSON_AddNumberToObject(display, "main_sprite_id", scene.spriteId);
+        
+        // Position subobject
+        cJSON* pos = cJSON_CreateObject();
+        auto it = scene.params.find("center_x");
+        cJSON_AddNumberToObject(pos, "x", it != scene.params.end() ? it->second : 64.0f);
+        it = scene.params.find("center_y");
+        cJSON_AddNumberToObject(pos, "y", it != scene.params.end() ? it->second : 16.0f);
+        cJSON_AddItemToObject(display, "position", pos);
+        
+        // Other display params
+        it = scene.params.find("rotation");
+        cJSON_AddNumberToObject(display, "rotation", it != scene.params.end() ? it->second : 0.0f);
+        it = scene.params.find("intensity");
+        cJSON_AddNumberToObject(display, "sensitivity", it != scene.params.end() ? it->second : 1.5f);
+        cJSON_AddBoolToObject(display, "mirror", scene.mirrorSprite);
+        
+        // Background color
+        cJSON* bg = cJSON_CreateObject();
+        cJSON_AddNumberToObject(bg, "r", 0);
+        cJSON_AddNumberToObject(bg, "g", 0);
+        cJSON_AddNumberToObject(bg, "b", 0);
+        cJSON_AddItemToObject(display, "background", bg);
+        
+        cJSON_AddItemToObject(config, "Display", display);
+        
+        // LEDS section
+        cJSON* leds = cJSON_CreateObject();
+        cJSON_AddBoolToObject(leds, "enabled", scene.ledsEnabled);
+        cJSON_AddNumberToObject(leds, "brightness", 80);
+        
+        cJSON* color = cJSON_CreateObject();
+        cJSON_AddNumberToObject(color, "r", 255);
+        cJSON_AddNumberToObject(color, "g", 128);
+        cJSON_AddNumberToObject(color, "b", 0);
+        cJSON_AddItemToObject(leds, "color", color);
+        
+        // LED strips
+        cJSON* strips = cJSON_CreateObject();
+        const char* stripNames[] = {"left_fin", "right_fin", "tongue", "scales"};
+        for (const char* name : stripNames) {
+            cJSON* strip = cJSON_CreateObject();
+            cJSON_AddBoolToObject(strip, "enabled", true);
+            cJSON_AddBoolToObject(strip, "color_override", false);
+            cJSON_AddItemToObject(strips, name, strip);
+        }
+        cJSON_AddItemToObject(leds, "strips", strips);
+        cJSON_AddItemToObject(config, "LEDS", leds);
+        
+        cJSON_AddItemToObject(root, "config", config);
+        
+        // Send response
+        char* json = cJSON_PrintUnformatted(root);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, strlen(json));
+        
+        cJSON_free(json);
+        cJSON_Delete(root);
         return ESP_OK;
     }
     
@@ -5086,8 +5242,37 @@ public:
         ESP_LOGI(HTTP_TAG, "Step 0: Clearing in-memory data...");
         savedScenes_.clear();
         savedSprites_.clear();
+        savedEquations_.clear();
         nextSceneId_ = 1;
         activeSceneId_ = -1;
+        nextSpriteId_ = 1;
+        nextEquationId_ = 1;
+        
+        // Step 0b: Delete SPIFFS files to prevent migration of old data
+        // Try to delete even if spiffs_initialized_ is false (VFS mount may still exist)
+        ESP_LOGI(HTTP_TAG, "Step 0b: Clearing SPIFFS data to prevent re-migration...");
+        // First ensure SPIFFS is mounted
+        if (!spiffs_initialized_) {
+            initSpiffs();
+        }
+        // Now delete the files
+        if (remove(SCENE_INDEX_FILE_SPIFFS) == 0) {
+            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS scene index: %s", SCENE_INDEX_FILE_SPIFFS);
+        } else {
+            ESP_LOGW(HTTP_TAG, "Could not delete SPIFFS scene index (may not exist)");
+        }
+        if (remove(SPRITE_INDEX_FILE_SPIFFS) == 0) {
+            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS sprite index: %s", SPRITE_INDEX_FILE_SPIFFS);
+        } else {
+            ESP_LOGW(HTTP_TAG, "Could not delete SPIFFS sprite index (may not exist)");
+        }
+        if (remove(EQUATION_INDEX_FILE_SPIFFS) == 0) {
+            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS equation index: %s", EQUATION_INDEX_FILE_SPIFFS);
+        } else {
+            ESP_LOGW(HTTP_TAG, "Could not delete SPIFFS equation index (may not exist)");
+        }
+        // Sync SPIFFS filesystem
+        SystemAPI::Utils::syncFilesystem();
         
         // Step 1: Format the SD card
         ESP_LOGI(HTTP_TAG, "Step 1: Formatting SD card...");
@@ -5125,131 +5310,33 @@ public:
         SystemAPI::Utils::syncFilesystem();
         vTaskDelay(pdMS_TO_TICKS(200));
         
-        // Step 3: Populate with default scene YAML files
-        ESP_LOGI(HTTP_TAG, "Step 3: Populating default scenes...");
-        int scenesCreated = 0;
+        // Step 3: Create empty index files to prevent SPIFFS migration
+        ESP_LOGI(HTTP_TAG, "Step 3: Creating empty index files...");
         
-        // Default Scene 1: Gyro Eyes (primary interactive mode)
-        const char* gyroEyesYaml = 
-            "Global:\n"
-            "  name: \"Gyro Eyes\"\n"
-            "  id: 1\n"
-            "  description: \"Interactive eye tracking using IMU gyroscope\"\n"
-            "\n"
-            "Display:\n"
-            "  enabled: true\n"
-            "  animation_type: \"gyro_eyes\"\n"
-            "  eye_style: \"default\"\n"
-            "  tracking_speed: 1.0\n"
-            "  blink_enabled: true\n"
-            "  blink_interval: 5000\n"
-            "\n"
-            "LEDS:\n"
-            "  enabled: true\n"
-            "  brightness: 80\n"
-            "  mode: \"reactive\"\n"
-            "  color_primary: \"#00FF00\"\n"
-            "  color_secondary: \"#0000FF\"\n";
-        
-        if (sdCard.writeFile("/Scenes/gyro_eyes.yaml", gyroEyesYaml, strlen(gyroEyesYaml))) {
-            scenesCreated++;
-            ESP_LOGI(HTTP_TAG, "Created gyro_eyes.yaml");
+        // Empty scene index
+        const char* emptySceneIndex = R"({
+  "nextId": 1,
+  "activeId": -1,
+  "storage": "sdcard",
+  "scenes": []
+})";
+        if (sdCard.writeFile("/Scenes/index.json", emptySceneIndex, strlen(emptySceneIndex))) {
+            ESP_LOGI(HTTP_TAG, "Created empty scenes/index.json");
         }
         
-        // Default Scene 2: Static Display
-        const char* staticYaml = 
-            "Global:\n"
-            "  name: \"Static Display\"\n"
-            "  id: 2\n"
-            "  description: \"Static eye display without movement\"\n"
-            "\n"
-            "Display:\n"
-            "  enabled: true\n"
-            "  animation_type: \"static\"\n"
-            "  eye_style: \"default\"\n"
-            "  pupil_x: 0.5\n"
-            "  pupil_y: 0.5\n"
-            "\n"
-            "LEDS:\n"
-            "  enabled: false\n"
-            "  brightness: 0\n"
-            "  mode: \"off\"\n";
-        
-        if (sdCard.writeFile("/Scenes/static_display.yaml", staticYaml, strlen(staticYaml))) {
-            scenesCreated++;
-            ESP_LOGI(HTTP_TAG, "Created static_display.yaml");
+        // Empty sprite index
+        const char* emptySpriteIndex = R"({
+  "version": 1,
+  "nextId": 1,
+  "sprites": []
+})";
+        if (sdCard.writeFile("/Sprites/index.json", emptySpriteIndex, strlen(emptySpriteIndex))) {
+            ESP_LOGI(HTTP_TAG, "Created empty sprites/index.json");
         }
         
-        // Default Scene 3: LED Show (LEDs only, display off)
-        const char* ledShowYaml = 
-            "Global:\n"
-            "  name: \"LED Show\"\n"
-            "  id: 3\n"
-            "  description: \"LED animation mode with display off\"\n"
-            "\n"
-            "Display:\n"
-            "  enabled: false\n"
-            "  animation_type: \"none\"\n"
-            "\n"
-            "LEDS:\n"
-            "  enabled: true\n"
-            "  brightness: 100\n"
-            "  mode: \"rainbow_cycle\"\n"
-            "  speed: 50\n"
-            "  color_primary: \"#FF0000\"\n";
-        
-        if (sdCard.writeFile("/Scenes/led_show.yaml", ledShowYaml, strlen(ledShowYaml))) {
-            scenesCreated++;
-            ESP_LOGI(HTTP_TAG, "Created led_show.yaml");
-        }
-        
-        // Default Scene 4: Sleep Mode
-        const char* sleepYaml = 
-            "Global:\n"
-            "  name: \"Sleep Mode\"\n"
-            "  id: 4\n"
-            "  description: \"Low power sleep mode with closed eyes\"\n"
-            "\n"
-            "Display:\n"
-            "  enabled: true\n"
-            "  animation_type: \"sleep\"\n"
-            "  eye_style: \"closed\"\n"
-            "\n"
-            "LEDS:\n"
-            "  enabled: true\n"
-            "  brightness: 20\n"
-            "  mode: \"breathing\"\n"
-            "  color_primary: \"#0000FF\"\n"
-            "  speed: 20\n";
-        
-        if (sdCard.writeFile("/Scenes/sleep_mode.yaml", sleepYaml, strlen(sleepYaml))) {
-            scenesCreated++;
-            ESP_LOGI(HTTP_TAG, "Created sleep_mode.yaml");
-        }
-        
-        // Default Scene 5: Demo Mode
-        const char* demoYaml = 
-            "Global:\n"
-            "  name: \"Demo Mode\"\n"
-            "  id: 5\n"
-            "  description: \"Demonstration mode cycling through animations\"\n"
-            "\n"
-            "Display:\n"
-            "  enabled: true\n"
-            "  animation_type: \"demo\"\n"
-            "  cycle_interval: 10000\n"
-            "  transitions_enabled: true\n"
-            "\n"
-            "LEDS:\n"
-            "  enabled: true\n"
-            "  brightness: 80\n"
-            "  mode: \"sync_display\"\n"
-            "  color_primary: \"#FF6B00\"\n"
-            "  color_secondary: \"#00FFFF\"\n";
-        
-        if (sdCard.writeFile("/Scenes/demo_mode.yaml", demoYaml, strlen(demoYaml))) {
-            scenesCreated++;
-            ESP_LOGI(HTTP_TAG, "Created demo_mode.yaml");
+        // Also create the sprites/index.dat for the newer loader
+        if (sdCard.writeFile("/sprites/index.dat", emptySpriteIndex, strlen(emptySpriteIndex))) {
+            ESP_LOGI(HTTP_TAG, "Created empty sprites/index.dat");
         }
         
         SystemAPI::Utils::syncFilesystem();
@@ -5257,9 +5344,8 @@ public:
         // Build response
         cJSON* root = cJSON_CreateObject();
         cJSON_AddBoolToObject(root, "success", true);
-        cJSON_AddStringToObject(root, "message", "SD card formatted and initialized with default scenes");
+        cJSON_AddStringToObject(root, "message", "SD card formatted and initialized (empty). Use Setup Defaults to add default scenes.");
         cJSON_AddNumberToObject(root, "folders_created", foldersCreated);
-        cJSON_AddNumberToObject(root, "scenes_created", scenesCreated);
         cJSON_AddNumberToObject(root, "total_mb", sdCard.getTotalBytes() / (1024 * 1024));
         cJSON_AddNumberToObject(root, "free_mb", sdCard.getFreeBytes() / (1024 * 1024));
         
@@ -5270,7 +5356,236 @@ public:
         httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
         free(json);
         
-        ESP_LOGI(HTTP_TAG, "SD card format & init complete: %d folders, %d scenes", foldersCreated, scenesCreated);
+        ESP_LOGI(HTTP_TAG, "SD card format & init complete: %d folders created", foldersCreated);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Setup default system configuration (sprite, scene, LED config)
+     * Creates default files without formatting the SD card
+     */
+    static esp_err_t handleApiSdCardSetupDefaults(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isReady() || !sdCard.isMounted()) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"SD card not initialized\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        ESP_LOGI(HTTP_TAG, "Setting up default configuration...");
+        
+        // Clear in-memory data first
+        savedScenes_.clear();
+        savedSprites_.clear();
+        savedEquations_.clear();
+        nextSceneId_ = 1;
+        activeSceneId_ = -1;
+        nextSpriteId_ = 1;
+        nextEquationId_ = 1;
+        
+        // Clear SPIFFS data to prevent re-migration
+        // First ensure SPIFFS is mounted
+        if (!spiffs_initialized_) {
+            initSpiffs();
+        }
+        // Now delete the files
+        if (remove(SCENE_INDEX_FILE_SPIFFS) == 0) {
+            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS scene index: %s", SCENE_INDEX_FILE_SPIFFS);
+        }
+        if (remove(SPRITE_INDEX_FILE_SPIFFS) == 0) {
+            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS sprite index: %s", SPRITE_INDEX_FILE_SPIFFS);
+        }
+        if (remove(EQUATION_INDEX_FILE_SPIFFS) == 0) {
+            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS equation index: %s", EQUATION_INDEX_FILE_SPIFFS);
+        }
+        SystemAPI::Utils::syncFilesystem();
+        
+        int filesCreated = 0;
+        
+        // Ensure directories exist
+        sdCard.createDir("/Sprites");
+        sdCard.createDir("/Scenes");
+        sdCard.createDir("/Configs");
+        
+        // Step 1: Create default eye sprite SVG
+        ESP_LOGI(HTTP_TAG, "Creating default eye sprite...");
+        const char* defaultEyeSvg = R"(<svg width="445" height="308" viewBox="0 0 445 308" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="216" cy="114" r="39.5" stroke="white"/>
+<path d="M384.5 130.5L347.5 77.5L346 76L343.5 76.5L342 78V81L343.5 88L345.5 99.5V112L345 127L342.5 140L338.5 156L332 171L322.5 188.5L311.5 203.5L297.5 216.5L285.5 225L284 230L285 235.5L289 240L302 242L320 245L339 251L355 257.5L372 266.5L404.5 287.5L433 305L439.5 307.5H442.5L444 305.5V290L441.5 272L434 240L419.5 198.5L405 166L384.5 130.5Z" stroke="white"/>
+<path d="M238 3L221.5 0.5H161L142 1.5L106 4.5L89 6L72.5 10.5L58.5 16L48.5 21L35.5 30.5L27 39L20 47.5L14 57.5L7 75L1 98.5L0.5 109V116L2 122L5 126L8.5 128.5L21.5 132.5L38 137.5L58.5 144.5L75 151L90 159L101.5 167L117 177.5L131 189L139.5 197.5L149 205.5L158.5 212L170.5 218L186 223.5L201 226.5L216 227.5L230 226.5L242 223.5L258.5 218.5L278.5 208.5L292 198.5L302 188.5L312 176L319 163.5L323 153.5L327 138.5L328.5 122V106L326.5 89L321.5 72.5L316.5 61L310.5 51L303.5 42.5L293.5 31.5L281 22.5L267.5 14.5L255.5 9L238 3Z" stroke="white"/>
+</svg>)";
+        
+        if (sdCard.writeFile("/Sprites/default_eye.svg", defaultEyeSvg, strlen(defaultEyeSvg))) {
+            filesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created default_eye.svg");
+        }
+        
+        // Step 2: Create sprite index with default sprite
+        const char* spriteIndex = R"({
+  "sprites": [
+    {
+      "id": 0,
+      "name": "Default Eye",
+      "filename": "default_eye.svg",
+      "type": "vector",
+      "antialiased": true,
+      "width": 445,
+      "height": 308
+    }
+  ],
+  "nextId": 1
+})";
+        
+        if (sdCard.writeFile("/Sprites/index.json", spriteIndex, strlen(spriteIndex))) {
+            filesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created sprite index.json");
+        }
+        
+        // Step 3: Create default scene YAML with static_mirrored animation (new v2.0 format)
+        const char* defaultSceneYaml = R"(# ============================================
+# Scene Configuration File - v2.0
+# ============================================
+# This file uses YAML-driven UI configuration.
+# The web UI auto-generates controls based on field types.
+# ============================================
+
+Global:
+  name: "Default Scene"
+  id: 1
+  description: "Default eye display with mirrored left/right eyes"
+  version: "2.0"
+  author: "System"
+
+Display:
+  enabled: true
+  animation_type: "static_mirrored"
+  main_sprite_id: 0
+  use_default_sprite: true
+  antialiasing: true
+  position:
+    x: 64
+    y: 16
+  scale: 1.0
+  rotation: 0
+  sensitivity: 1.0
+  mirror: true
+  background:
+    r: 0
+    g: 0
+    b: 0
+
+LEDS:
+  enabled: true
+  brightness: 80
+  animation: "solid"
+  color:
+    r: 255
+    g: 0
+    b: 255
+  strips:
+    left_fin:
+      enabled: true
+      length: 15
+    right_fin:
+      enabled: true
+      length: 15
+    tongue:
+      enabled: true
+      length: 10
+    scales:
+      enabled: true
+      length: 20
+
+Audio:
+  enabled: false
+  source: "mic"
+  sensitivity: 1.0
+  frequency_band: "all"
+)";
+        
+        if (sdCard.writeFile("/Scenes/default_scene.yaml", defaultSceneYaml, strlen(defaultSceneYaml))) {
+            filesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created default_scene.yaml");
+        }
+        
+        // Step 4: Create LED configuration
+        const char* ledConfig = R"({
+  "enabled": true,
+  "brightness": 80,
+  "defaultMode": "solid",
+  "defaultColor": {
+    "r": 255,
+    "g": 0,
+    "b": 255
+  },
+  "stripLength": 60
+})";
+        
+        if (sdCard.writeFile("/Configs/leds.json", ledConfig, strlen(ledConfig))) {
+            filesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created leds.json");
+        }
+        
+        // Step 5: Create scene index referencing the default scene
+        const char* sceneIndex = R"({
+  "nextId": 2,
+  "activeId": 1,
+  "storage": "sdcard",
+  "scenes": [
+    {
+      "id": 1,
+      "name": "Default Scene",
+      "type": 0,
+      "active": true,
+      "displayEnabled": true,
+      "ledsEnabled": true,
+      "effectsOnly": false,
+      "order": 0,
+      "animType": "static_mirrored",
+      "spriteId": 0,
+      "mirrorSprite": true,
+      "shaderAA": true,
+      "shaderInvert": false,
+      "shaderColorMode": "none",
+      "shaderColor": "#ffffff",
+      "ledR": 255,
+      "ledG": 0,
+      "ledB": 255,
+      "ledBrightness": 80
+    }
+  ]
+})";
+        
+        if (sdCard.writeFile("/Scenes/index.json", sceneIndex, strlen(sceneIndex))) {
+            filesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created scene index.json");
+        }
+        
+        SystemAPI::Utils::syncFilesystem();
+        
+        // Reload scenes from storage to pick up the new default
+        savedScenes_.clear();
+        nextSceneId_ = 1;
+        activeSceneId_ = -1;
+        loadScenesFromStorage();
+        
+        // Build response
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", true);
+        cJSON_AddStringToObject(root, "message", "Default configuration created successfully");
+        cJSON_AddNumberToObject(root, "files_created", filesCreated);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        
+        ESP_LOGI(HTTP_TAG, "Default setup complete: %d files created", filesCreated);
         return ESP_OK;
     }
     

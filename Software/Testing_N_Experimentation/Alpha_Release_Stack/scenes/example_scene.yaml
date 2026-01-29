@@ -1,40 +1,55 @@
 # ============================================================
-# Scene Configuration File
-# ARCOS Scene Manager - One YAML per Scene
+# Scene Configuration File v2.0
+# ARCOS Scene Manager - Schema-Driven UI Generation
+# ============================================================
+# 
+# This YAML file uses embedded UI metadata to auto-generate
+# the web interface. See scene_schema.yaml for the full schema.
+#
+# UI Control Types:
+#   dropdown  - Select from predefined options
+#   slider    - Numeric slider (float/int)
+#   toggle    - Boolean on/off switch
+#   color     - RGB color picker
+#   text      - Text input field
+#   number    - Numeric input
+#   file      - File/sprite selector
+#
 # ============================================================
 
-# Global Device Settings
+# Scene Metadata
 Global:
   name: "Default Scene"
   id: 1
-  description: "Default gyro-controlled eye animation"
+  description: "Default static mirrored eye animation"
   version: 1.0
   author: "ARCOS"
 
-# User Interface Display Settings (HUB75 Matrix)
+# HUB75 Matrix Display Configuration
 Display:
   enabled: true
-  animation_type: "gyro_eyes"
-  main_sprite_id: -1
+  animation_type: "static_mirrored"  # dropdown: static_mirrored, gyro_eyes, static_image, sway, sdf_morph
+  main_sprite_id: -1                  # file: -1 = use default vector eye
   position:
-    x: 64
-    y: 16
-  rotation: 0.0
-  sensitivity: 1.5
-  mirror: false
-  background:
+    x: 64                             # slider: 0-128 px
+    y: 16                             # slider: 0-32 px
+  rotation: 0.0                       # slider: 0-360 degrees
+  sensitivity: 1.5                    # slider: 0.0-3.0
+  mirror: false                       # toggle
+  background:                         # color picker
     r: 0
     g: 0
     b: 0
 
-# Hardware LED Strip Settings (WS2812)
+# WS2812 LED Strip Configuration
 LEDS:
-  enabled: false
-  brightness: 80
-  color:
+  enabled: false                      # toggle
+  brightness: 80                      # slider: 0-255
+  color:                              # color picker
     r: 255
     g: 128
     b: 0
+  animation: "solid"                  # dropdown: solid, breathe, rainbow, chase, pulse, music
   strips:
     left_fin:
       enabled: true
@@ -49,7 +64,14 @@ LEDS:
       enabled: true
       color_override: false
 
-# Sprite Definitions (loaded from /Sprites/)
+# Audio Reactive Settings (Optional)
+Audio:
+  enabled: false                      # toggle
+  source: "mic"                       # dropdown: mic, line
+  sensitivity: 1.0                    # slider: 0.0-2.0
+  frequency_band: "all"               # dropdown: all, bass, mid, treble
+
+# Sprite References (loaded from /Sprites/)
 Sprites:
   - name: "eye_sprite"
     id: 1

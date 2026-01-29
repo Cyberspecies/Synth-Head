@@ -299,6 +299,7 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
           
           <div class="button-group" id="sd-buttons" style="display: none;">
             <button id="sd-format-btn" class="btn btn-danger">Format &amp; Initialize Card</button>
+            <button id="sd-defaults-btn" class="btn btn-primary">Setup Defaults</button>
           </div>
           
           <!-- Format confirmation dialog -->
@@ -306,14 +307,29 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
             <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--danger, #ef4444);">🚨 Complete Format &amp; Initialize</p>
             <p style="margin: 0 0 8px 0; font-size: 0.875rem;">This will:</p>
             <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 0.875rem;">
-              <li>Completely erase the SD card</li>
-              <li>Create fresh folder structure (Scenes, Sprites, etc.)</li>
-              <li>Populate with default scene configurations</li>
+              <li>Completely erase ALL data on the SD card</li>
+              <li>Create empty folder structure (Scenes, Sprites, etc.)</li>
             </ul>
-            <p style="margin: 0 0 12px 0; font-size: 0.875rem; color: var(--danger, #ef4444);"><strong>ALL existing data will be permanently destroyed.</strong></p>
+            <p style="margin: 0 0 12px 0; font-size: 0.875rem; color: var(--danger, #ef4444);"><strong>This does NOT add any scenes or sprites.</strong> Use "Setup Defaults" after to populate with default content.</p>
             <div class="button-group">
               <button id="sd-confirm-format-btn" class="btn btn-danger">Yes, Format &amp; Initialize</button>
               <button id="sd-cancel-format-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+          
+          <!-- Setup Defaults confirmation dialog -->
+          <div id="sd-confirm-defaults" class="danger-confirm" style="display: none; margin-top: 16px; padding: 16px; background: var(--accent-bg, rgba(255, 107, 0, 0.1)); border: 1px solid var(--accent, #ff6b00); border-radius: 8px;">
+            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--accent, #ff6b00);">⚙️ Setup Default Configuration</p>
+            <p style="margin: 0 0 8px 0; font-size: 0.875rem;">This will create:</p>
+            <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 0.875rem;">
+              <li>Default eye sprite (vector with AA)</li>
+              <li>Default scene using static_mirrored animation</li>
+              <li>Default LED configuration</li>
+            </ul>
+            <p style="margin: 0 0 12px 0; font-size: 0.875rem;">Existing files with same names will be overwritten.</p>
+            <div class="button-group">
+              <button id="sd-confirm-defaults-btn" class="btn btn-primary">Yes, Setup Defaults</button>
+              <button id="sd-cancel-defaults-btn" class="btn btn-secondary">Cancel</button>
             </div>
           </div>
         </div>
@@ -856,6 +872,39 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
           showToast('SD card formatted and initialized with default data', 'success');
         } else {
           showToast(data.error || 'Failed to format/initialize', 'error');
+        }
+        updateSdCardStatus();
+      })
+      .catch(err => {
+        hideSdProgress();
+        showToast('Error: ' + err, 'error');
+      });
+  });
+  
+  // Setup Defaults button click - show confirmation
+  document.getElementById('sd-defaults-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-defaults').style.display = 'block';
+    document.getElementById('sd-confirm-format').style.display = 'none';
+  });
+  
+  // Cancel defaults
+  document.getElementById('sd-cancel-defaults-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-defaults').style.display = 'none';
+  });
+  
+  // Confirm setup defaults
+  document.getElementById('sd-confirm-defaults-btn').addEventListener('click', function() {
+    document.getElementById('sd-confirm-defaults').style.display = 'none';
+    showSdProgress('Setting up default configuration...');
+    
+    fetch('/api/sdcard/setup-defaults', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        hideSdProgress();
+        if (data.success) {
+          showToast('Default configuration created successfully', 'success');
+        } else {
+          showToast(data.error || 'Failed to setup defaults', 'error');
         }
         updateSdCardStatus();
       })

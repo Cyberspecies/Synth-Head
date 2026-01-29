@@ -506,9 +506,9 @@ inline const char* PAGE_SCENE_LIST = R"rawpage(<!DOCTYPE html>
     });
   });
 
-  // Edit scene - navigate to edit page
+  // Edit scene - navigate to new display config page
   function editScene(id) {
-    window.location.href = '/advanced/scenes/edit?id=' + id;
+    window.location.href = '/display-config?id=' + id;
   }
 
   // Show delete confirmation
@@ -568,8 +568,8 @@ inline const char* PAGE_SCENE_LIST = R"rawpage(<!DOCTYPE html>
       if (data.success) {
         hideModal('modalNew');
         showToast('Scene created', 'success');
-        // Navigate to edit page for new scene
-        window.location.href = '/advanced/scenes/edit?id=' + data.id;
+        // Navigate to display config page for new scene
+        window.location.href = '/display-config?id=' + data.id;
       } else {
         showToast(data.error || 'Failed to create', 'error');
       }
