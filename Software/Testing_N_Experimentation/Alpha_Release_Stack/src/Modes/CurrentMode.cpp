@@ -38,6 +38,9 @@
 #include "Drivers/FanDriver.hpp"
 #include "Drivers/BmeDriver.hpp"
 
+// YAML-based Scene Manager (new modular scene system)
+#include "Drivers/YamlSceneDriver.hpp"
+
 // LED Strip support (ESP-IDF RMT driver)
 #include "driver/rmt_tx.h"
 #include "HAL/led_strip_encoder.h"
@@ -1023,6 +1026,89 @@ void CurrentMode::onStart() {
     } else {
         printf("  SD Card: Not available\n");
     }
+    
+    // =====================================================
+    // YAML Scene Driver (DISABLED - conflicts with FileSystemService SD card)
+    // TODO: Integrate SDManager with FileSystemService or use a shared SD mount
+    // =====================================================
+    // The YAML Scene Driver is ready but disabled to avoid SD card conflicts.
+    // The existing HttpServer scene system continues to work.
+    // Enable this when SDManager is updated to use the existing mount.
+    #if 0
+    printf("\n  ┌────────────────────────────────────┐\n");
+    printf("  │   YAML SCENE MANAGER               │\n");
+    printf("  └────────────────────────────────────┘\n");
+    
+    // Set up sprite upload callback (uploads to GPU)
+    Drivers::YamlSceneDriver::setSpriteUploadCallback(
+        [](int gpuSlot, const uint8_t* data, size_t size, int width, int height) -> bool {
+            printf("  YamlScene: Uploading sprite to GPU slot %d (%dx%d)\n", gpuSlot, width, height);
+            GpuDriverState::getGpu().deleteSprite(static_cast<uint8_t>(gpuSlot));
+            vTaskDelay(pdMS_TO_TICKS(10));
+            return GpuDriverState::getGpu().uploadSprite(
+                static_cast<uint8_t>(gpuSlot), data, 
+                static_cast<uint16_t>(width), static_cast<uint16_t>(height));
+        }
+    );
+    
+    // Set up scene activation callback (configures animation)
+    Drivers::YamlSceneDriver::setSceneActivateCallback(
+        [](const std::string& animType, int spriteId, float posX, float posY,
+           float sensitivity, bool mirror, uint8_t bgR, uint8_t bgG, uint8_t bgB,
+           bool displayEnabled, bool ledsEnabled,
+           uint8_t ledR, uint8_t ledG, uint8_t ledB, int ledBrightness) {
+            
+            printf("  YamlScene: Activating animation '%s'\n", animType.c_str());
+            
+            if (displayEnabled) {
+                // Set animation type
+                GpuDriverState::setSceneAnimation(animType);
+                
+                // Configure gyro eyes if that's the animation type
+                if (animType == "gyro_eyes") {
+                    GpuDriverState::setGyroEyeParams(12.0f, sensitivity, mirror, spriteId);
+                }
+                
+                // Set background color
+                GpuDriverState::setSpriteScene(
+                    spriteId >= 0 ? static_cast<uint8_t>(spriteId) : 0,
+                    posX, posY, 0.0f, bgR, bgG, bgB);
+            } else {
+                GpuDriverState::setSceneAnimation("none");
+            }
+            
+            // Handle LEDs
+            if (ledsEnabled) {
+                GpuDriverState::setLedColor(ledR, ledG, ledB, 
+                    static_cast<uint8_t>(ledBrightness * 255 / 100));
+                GpuDriverState::setLedsEnabled(true);
+            } else {
+                GpuDriverState::setLedsEnabled(false);
+            }
+        }
+    );
+    
+    // Initialize the YAML scene driver (loads scenes from /scenes/)
+    if (Drivers::YamlSceneDriver::init(14, 47, 21, 48)) {
+        printf("  YAML Scenes: Loaded %zu scenes\n", Drivers::YamlSceneDriver::getSceneCount());
+        
+        // List loaded scenes
+        for (const auto& scene : Drivers::YamlSceneDriver::getScenes()) {
+            printf("    - [%d] %s (%s)\n", scene.id, scene.name.c_str(), 
+                   scene.animation.type.c_str());
+        }
+        
+        // Activate first scene if available
+        if (Drivers::YamlSceneDriver::getSceneCount() > 0) {
+            int firstSceneId = Drivers::YamlSceneDriver::getScenes()[0].id;
+            Drivers::YamlSceneDriver::activateScene(firstSceneId);
+            printf("  YAML Scenes: Activated scene %d\n", firstSceneId);
+        }
+    } else {
+        printf("  YAML Scenes: Init failed (SD card issue?)\n");
+    }
+    #endif
+    printf("  YAML Scenes: Disabled (use HttpServer scenes for now)\n");
     
     // =====================================================
     // DISABLED: Dual-Core Application Layer

@@ -437,6 +437,7 @@ private:
         // SD Card API endpoints
         registerHandler("/api/sdcard/status", HTTP_GET, handleApiSdCardStatus);
         registerHandler("/api/sdcard/format", HTTP_POST, handleApiSdCardFormat);
+        registerHandler("/api/sdcard/format-init", HTTP_POST, handleApiSdCardFormatInit);
         registerHandler("/api/sdcard/setup", HTTP_POST, handleApiSdCardSetup);
         registerHandler("/api/sdcard/clear", HTTP_POST, handleApiSdCardClear);
         registerHandler("/api/sdcard/list", HTTP_GET, handleApiSdCardList);
@@ -5062,6 +5063,214 @@ public:
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
         free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Format SD card, create folder structure, and populate with default YAML scenes
+     */
+    static esp_err_t handleApiSdCardFormatInit(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        auto& sdCard = Utils::FileSystemService::instance();
+        
+        if (!sdCard.isReady()) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"SD card not initialized\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        
+        ESP_LOGW(HTTP_TAG, "Format & Initialize SD card...");
+        
+        // Step 0: Clear in-memory scene and sprite data
+        ESP_LOGI(HTTP_TAG, "Step 0: Clearing in-memory data...");
+        savedScenes_.clear();
+        savedSprites_.clear();
+        nextSceneId_ = 1;
+        activeSceneId_ = -1;
+        
+        // Step 1: Format the SD card
+        ESP_LOGI(HTTP_TAG, "Step 1: Formatting SD card...");
+        bool formatSuccess = sdCard.format();
+        if (!formatSuccess) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Failed to format SD card\"}", HTTPD_RESP_USE_STRLEN);
+            return ESP_OK;
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+        SystemAPI::Utils::syncFilesystem();
+        
+        // Step 2: Create folder structure
+        ESP_LOGI(HTTP_TAG, "Step 2: Creating folder structure...");
+        const char* folders[] = {
+            "/Sprites",
+            "/Equations", 
+            "/Scenes",
+            "/Animations",
+            "/Configs",
+            "/Cache",
+            "/Calibration"
+        };
+        
+        int foldersCreated = 0;
+        for (const char* folder : folders) {
+            ESP_LOGI(HTTP_TAG, "Creating folder: %s", folder);
+            if (sdCard.createDir(folder)) {
+                foldersCreated++;
+            } else {
+                ESP_LOGW(HTTP_TAG, "Failed to create folder: %s", folder);
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        SystemAPI::Utils::syncFilesystem();
+        vTaskDelay(pdMS_TO_TICKS(200));
+        
+        // Step 3: Populate with default scene YAML files
+        ESP_LOGI(HTTP_TAG, "Step 3: Populating default scenes...");
+        int scenesCreated = 0;
+        
+        // Default Scene 1: Gyro Eyes (primary interactive mode)
+        const char* gyroEyesYaml = 
+            "Global:\n"
+            "  name: \"Gyro Eyes\"\n"
+            "  id: 1\n"
+            "  description: \"Interactive eye tracking using IMU gyroscope\"\n"
+            "\n"
+            "Display:\n"
+            "  enabled: true\n"
+            "  animation_type: \"gyro_eyes\"\n"
+            "  eye_style: \"default\"\n"
+            "  tracking_speed: 1.0\n"
+            "  blink_enabled: true\n"
+            "  blink_interval: 5000\n"
+            "\n"
+            "LEDS:\n"
+            "  enabled: true\n"
+            "  brightness: 80\n"
+            "  mode: \"reactive\"\n"
+            "  color_primary: \"#00FF00\"\n"
+            "  color_secondary: \"#0000FF\"\n";
+        
+        if (sdCard.writeFile("/Scenes/gyro_eyes.yaml", gyroEyesYaml, strlen(gyroEyesYaml))) {
+            scenesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created gyro_eyes.yaml");
+        }
+        
+        // Default Scene 2: Static Display
+        const char* staticYaml = 
+            "Global:\n"
+            "  name: \"Static Display\"\n"
+            "  id: 2\n"
+            "  description: \"Static eye display without movement\"\n"
+            "\n"
+            "Display:\n"
+            "  enabled: true\n"
+            "  animation_type: \"static\"\n"
+            "  eye_style: \"default\"\n"
+            "  pupil_x: 0.5\n"
+            "  pupil_y: 0.5\n"
+            "\n"
+            "LEDS:\n"
+            "  enabled: false\n"
+            "  brightness: 0\n"
+            "  mode: \"off\"\n";
+        
+        if (sdCard.writeFile("/Scenes/static_display.yaml", staticYaml, strlen(staticYaml))) {
+            scenesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created static_display.yaml");
+        }
+        
+        // Default Scene 3: LED Show (LEDs only, display off)
+        const char* ledShowYaml = 
+            "Global:\n"
+            "  name: \"LED Show\"\n"
+            "  id: 3\n"
+            "  description: \"LED animation mode with display off\"\n"
+            "\n"
+            "Display:\n"
+            "  enabled: false\n"
+            "  animation_type: \"none\"\n"
+            "\n"
+            "LEDS:\n"
+            "  enabled: true\n"
+            "  brightness: 100\n"
+            "  mode: \"rainbow_cycle\"\n"
+            "  speed: 50\n"
+            "  color_primary: \"#FF0000\"\n";
+        
+        if (sdCard.writeFile("/Scenes/led_show.yaml", ledShowYaml, strlen(ledShowYaml))) {
+            scenesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created led_show.yaml");
+        }
+        
+        // Default Scene 4: Sleep Mode
+        const char* sleepYaml = 
+            "Global:\n"
+            "  name: \"Sleep Mode\"\n"
+            "  id: 4\n"
+            "  description: \"Low power sleep mode with closed eyes\"\n"
+            "\n"
+            "Display:\n"
+            "  enabled: true\n"
+            "  animation_type: \"sleep\"\n"
+            "  eye_style: \"closed\"\n"
+            "\n"
+            "LEDS:\n"
+            "  enabled: true\n"
+            "  brightness: 20\n"
+            "  mode: \"breathing\"\n"
+            "  color_primary: \"#0000FF\"\n"
+            "  speed: 20\n";
+        
+        if (sdCard.writeFile("/Scenes/sleep_mode.yaml", sleepYaml, strlen(sleepYaml))) {
+            scenesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created sleep_mode.yaml");
+        }
+        
+        // Default Scene 5: Demo Mode
+        const char* demoYaml = 
+            "Global:\n"
+            "  name: \"Demo Mode\"\n"
+            "  id: 5\n"
+            "  description: \"Demonstration mode cycling through animations\"\n"
+            "\n"
+            "Display:\n"
+            "  enabled: true\n"
+            "  animation_type: \"demo\"\n"
+            "  cycle_interval: 10000\n"
+            "  transitions_enabled: true\n"
+            "\n"
+            "LEDS:\n"
+            "  enabled: true\n"
+            "  brightness: 80\n"
+            "  mode: \"sync_display\"\n"
+            "  color_primary: \"#FF6B00\"\n"
+            "  color_secondary: \"#00FFFF\"\n";
+        
+        if (sdCard.writeFile("/Scenes/demo_mode.yaml", demoYaml, strlen(demoYaml))) {
+            scenesCreated++;
+            ESP_LOGI(HTTP_TAG, "Created demo_mode.yaml");
+        }
+        
+        SystemAPI::Utils::syncFilesystem();
+        
+        // Build response
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", true);
+        cJSON_AddStringToObject(root, "message", "SD card formatted and initialized with default scenes");
+        cJSON_AddNumberToObject(root, "folders_created", foldersCreated);
+        cJSON_AddNumberToObject(root, "scenes_created", scenesCreated);
+        cJSON_AddNumberToObject(root, "total_mb", sdCard.getTotalBytes() / (1024 * 1024));
+        cJSON_AddNumberToObject(root, "free_mb", sdCard.getFreeBytes() / (1024 * 1024));
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        
+        ESP_LOGI(HTTP_TAG, "SD card format & init complete: %d folders, %d scenes", foldersCreated, scenesCreated);
         return ESP_OK;
     }
     

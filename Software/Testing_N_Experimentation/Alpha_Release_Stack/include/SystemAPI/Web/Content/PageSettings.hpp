@@ -298,37 +298,25 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
           </div>
           
           <div class="button-group" id="sd-buttons" style="display: none;">
-            <button id="sd-setup-btn" class="btn btn-primary">Setup Card</button>
-            <button id="sd-clear-btn" class="btn btn-warning">Clear All Files</button>
-            <button id="sd-format-btn" class="btn btn-danger">Reformat Card</button>
+            <button id="sd-format-btn" class="btn btn-danger">Format &amp; Initialize Card</button>
           </div>
           
-          <!-- Confirmation dialogs -->
-          <div id="sd-confirm-clear" class="danger-confirm" style="display: none; margin-top: 16px; padding: 16px; background: var(--warning-bg, rgba(251, 191, 36, 0.1)); border: 1px solid var(--warning, #fbbf24); border-radius: 8px;">
-            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--warning, #fbbf24);">⚠️ Warning: This will delete ALL files!</p>
-            <p style="margin: 0 0 12px 0; font-size: 0.875rem;">This action cannot be undone. All data will be lost.</p>
-            <div class="button-group">
-              <button id="sd-confirm-clear-btn" class="btn btn-warning">Yes, Clear Everything</button>
-              <button id="sd-cancel-clear-btn" class="btn btn-secondary">Cancel</button>
-            </div>
-          </div>
-          
+          <!-- Format confirmation dialog -->
           <div id="sd-confirm-format" class="danger-confirm" style="display: none; margin-top: 16px; padding: 16px; background: var(--danger-bg, rgba(239, 68, 68, 0.1)); border: 1px solid var(--danger, #ef4444); border-radius: 8px;">
-            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--danger, #ef4444);">🚨 DANGER: Complete Format!</p>
-            <p style="margin: 0 0 12px 0; font-size: 0.875rem;">This will completely erase the SD card and create a new filesystem. ALL data will be permanently destroyed.</p>
+            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--danger, #ef4444);">🚨 Complete Format &amp; Initialize</p>
+            <p style="margin: 0 0 8px 0; font-size: 0.875rem;">This will:</p>
+            <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 0.875rem;">
+              <li>Completely erase the SD card</li>
+              <li>Create fresh folder structure (Scenes, Sprites, etc.)</li>
+              <li>Populate with default scene configurations</li>
+            </ul>
+            <p style="margin: 0 0 12px 0; font-size: 0.875rem; color: var(--danger, #ef4444);"><strong>ALL existing data will be permanently destroyed.</strong></p>
             <div class="button-group">
-              <button id="sd-confirm-format-btn" class="btn btn-danger">Yes, Format Card</button>
+              <button id="sd-confirm-format-btn" class="btn btn-danger">Yes, Format &amp; Initialize</button>
               <button id="sd-cancel-format-btn" class="btn btn-secondary">Cancel</button>
             </div>
-          </div>          
-          <div id="sd-confirm-setup" class="danger-confirm" style="display: none; margin-top: 16px; padding: 16px; background: var(--accent-bg, rgba(255, 107, 0, 0.1)); border: 1px solid var(--accent, #ff6b00); border-radius: 8px;">
-            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--accent, #ff6b00);">&#x2699; Setup SD Card</p>
-            <p style="margin: 0 0 12px 0; font-size: 0.875rem;">This will DELETE ALL files and folders (including legacy ones) and create a fresh folder structure (Sprites, Equations, Scenes, etc.). All existing data will be permanently lost.</p>
-            <div class="button-group">
-              <button id="sd-confirm-setup-btn" class="btn btn-primary">Yes, Setup Card</button>
-              <button id="sd-cancel-setup-btn" class="btn btn-secondary">Cancel</button>
-            </div>
-          </div>        </div>
+          </div>
+        </div>
       </div>
       
       <div class="card danger-card">
@@ -845,43 +833,9 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
     }, 500);
   }
   
-  // Clear button click - show confirmation
-  document.getElementById('sd-clear-btn').addEventListener('click', function() {
-    document.getElementById('sd-confirm-clear').style.display = 'block';
-    document.getElementById('sd-confirm-format').style.display = 'none';
-  });
-  
-  // Cancel clear
-  document.getElementById('sd-cancel-clear-btn').addEventListener('click', function() {
-    document.getElementById('sd-confirm-clear').style.display = 'none';
-  });
-  
-  // Confirm clear
-  document.getElementById('sd-confirm-clear-btn').addEventListener('click', function() {
-    document.getElementById('sd-confirm-clear').style.display = 'none';
-    showSdProgress('Clearing all files...');
-    
-    fetch('/api/sdcard/clear', { method: 'POST' })
-      .then(r => r.json())
-      .then(data => {
-        hideSdProgress();
-        if (data.success) {
-          showToast('All files cleared', 'success');
-        } else {
-          showToast(data.error || 'Failed to clear files', 'error');
-        }
-        updateSdCardStatus();
-      })
-      .catch(err => {
-        hideSdProgress();
-        showToast('Error: ' + err, 'error');
-      });
-  });
-  
-  // Format button click - show confirmation
+  // Format & Initialize button click - show confirmation
   document.getElementById('sd-format-btn').addEventListener('click', function() {
     document.getElementById('sd-confirm-format').style.display = 'block';
-    document.getElementById('sd-confirm-clear').style.display = 'none';
   });
   
   // Cancel format
@@ -889,53 +843,19 @@ inline const char PAGE_SETTINGS[] = R"rawliteral(
     document.getElementById('sd-confirm-format').style.display = 'none';
   });
   
-  // Confirm format
+  // Confirm format & initialize
   document.getElementById('sd-confirm-format-btn').addEventListener('click', function() {
     document.getElementById('sd-confirm-format').style.display = 'none';
-    showSdProgress('Formatting SD card...');
+    showSdProgress('Formatting and initializing SD card...');
     
-    fetch('/api/sdcard/format', { method: 'POST' })
+    fetch('/api/sdcard/format-init', { method: 'POST' })
       .then(r => r.json())
       .then(data => {
         hideSdProgress();
         if (data.success) {
-          showToast('SD card formatted', 'success');
+          showToast('SD card formatted and initialized with default data', 'success');
         } else {
-          showToast(data.error || 'Failed to format', 'error');
-        }
-        updateSdCardStatus();
-      })
-      .catch(err => {
-        hideSdProgress();
-        showToast('Error: ' + err, 'error');
-      });
-  });
-  
-  // Setup button click - show confirmation
-  document.getElementById('sd-setup-btn').addEventListener('click', function() {
-    document.getElementById('sd-confirm-setup').style.display = 'block';
-    document.getElementById('sd-confirm-clear').style.display = 'none';
-    document.getElementById('sd-confirm-format').style.display = 'none';
-  });
-  
-  // Cancel setup
-  document.getElementById('sd-cancel-setup-btn').addEventListener('click', function() {
-    document.getElementById('sd-confirm-setup').style.display = 'none';
-  });
-  
-  // Confirm setup
-  document.getElementById('sd-confirm-setup-btn').addEventListener('click', function() {
-    document.getElementById('sd-confirm-setup').style.display = 'none';
-    showSdProgress('Setting up SD card...');
-    
-    fetch('/api/sdcard/setup', { method: 'POST' })
-      .then(r => r.json())
-      .then(data => {
-        hideSdProgress();
-        if (data.success) {
-          showToast('SD card setup complete', 'success');
-        } else {
-          showToast(data.error || 'Failed to setup', 'error');
+          showToast(data.error || 'Failed to format/initialize', 'error');
         }
         updateSdCardStatus();
       })

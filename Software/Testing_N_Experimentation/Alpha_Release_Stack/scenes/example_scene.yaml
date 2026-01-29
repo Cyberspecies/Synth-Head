@@ -1,0 +1,63 @@
+# ============================================================
+# Scene Configuration File
+# ARCOS Scene Manager - One YAML per Scene
+# ============================================================
+
+# Global Device Settings
+Global:
+  name: "Default Scene"
+  id: 1
+  description: "Default gyro-controlled eye animation"
+  version: 1.0
+  author: "ARCOS"
+
+# User Interface Display Settings (HUB75 Matrix)
+Display:
+  enabled: true
+  animation_type: "gyro_eyes"
+  main_sprite_id: -1
+  position:
+    x: 64
+    y: 16
+  rotation: 0.0
+  sensitivity: 1.5
+  mirror: false
+  background:
+    r: 0
+    g: 0
+    b: 0
+
+# Hardware LED Strip Settings (WS2812)
+LEDS:
+  enabled: false
+  brightness: 80
+  color:
+    r: 255
+    g: 128
+    b: 0
+  strips:
+    left_fin:
+      enabled: true
+      color_override: false
+    right_fin:
+      enabled: true
+      color_override: false
+    tongue:
+      enabled: true
+      color_override: false
+    scales:
+      enabled: true
+      color_override: false
+
+# Sprite Definitions (loaded from /Sprites/)
+Sprites:
+  - name: "eye_sprite"
+    id: 1
+    path: "/Sprites/eye_32x32.bin"
+    width: 32
+    height: 32
+  - name: "pupil_sprite"
+    id: 2
+    path: "/Sprites/pupil_16x16.bin"
+    width: 16
+    height: 16
