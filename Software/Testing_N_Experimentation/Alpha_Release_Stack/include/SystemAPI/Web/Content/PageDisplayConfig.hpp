@@ -652,9 +652,21 @@ const DisplayConfig = {
     let html = `<form class="yaml-form" id="scene-form" data-scene="${this.currentSceneId}">`;
     
     // Process each top-level section
-    const sections = ['Global', 'Display', 'LEDS', 'Audio', 'Sprites'];
+    const sections = ['Global', 'Display'];
     
     for (const sectionKey of sections) {
+      if (config[sectionKey]) {
+        html += this.renderSection(sectionKey, config[sectionKey]);
+      }
+    }
+    
+    // Add animation-specific parameters section based on current animation type
+    const animType = config.Display?.animation_type || 'static_mirrored';
+    html += this.renderAnimParamsSection(animType, config.Display);
+    
+    // Add remaining sections
+    const otherSections = ['LEDS', 'Audio'];
+    for (const sectionKey of otherSections) {
       if (config[sectionKey]) {
         html += this.renderSection(sectionKey, config[sectionKey]);
       }
@@ -663,9 +675,181 @@ const DisplayConfig = {
     html += '</form>';
     container.innerHTML = html;
     
+    // Load sprites for file selectors
+    this.loadSpritesForSelectors();
+    
     // Setup form handlers
     this.setupFormHandlers();
   },
+  
+  // Load sprites for file selectors
+  loadSpritesForSelectors: function() {
+    fetch('/api/sprites')
+      .then(r => r.json())
+      .then(data => {
+        const sprites = data.sprites || [];
+        document.querySelectorAll('.yaml-select[data-file-type="sprite"]').forEach(select => {
+          const currentValue = parseInt(select.value);
+          
+          // Keep the "None" option if it exists
+          const noneOption = select.querySelector('option[value="-1"]');
+          select.innerHTML = '';
+          if (noneOption) {
+            select.appendChild(noneOption);
+          } else {
+            const opt = document.createElement('option');
+            opt.value = '-1';
+            opt.textContent = 'Default Vector Shape';
+            select.appendChild(opt);
+          }
+          
+          // Add sprites
+          sprites.forEach(sprite => {
+            const opt = document.createElement('option');
+            opt.value = sprite.id;
+            opt.textContent = sprite.name || ('Sprite ' + sprite.id);
+            if (sprite.id === currentValue) opt.selected = true;
+            select.appendChild(opt);
+          });
+          
+          // Ensure current value is selected
+          if (currentValue >= 0 && !select.querySelector(`option[value="${currentValue}"]`)) {
+            const opt = document.createElement('option');
+            opt.value = currentValue;
+            opt.textContent = 'Unknown Sprite ' + currentValue;
+            opt.selected = true;
+            select.appendChild(opt);
+          }
+        });
+      })
+      .catch(err => console.error('Failed to load sprites:', err));
+  },
+  
+  // Animation-specific field definitions
+  // These define which fields appear for each animation type
+  animationFields: {
+    'static_mirrored': {
+      // Static mirrored just uses fixed positions (32,16 and 96,16)
+      // Only rotation is adjustable
+      rotation: { type: 'slider', label: 'Rotation', min: -180, max: 180, step: 1, unit: '°', param: 'rotation' }
+    },
+    'static_image': {
+      // Static image can be positioned anywhere
+      position_x: { type: 'slider', label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'center_x' },
+      position_y: { type: 'slider', label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'center_y' },
+      rotation: { type: 'slider', label: 'Rotation', min: -180, max: 180, step: 1, unit: '°', param: 'rotation' }
+    },
+    'gyro_eyes': {
+      // Gyro eyes respond to IMU with sensitivity control
+      sensitivity: { type: 'slider', label: 'Sensitivity', min: 0.1, max: 3.0, step: 0.1, param: 'intensity' },
+      eye_size: { type: 'slider', label: 'Eye Size', min: 5, max: 20, step: 1, unit: 'px', param: 'eye_size' },
+      mirror: { type: 'toggle', label: 'Mirror Eyes', param: 'mirror' }
+    },
+    'sway': {
+      // Sway moves the sprite in a wave pattern
+      speed: { type: 'slider', label: 'Speed', min: 0.1, max: 3.0, step: 0.1, param: 'speed' },
+      sway_x: { type: 'slider', label: 'Horizontal Sway', min: 0, max: 30, step: 1, unit: 'px', param: 'sway_x' },
+      sway_y: { type: 'slider', label: 'Vertical Sway', min: 0, max: 15, step: 1, unit: 'px', param: 'sway_y' },
+      rot_range: { type: 'slider', label: 'Rotation Range', min: 0, max: 45, step: 1, unit: '°', param: 'rot_range' }
+    },
+    'sdf_morph': {
+      // SDF morphing between shapes
+      morph_speed: { type: 'slider', label: 'Morph Speed', min: 0.1, max: 2.0, step: 0.1, param: 'morph_speed' }
+    }
+  },
+  
+  // Get current values from sceneData for animation fields
+  getAnimFieldValue: function(param, animType) {
+    // Try to get from Display section params
+    const display = this.sceneData?.Display || {};
+    
+    // Check direct properties first
+    if (param === 'center_x' && display.position?.x !== undefined) return display.position.x;
+    if (param === 'center_y' && display.position?.y !== undefined) return display.position.y;
+    if (param === 'rotation' && display.rotation !== undefined) return display.rotation;
+    if (param === 'intensity' && display.sensitivity !== undefined) return display.sensitivity;
+    if (param === 'mirror' && display.mirror !== undefined) return display.mirror;
+    
+    // Check params map
+    if (display.params && display.params[param] !== undefined) {
+      return display.params[param];
+    }
+    
+    // Return defaults based on param
+    const defaults = {
+      'center_x': 64, 'center_y': 16, 'rotation': 0,
+      'intensity': 1.0, 'sensitivity': 1.0, 'eye_size': 12, 'mirror': true,
+      'speed': 1.0, 'sway_x': 10, 'sway_y': 5, 'rot_range': 15,
+      'morph_speed': 0.5
+    };
+    return defaults[param] ?? 0;
+  },
+  
+  // Render animation parameters section based on selected animation type
+  renderAnimParamsSection: function(animType, displayConfig) {
+    const fields = this.animationFields[animType] || {};
+    
+    let html = `<div class="yaml-section" id="anim-params-section">`;
+    html += `<div class="yaml-section-header">`;
+    html += `<div class="yaml-section-title">`;
+    html += `<span class="yaml-section-icon">◑</span>`;
+    html += `<span>Animation Settings</span>`;
+    html += `</div>`;
+    html += `<span class="yaml-section-chevron">▼</span>`;
+    html += `</div>`;
+    html += `<div class="yaml-section-body" id="anim-params-body">`;
+    
+    if (Object.keys(fields).length === 0) {
+      html += `<div class="yaml-section-desc">No adjustable settings for this animation type.</div>`;
+    } else {
+      for (const [key, fieldSchema] of Object.entries(fields)) {
+        const paramName = fieldSchema.param || key;
+        const value = this.getAnimFieldValue(paramName, animType);
+        const path = 'AnimParams.' + paramName;
+        html += this.renderField(path, fieldSchema.label || key, value, fieldSchema);
+      }
+    }
+    
+    html += `</div></div>`;
+    return html;
+  },
+  
+  // Update animation params section when animation type changes
+  updateAnimParamsSection: function(animType) {
+    const body = document.getElementById('anim-params-body');
+    if (!body) return;
+    
+    const fields = this.animationFields[animType] || {};
+    let html = '';
+    
+    if (Object.keys(fields).length === 0) {
+      html = `<div class="yaml-section-desc">No adjustable settings for this animation type.</div>`;
+    } else {
+      for (const [key, fieldSchema] of Object.entries(fields)) {
+        const paramName = fieldSchema.param || key;
+        const value = this.getAnimFieldValue(paramName, animType);
+        const path = 'AnimParams.' + paramName;
+        html += this.renderField(path, fieldSchema.label || key, value, fieldSchema);
+      }
+    }
+    
+    body.innerHTML = html;
+    
+    // Re-attach handlers for new fields
+    this.setupFormHandlers();
+  },
+  
+  // Get default param value
+  getDefaultParamValue: function(schema) {
+    switch (schema.type) {
+      case 'toggle': return false;
+      case 'slider': return (schema.min + schema.max) / 2;
+      default: return 0;
+    }
+  },
+  
+  // Fields that should be in Animation Settings, not Display section
+  animationSpecificFields: ['position', 'rotation', 'sensitivity', 'mirror'],
   
   // Render a section
   renderSection: function(key, section) {
@@ -688,13 +872,40 @@ const DisplayConfig = {
       html += `<div class="yaml-section-desc">${desc}</div>`;
     }
     
-    // Render fields
+    // Render fields from the actual data (not hardcoded)
     for (const [fieldKey, fieldValue] of Object.entries(section)) {
       // Skip internal metadata
       if (fieldKey.startsWith('_')) continue;
       
+      // For Display section, skip animation-specific fields (they go in Animation Settings)
+      if (key === 'Display' && this.animationSpecificFields.includes(fieldKey)) {
+        continue;
+      }
+      
+      // Get schema if exists, otherwise infer from data
       const fieldSchema = schema.fields?.[fieldKey] || this.inferFieldSchema(fieldKey, fieldValue);
-      html += this.renderField(key + '.' + fieldKey, fieldKey, fieldValue, fieldSchema);
+      
+      // Handle nested objects (like position, background)
+      if (typeof fieldValue === 'object' && fieldValue !== null && !Array.isArray(fieldValue)) {
+        // Check if it's a color (has r, g, b)
+        if ('r' in fieldValue && 'g' in fieldValue && 'b' in fieldValue) {
+          html += this.renderField(key + '.' + fieldKey, fieldKey, fieldValue, { type: 'color', label: this.formatLabel(fieldKey) });
+        } else {
+          // Skip nested animation-specific objects in Display (like position)
+          if (key === 'Display' && this.animationSpecificFields.includes(fieldKey)) {
+            continue;
+          }
+          // Render as nested group (like position.x, position.y)
+          for (const [subKey, subValue] of Object.entries(fieldValue)) {
+            const subPath = key + '.' + fieldKey + '.' + subKey;
+            const subSchema = this.inferFieldSchema(subKey, subValue);
+            subSchema.label = this.formatLabel(fieldKey) + ' ' + subKey.toUpperCase();
+            html += this.renderField(subPath, subKey, subValue, subSchema);
+          }
+        }
+      } else {
+        html += this.renderField(key + '.' + fieldKey, fieldKey, fieldValue, fieldSchema);
+      }
     }
     
     html += `</div></div>`;
@@ -910,25 +1121,20 @@ const DisplayConfig = {
               { label: 'Gyro Eyes', value: 'gyro_eyes' },
               { label: 'Static Image', value: 'static_image' },
               { label: 'Sway', value: 'sway' },
-              { label: 'SDF Morph', value: 'sdf_morph' },
-              { label: 'Blink', value: 'blink' },
-              { label: 'Look Around', value: 'look_around' }
-            ]
+              { label: 'SDF Morph', value: 'sdf_morph' }
+            ],
+            onChange: 'updateAnimationFields'
           },
           main_sprite_id: { type: 'file', label: 'Main Sprite', fileType: 'sprite', allowNone: true },
-          position: {
-            type: 'group',
-            label: 'Position',
-            fields: {
-              x: { type: 'slider', label: 'X', min: 0, max: 128, unit: 'px' },
-              y: { type: 'slider', label: 'Y', min: 0, max: 32, unit: 'px' }
-            }
-          },
-          rotation: { type: 'slider', label: 'Rotation', min: 0, max: 360, step: 1, unit: '°' },
-          sensitivity: { type: 'slider', label: 'Sensitivity', min: 0, max: 3, step: 0.1 },
-          mirror: { type: 'toggle', label: 'Mirror Mode' },
           background: { type: 'color', label: 'Background Color' }
         }
+      },
+      'AnimationParams': {
+        icon: '◑',
+        label: 'Animation Parameters',
+        desc: 'Settings specific to the selected animation type',
+        dynamic: true,
+        fields: {}
       },
       'LEDS': {
         icon: '◈',
@@ -978,6 +1184,63 @@ const DisplayConfig = {
     return schemas[key] || { icon: '○', label: key, fields: {} };
   },
   
+  // Get animation-specific parameter schema
+  getAnimationParamsSchema: function(animType) {
+    const animSchemas = {
+      'static_mirrored': {
+        // Static mirrored uses fixed positions (32,16 and 96,16), only rotation matters
+        // No extra params needed - just sprite and rotation
+      },
+      'static_image': {
+        position_x: { type: 'slider', label: 'Position X', min: 0, max: 128, unit: 'px', param: 'center_x' },
+        position_y: { type: 'slider', label: 'Position Y', min: 0, max: 32, unit: 'px', param: 'center_y' }
+      },
+      'gyro_eyes': {
+        sensitivity: { type: 'slider', label: 'Sensitivity', min: 0.1, max: 3, step: 0.1, param: 'intensity' },
+        eye_size: { type: 'slider', label: 'Eye Size', min: 5, max: 20, step: 1, param: 'eye_size' },
+        mirror: { type: 'toggle', label: 'Mirror Eyes', param: 'mirror' }
+      },
+      'sway': {
+        speed: { type: 'slider', label: 'Speed', min: 0.1, max: 3, step: 0.1, param: 'speed' },
+        x_intensity: { type: 'slider', label: 'X Sway', min: 0, max: 30, step: 1, unit: 'px', param: 'sway_x' },
+        y_intensity: { type: 'slider', label: 'Y Sway', min: 0, max: 15, step: 1, unit: 'px', param: 'sway_y' },
+        rotation_range: { type: 'slider', label: 'Rotation Range', min: 0, max: 45, step: 1, unit: '°', param: 'rot_range' }
+      },
+      'sdf_morph': {
+        morph_speed: { type: 'slider', label: 'Morph Speed', min: 0.1, max: 2, step: 0.1, param: 'morph_speed' }
+      }
+    };
+    return animSchemas[animType] || {};
+  },
+  
+  // Render animation-specific parameters section
+  renderAnimationParams: function(animType, currentParams) {
+    const schema = this.getAnimationParamsSchema(animType);
+    if (Object.keys(schema).length === 0) {
+      return '<div class="yaml-section-desc">No additional parameters for this animation type.</div>';
+    }
+    
+    let html = '';
+    for (const [key, fieldSchema] of Object.entries(schema)) {
+      const paramName = fieldSchema.param || key;
+      const value = currentParams?.[paramName] ?? this.getDefaultValue(fieldSchema);
+      const path = 'AnimParams.' + paramName;
+      html += this.renderField(path, key, value, fieldSchema);
+    }
+    return html;
+  },
+  
+  // Get default value for a field
+  getDefaultValue: function(schema) {
+    switch (schema.type) {
+      case 'toggle': return false;
+      case 'slider': return schema.min || 0;
+      case 'number': return 0;
+      case 'color': return { r: 0, g: 0, b: 0 };
+      default: return '';
+    }
+  },
+
   // Infer schema from key and value
   inferFieldSchema: function(key, value) {
     // Common naming patterns
@@ -987,6 +1250,9 @@ const DisplayConfig = {
     if (key.includes('color') || key === 'background') {
       return { type: 'color' };
     }
+    if (key === 'main_sprite_id') {
+      return { type: 'file', fileType: 'sprite', label: 'Main Sprite', allowNone: true };
+    }
     if (key.includes('_id') || key === 'id') {
       return { type: 'readonly' };
     }
@@ -994,18 +1260,34 @@ const DisplayConfig = {
       return { type: 'slider', min: 0, max: 255 };
     }
     if (key.includes('rotation')) {
-      return { type: 'slider', min: 0, max: 360, unit: '°' };
+      return { type: 'slider', min: -180, max: 180, step: 1, unit: '°' };
     }
-    if (key.includes('position') || key === 'x' || key === 'y') {
-      return { type: 'slider', min: 0, max: 128 };
+    if (key === 'x') {
+      return { type: 'slider', min: 0, max: 128, step: 1, unit: 'px' };
     }
-    if (key.includes('sensitivity')) {
+    if (key === 'y') {
+      return { type: 'slider', min: 0, max: 32, step: 1, unit: 'px' };
+    }
+    if (key.includes('sensitivity') || key.includes('intensity')) {
       return { type: 'slider', min: 0, max: 3, step: 0.1 };
+    }
+    if (key.includes('animation_type')) {
+      return { 
+        type: 'dropdown',
+        label: 'Animation Type',
+        options: [
+          { label: 'Static Mirrored', value: 'static_mirrored' },
+          { label: 'Gyro Eyes', value: 'gyro_eyes' },
+          { label: 'Static Image', value: 'static_image' },
+          { label: 'Sway', value: 'sway' },
+          { label: 'SDF Morph', value: 'sdf_morph' }
+        ]
+      };
     }
     
     // Type-based inference
     if (typeof value === 'boolean') return { type: 'toggle' };
-    if (typeof value === 'number') return { type: 'number' };
+    if (typeof value === 'number') return { type: 'slider', min: 0, max: 100, step: 1 };
     if (typeof value === 'object' && value?.r !== undefined) return { type: 'color' };
     if (typeof value === 'object') return { type: 'group' };
     
@@ -1055,6 +1337,11 @@ const DisplayConfig = {
         const type = select.dataset.fileType === 'sprite' ? 'number' : 'string';
         const value = type === 'number' ? parseInt(select.value) : select.value;
         this.updateField(select.dataset.path, value, type);
+        
+        // If animation type changed, update the animation params section
+        if (select.dataset.path === 'Display.animation_type') {
+          this.updateAnimParamsSection(value);
+        }
       });
     });
     
@@ -1115,19 +1402,70 @@ const DisplayConfig = {
       .catch(err => console.log('Could not load sprites:', err));
   },
   
+  // Map UI paths to server field names
+  pathToFieldName: function(path) {
+    // Handle AnimParams paths - all go to animParams in the payload
+    if (path.startsWith('AnimParams.')) {
+      const paramName = path.split('.')[1];
+      return 'animParams.' + paramName;
+    }
+    
+    const mapping = {
+      'Display.enabled': 'displayEnabled',
+      'Display.animation_type': 'animType',
+      'Display.main_sprite_id': 'spriteId',
+      'Display.rotation': 'animParams.rotation',
+      'Display.sensitivity': 'animParams.intensity',
+      'Display.mirror': 'mirrorSprite',
+      'Display.position.x': 'animParams.center_x',
+      'Display.position.y': 'animParams.center_y',
+      'Display.background': 'animParams.background',
+      'Global.name': 'name',
+      'LEDS.enabled': 'ledsEnabled',
+      'LEDS.brightness': 'ledBrightness',
+      'LEDS.color': 'ledColor'
+    };
+    return mapping[path] || path;
+  },
+  
+  // Build server payload from field update
+  buildUpdatePayload: function(path, value, type) {
+    const payload = { id: this.currentSceneId };
+    const fieldName = this.pathToFieldName(path);
+    
+    // Handle nested animParams fields
+    if (fieldName.startsWith('animParams.')) {
+      const paramName = fieldName.split('.')[1];
+      payload.animParams = {};
+      payload.animParams[paramName] = value;
+    }
+    // Handle ledColor specially (needs r,g,b object)
+    else if (fieldName === 'ledColor' && typeof value === 'object') {
+      payload.ledColor = { r: value.r || 0, g: value.g || 0, b: value.b || 0 };
+    }
+    // Handle other fields directly
+    else {
+      payload[fieldName] = value;
+    }
+    
+    return payload;
+  },
+  
   // Update field via API
   updateField: function(path, value, type) {
+    const payload = this.buildUpdatePayload(path, value, type);
+    
     fetch('/api/scene/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sceneId: this.currentSceneId,
-        path: path,
-        value: value,
-        type: type
-      })
+      body: JSON.stringify(payload)
     })
-    .then(r => r.json())
+    .then(r => {
+      if (!r.ok) {
+        throw new Error('HTTP ' + r.status);
+      }
+      return r.json();
+    })
     .then(data => {
       if (data.success) {
         this.showSaveIndicator(path, true);
@@ -1191,12 +1529,15 @@ const DisplayConfig = {
   
   // Apply scene
   applyScene: function() {
-    fetch('/api/scene/apply', {
+    fetch('/api/scene/activate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sceneId: this.currentSceneId })
+      body: JSON.stringify({ id: this.currentSceneId })
     })
-    .then(r => r.json())
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
     .then(data => {
       if (data.success) {
         alert('Scene applied!');

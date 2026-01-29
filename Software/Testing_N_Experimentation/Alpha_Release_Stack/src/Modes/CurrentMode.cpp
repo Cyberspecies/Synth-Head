@@ -204,24 +204,37 @@ namespace GpuDriverState {
     // SVG source: 445x308, scaled to fit 64x32 panel
     // Scale factors: x = 64/445 = 0.144, y = 32/308 = 0.104
     // Using y scale (0.104) to maintain aspect ratio, then center horizontally
-    static void drawDefaultVectorEye(GpuCommands& gpu, float offsetX, float offsetY, bool mirror) {
+    static void drawDefaultVectorEye(GpuCommands& gpu, float offsetX, float offsetY, bool mirror, float rotation = 0.0f) {
         const float scale = 0.095f;  // Slightly smaller to fit with margin
         const float svgCenterX = 222.5f;  // Approx center of SVG
         const float svgCenterY = 154.0f;  // Approx center of SVG
         
-        // Transform a point from SVG coords to panel coords
-        auto transformX = [&](float x) -> int16_t {
+        // Convert rotation to radians
+        const float rad = rotation * 3.14159265f / 180.0f;
+        const float cosR = cosf(rad);
+        const float sinR = sinf(rad);
+        
+        // Transform a point from SVG coords to panel coords with rotation
+        auto transformX = [&](float x, float y) -> int16_t {
             float tx = (x - svgCenterX) * scale;
+            float ty = (y - svgCenterY) * scale;
             if (mirror) tx = -tx;
-            return (int16_t)(tx + offsetX);
+            // Apply rotation around center
+            float rx = tx * cosR - ty * sinR;
+            return (int16_t)(rx + offsetX);
         };
-        auto transformY = [&](float y) -> int16_t {
-            return (int16_t)((y - svgCenterY) * scale + offsetY);
+        auto transformY = [&](float x, float y) -> int16_t {
+            float tx = (x - svgCenterX) * scale;
+            float ty = (y - svgCenterY) * scale;
+            if (mirror) tx = -tx;
+            // Apply rotation around center
+            float ry = tx * sinR + ty * cosR;
+            return (int16_t)(ry + offsetY);
         };
         
         // Draw pupil circle (cx=216, cy=114, r=39.5)
-        int16_t pupilX = transformX(216);
-        int16_t pupilY = transformY(114);
+        int16_t pupilX = transformX(216, 114);
+        int16_t pupilY = transformY(216, 114);
         int16_t pupilR = (int16_t)(39.5f * scale);
         gpu.hub75Circle(pupilX, pupilY, pupilR, 255, 255, 255);
         
@@ -244,8 +257,8 @@ namespace GpuDriverState {
         // Draw eye outline
         for (int i = 0; i < numOutlinePoints - 1; i++) {
             gpu.hub75Line(
-                transformX(eyeOutline[i][0]), transformY(eyeOutline[i][1]),
-                transformX(eyeOutline[i+1][0]), transformY(eyeOutline[i+1][1]),
+                transformX(eyeOutline[i][0], eyeOutline[i][1]), transformY(eyeOutline[i][0], eyeOutline[i][1]),
+                transformX(eyeOutline[i+1][0], eyeOutline[i+1][1]), transformY(eyeOutline[i+1][0], eyeOutline[i+1][1]),
                 255, 255, 255
             );
         }
@@ -264,8 +277,8 @@ namespace GpuDriverState {
         // Draw tear duct outline
         for (int i = 0; i < numTearPoints - 1; i++) {
             gpu.hub75Line(
-                transformX(tearDuct[i][0]), transformY(tearDuct[i][1]),
-                transformX(tearDuct[i+1][0]), transformY(tearDuct[i+1][1]),
+                transformX(tearDuct[i][0], tearDuct[i][1]), transformY(tearDuct[i][0], tearDuct[i][1]),
+                transformX(tearDuct[i+1][0], tearDuct[i+1][1]), transformY(tearDuct[i+1][0], tearDuct[i+1][1]),
                 255, 255, 255
             );
         }
@@ -617,8 +630,8 @@ namespace GpuDriverState {
                         if (spriteReady) {
                             g_gpu.blitSpriteRotated(activeSpriteId, staticPosX, staticPosY, staticRotation);
                         } else {
-                            // No sprite, show placeholder
-                            g_gpu.hub75Fill(54, 6, 20, 20, 128, 128, 128);
+                            // No sprite uploaded - use default vector eye (centered on full display)
+                            drawDefaultVectorEye(g_gpu, 64.0f, 16.0f, false, staticRotation);
                         }
                         
                         g_gpu.hub75Present();
@@ -641,16 +654,16 @@ namespace GpuDriverState {
                             // Draw on right panel (flipped 180° for mirror effect)
                             g_gpu.blitSpriteRotated(activeSpriteId, rightCenterX, panelCenterY, 180.0f + staticRotation);
                         } else {
-                            // No sprite uploaded - use default vector eye drawing
-                            drawDefaultVectorEye(g_gpu, leftCenterX, panelCenterY, false);   // Left eye (normal)
-                            drawDefaultVectorEye(g_gpu, rightCenterX, panelCenterY, true);   // Right eye (mirrored)
+                            // No sprite uploaded - use default vector eye drawing with rotation
+                            drawDefaultVectorEye(g_gpu, leftCenterX, panelCenterY, false, staticRotation);   // Left eye (normal)
+                            drawDefaultVectorEye(g_gpu, rightCenterX, panelCenterY, true, staticRotation);   // Right eye (mirrored)
                         }
                         
                         g_gpu.hub75Present();
                         
                         if (renderFrameCount % 120 == 0) {
-                            printf("STATIC_MIRRORED: Frame %lu - sprite=%d, using %s\n", 
-                                   renderFrameCount, spriteReady ? activeSpriteId : -1,
+                            printf("STATIC_MIRRORED: Frame %lu - sprite=%d, rot=%.1f, using %s\n", 
+                                   renderFrameCount, spriteReady ? activeSpriteId : -1, staticRotation,
                                    spriteReady ? "uploaded sprite" : "default vector eye");
                         }
                         break;
@@ -963,8 +976,8 @@ namespace GpuDriverState {
                     continue;
                 }
                 
-                // Allocate pixel buffer (GRB format, 3 bytes per LED)
-                ledStrips[i].pixelBuffer = (uint8_t*)malloc(LED_COUNTS[i] * 3);
+                // Allocate pixel buffer (GRBW format, 4 bytes per LED for SK6812 RGBW)
+                ledStrips[i].pixelBuffer = (uint8_t*)malloc(LED_COUNTS[i] * 4);
                 if (!ledStrips[i].pixelBuffer) {
                     printf("  LED: Strip %d buffer alloc failed\n", i);
                     rmt_disable(ledStrips[i].channel);
@@ -973,7 +986,7 @@ namespace GpuDriverState {
                     continue;
                 }
                 
-                memset(ledStrips[i].pixelBuffer, 0, LED_COUNTS[i] * 3);
+                memset(ledStrips[i].pixelBuffer, 0, LED_COUNTS[i] * 4);
                 ledStrips[i].ledCount = LED_COUNTS[i];
                 ledStrips[i].pin = LED_PINS[i];
                 ledStrips[i].initialized = true;
@@ -997,7 +1010,7 @@ namespace GpuDriverState {
         tx_config.loop_count = 0;  // No loop
         
         rmt_transmit(ledStrips[index].channel, ledStrips[index].encoder, 
-                     ledStrips[index].pixelBuffer, ledStrips[index].ledCount * 3, 
+                     ledStrips[index].pixelBuffer, ledStrips[index].ledCount * 4, 
                      &tx_config);
         rmt_tx_wait_all_done(ledStrips[index].channel, pdMS_TO_TICKS(100));
     }
@@ -1020,11 +1033,12 @@ namespace GpuDriverState {
         // Apply to all strips
         for (int i = 0; i < 6; i++) {
             if (ledStrips[i].initialized) {
-                // Fill pixel buffer (GRB format for WS2812)
+                // Fill pixel buffer (GRBW format for SK6812 RGBW)
                 for (int j = 0; j < ledStrips[i].ledCount; j++) {
-                    ledStrips[i].pixelBuffer[j * 3 + 0] = scaledG;  // G
-                    ledStrips[i].pixelBuffer[j * 3 + 1] = scaledR;  // R
-                    ledStrips[i].pixelBuffer[j * 3 + 2] = scaledB;  // B
+                    ledStrips[i].pixelBuffer[j * 4 + 0] = scaledG;  // G
+                    ledStrips[i].pixelBuffer[j * 4 + 1] = scaledR;  // R
+                    ledStrips[i].pixelBuffer[j * 4 + 2] = scaledB;  // B
+                    ledStrips[i].pixelBuffer[j * 4 + 3] = 0;        // W (unused for now)
                 }
                 showStrip(i);
             }
@@ -1046,7 +1060,7 @@ namespace GpuDriverState {
             // Turn off all LEDs
             for (int i = 0; i < 6; i++) {
                 if (ledStrips[i].initialized) {
-                    memset(ledStrips[i].pixelBuffer, 0, ledStrips[i].ledCount * 3);
+                    memset(ledStrips[i].pixelBuffer, 0, ledStrips[i].ledCount * 4);
                     showStrip(i);
                 }
             }
@@ -1454,6 +1468,40 @@ void CurrentMode::onStart() {
             
             // Apply animation-specific parameters from scene.params
             // Note: params is a map<string, float>
+            
+            // Gyro eyes parameters
+            if (scene.animType == "gyro_eyes") {
+                auto it = scene.params.find("intensity");
+                if (it != scene.params.end()) {
+                    GpuDriverState::setGyroEyeParams(
+                        scene.params.count("eye_size") ? scene.params.at("eye_size") : 12.0f,
+                        it->second,
+                        scene.params.count("mirror") ? (scene.params.at("mirror") > 0.5f) : true,
+                        scene.spriteId
+                    );
+                }
+            }
+            // Static image parameters
+            else if (scene.animType == "static_image") {
+                float posX = scene.params.count("center_x") ? scene.params.at("center_x") : 64.0f;
+                float posY = scene.params.count("center_y") ? scene.params.at("center_y") : 16.0f;
+                float rot = scene.params.count("rotation") ? scene.params.at("rotation") : 0.0f;
+                GpuDriverState::setStaticParams(1.0f, rot, posX, posY);
+            }
+            // Sway parameters
+            else if (scene.animType == "sway") {
+                float swayX = scene.params.count("sway_x") ? scene.params.at("sway_x") : 10.0f;
+                float swayY = scene.params.count("sway_y") ? scene.params.at("sway_y") : 5.0f;
+                float rotRange = scene.params.count("rot_range") ? scene.params.at("rot_range") : 15.0f;
+                float speed = scene.params.count("speed") ? scene.params.at("speed") : 1.0f;
+                GpuDriverState::setSwayParams(swayX, swayY, rotRange, speed, false);
+            }
+            // Static mirrored - just use rotation
+            else if (scene.animType == "static_mirrored") {
+                float rot = scene.params.count("rotation") ? scene.params.at("rotation") : 0.0f;
+                printf("  Static Mirrored: rotation=%.1f (params count=%zu)\n", rot, scene.params.size());
+                GpuDriverState::setStaticParams(1.0f, rot, 64.0f, 16.0f);
+            }
             
             // Handle sprite upload if scene uses a sprite
             if (scene.spriteId >= 0) {

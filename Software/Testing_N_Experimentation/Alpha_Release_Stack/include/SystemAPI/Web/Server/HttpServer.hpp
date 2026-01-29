@@ -3962,25 +3962,27 @@ private:
                     }
                     
                     // Animation parameters from nested 'animParams' object (new page format)
+                    // MERGE params instead of clearing - so incremental updates work
                     cJSON* animParams = cJSON_GetObjectItem(root, "animParams");
                     if (animParams && cJSON_IsObject(animParams)) {
-                        scene.params.clear();
+                        printf("[SceneUpdate] Received animParams for scene %d\n", scene.id);
                         cJSON* param = NULL;
                         cJSON_ArrayForEach(param, animParams) {
                             if (param->string) {
                                 if (cJSON_IsNumber(param)) {
                                     scene.params[param->string] = (float)param->valuedouble;
+                                    printf("  Set param '%s' = %.2f\n", param->string, (float)param->valuedouble);
                                 } else if (cJSON_IsBool(param)) {
                                     scene.params[param->string] = cJSON_IsTrue(param) ? 1.0f : 0.0f;
+                                    printf("  Set param '%s' = %.2f (bool)\n", param->string, cJSON_IsTrue(param) ? 1.0f : 0.0f);
                                 }
                             }
                         }
                     }
                     
-                    // Update params object (legacy format)
+                    // Update params object (legacy format) - also merge instead of clear
                     cJSON* params = cJSON_GetObjectItem(root, "params");
                     if (params && cJSON_IsObject(params)) {
-                        scene.params.clear();
                         cJSON* param = NULL;
                         cJSON_ArrayForEach(param, params) {
                             if (cJSON_IsNumber(param) && param->string) {
@@ -4168,10 +4170,14 @@ private:
     static esp_err_t handleApiSprites(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return sendUnauthorized(req);
         
+        ESP_LOGI(HTTP_TAG, "GET /api/sprites - savedSprites_ has %zu entries", savedSprites_.size());
+        
         cJSON* root = cJSON_CreateObject();
         cJSON* sprites = cJSON_CreateArray();
         
         for (const auto& sprite : savedSprites_) {
+            ESP_LOGI(HTTP_TAG, "  Sprite: id=%d, name='%s', %dx%d", 
+                     sprite.id, sprite.name.c_str(), sprite.width, sprite.height);
             cJSON* item = cJSON_CreateObject();
             cJSON_AddNumberToObject(item, "id", sprite.id);
             cJSON_AddStringToObject(item, "name", sprite.name.c_str());
