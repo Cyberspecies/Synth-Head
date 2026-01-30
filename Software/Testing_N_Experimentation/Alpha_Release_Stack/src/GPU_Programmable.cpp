@@ -1007,11 +1007,14 @@ static void drawPanelDiagnostic() {
   }
   
   // HUB75 buffer replication 1:1 (y=49-80, which is 32 rows for 128x32)
-  // This shows what's in the HUB75 buffer - use raw buffer (correct!)
+  // This shows what's in the HUB75 buffer - mirrored V then H to match physical display
   int replicationY = 49;
   for (int y = 0; y < TOTAL_HEIGHT; y++) {
     for (int x = 0; x < TOTAL_WIDTH; x++) {
-      int idx = (y * TOTAL_WIDTH + x) * 3;
+      // Mirror vertically (flip Y), then horizontally (flip X)
+      int srcX = (TOTAL_WIDTH - 1) - x;   // Horizontal mirror
+      int srcY = y;                        // No vertical flip - try just horizontal
+      int idx = (srcY * TOTAL_WIDTH + srcX) * 3;
       uint8_t r = hub75_buffer[idx + 0];
       uint8_t g = hub75_buffer[idx + 1];
       uint8_t b = hub75_buffer[idx + 2];
@@ -3439,8 +3442,10 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
           if (oledY < 0 || oledY >= OLED_HEIGHT) continue;
           
           for (int x = 0; x < TOTAL_WIDTH; x++) {
-            // Read buffer directly
-            int idx = (y * TOTAL_WIDTH + x) * 3;
+            // 180° rotation for OLED replication (flip both X and Y)
+            int srcX = (TOTAL_WIDTH - 1) - x;
+            int srcY = (TOTAL_HEIGHT - 1) - y;
+            int idx = (srcY * TOTAL_WIDTH + srcX) * 3;
             uint8_t r = hub75_buffer[idx + 0];
             uint8_t g = hub75_buffer[idx + 1];
             uint8_t b = hub75_buffer[idx + 2];
@@ -3465,8 +3470,10 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
           int baseY = y * 4;
           
           for (int x = 0; x < TOTAL_WIDTH; x++) {
-            // Direct buffer read
-            int idx = (y * TOTAL_WIDTH + x) * 3;
+            // 180° rotation for OLED replication (flip both X and Y)
+            int srcX = (TOTAL_WIDTH - 1) - x;
+            int srcY = (TOTAL_HEIGHT - 1) - y;
+            int idx = (srcY * TOTAL_WIDTH + srcX) * 3;
             uint8_t r = hub75_buffer[idx + 0];
             uint8_t g = hub75_buffer[idx + 1];
             uint8_t b = hub75_buffer[idx + 2];
