@@ -165,7 +165,7 @@ namespace GpuDriverState {
         SWAY,             // Swaying sprite animation
         SDF_MORPH         // SDF morphing animation (legacy)
     };
-    static SceneAnimMode currentAnimMode = SceneAnimMode::STATIC_MIRRORED;  // Default to static mirrored eye
+    static SceneAnimMode currentAnimMode = SceneAnimMode::NONE;  // Default to black until scene is activated
     static bool sceneAnimInitialized = false;
     
     // Gyro eyes state
@@ -238,23 +238,15 @@ namespace GpuDriverState {
         int16_t pupilR = (int16_t)(39.5f * scale);
         gpu.hub75Circle(pupilX, pupilY, pupilR, 255, 255, 255);
         
-        // Main eye outline - key points from SVG path
-        // Simplified to major vertices for line drawing
+        // SIMPLIFIED eye outline - just 12 key points for smooth performance
         const float eyeOutline[][2] = {
-            {238, 3}, {221.5, 0.5}, {161, 0.5}, {142, 1.5}, {106, 4.5}, {89, 6},
-            {72.5, 10.5}, {58.5, 16}, {48.5, 21}, {35.5, 30.5}, {27, 39}, {20, 47.5},
-            {14, 57.5}, {7, 75}, {1, 98.5}, {0.5, 109}, {0.5, 116}, {2, 122}, {5, 126},
-            {8.5, 128.5}, {21.5, 132.5}, {38, 137.5}, {58.5, 144.5}, {75, 151}, {90, 159},
-            {101.5, 167}, {117, 177.5}, {131, 189}, {139.5, 197.5}, {149, 205.5}, {158.5, 212},
-            {170.5, 218}, {186, 223.5}, {201, 226.5}, {216, 227.5}, {230, 226.5}, {242, 223.5},
-            {258.5, 218.5}, {278.5, 208.5}, {292, 198.5}, {302, 188.5}, {312, 176}, {319, 163.5},
-            {323, 153.5}, {327, 138.5}, {328.5, 122}, {328.5, 106}, {326.5, 89}, {321.5, 72.5},
-            {316.5, 61}, {310.5, 51}, {303.5, 42.5}, {293.5, 31.5}, {281, 22.5}, {267.5, 14.5},
-            {255.5, 9}, {238, 3}
+            {238, 3}, {142, 1.5}, {72.5, 10.5}, {35.5, 30.5}, {14, 57.5}, {0.5, 109},
+            {5, 126}, {58.5, 144.5}, {117, 177.5}, {170.5, 218}, {230, 226.5}, {292, 198.5},
+            {323, 153.5}, {328.5, 106}, {310.5, 51}, {267.5, 14.5}, {238, 3}
         };
         const int numOutlinePoints = sizeof(eyeOutline) / sizeof(eyeOutline[0]);
         
-        // Draw eye outline
+        // Draw eye outline (16 lines instead of 54)
         for (int i = 0; i < numOutlinePoints - 1; i++) {
             gpu.hub75Line(
                 transformX(eyeOutline[i][0], eyeOutline[i][1]), transformY(eyeOutline[i][0], eyeOutline[i][1]),
@@ -263,18 +255,14 @@ namespace GpuDriverState {
             );
         }
         
-        // Tear duct / eyebrow detail - key points from second path
+        // SIMPLIFIED tear duct - just 6 key points
         const float tearDuct[][2] = {
-            {384.5, 130.5}, {347.5, 77.5}, {346, 76}, {343.5, 76.5}, {342, 78}, {342, 81},
-            {343.5, 88}, {345.5, 99.5}, {345.5, 112}, {345, 127}, {342.5, 140}, {338.5, 156},
-            {332, 171}, {322.5, 188.5}, {311.5, 203.5}, {297.5, 216.5}, {285.5, 225}, {284, 230},
-            {285, 235.5}, {289, 240}, {302, 242}, {320, 245}, {339, 251}, {355, 257.5},
-            {372, 266.5}, {404.5, 287.5}, {433, 305}, {439.5, 307.5}, {442.5, 307.5}, {444, 305.5},
-            {444, 290}, {441.5, 272}, {434, 240}, {419.5, 198.5}, {405, 166}, {384.5, 130.5}
+            {384.5, 130.5}, {345.5, 99.5}, {332, 171}, {285, 235.5}, {372, 266.5}, {444, 305.5},
+            {434, 240}, {384.5, 130.5}
         };
         const int numTearPoints = sizeof(tearDuct) / sizeof(tearDuct[0]);
         
-        // Draw tear duct outline
+        // Draw tear duct outline (7 lines instead of 35)
         for (int i = 0; i < numTearPoints - 1; i++) {
             gpu.hub75Line(
                 transformX(tearDuct[i][0], tearDuct[i][1]), transformY(tearDuct[i][0], tearDuct[i][1]),
@@ -536,11 +524,10 @@ namespace GpuDriverState {
             
             // Check if complex transition animation is enabled (new default)
             if (complexAnimEnabled) {
-                // Get accelerometer data from global sync state (convert from milli-g to g)
-                auto& syncState = SystemAPI::SYNC_STATE.state();
-                float ax = syncState.accelX / 1000.0f;
-                float ay = syncState.accelY / 1000.0f;
-                float az = syncState.accelZ / 1000.0f;
+                // Get accelerometer data DIRECTLY from IMU driver for lowest latency
+                float ax = (float)Drivers::ImuDriver::accelX / 1000.0f;
+                float ay = (float)Drivers::ImuDriver::accelY / 1000.0f;
+                float az = (float)Drivers::ImuDriver::accelZ / 1000.0f;
                 
                 // Update and render complex transition animation
                 complexAnim.update(RENDER_INTERVAL_MS, ax, ay, az);
@@ -572,10 +559,19 @@ namespace GpuDriverState {
             }
             // ====== SCENE-BASED ANIMATION RENDERING ======
             else if (currentAnimMode != SceneAnimMode::NONE) {
-                // Get gyro data for animations that use it
-                auto& syncState = SystemAPI::SYNC_STATE.state();
-                float pitch = syncState.gyroX * eyeSensitivity;
-                float roll = syncState.gyroY * eyeSensitivity;
+                // Get gyro data DIRECTLY from IMU driver for lowest latency
+                int16_t gx = Drivers::ImuDriver::gyroX;
+                int16_t gy = Drivers::ImuDriver::gyroY;
+                float pitch = (float)gx * eyeSensitivity;
+                float roll = (float)gy * eyeSensitivity;
+                
+                // DEBUG: Print IMMEDIATELY when gyro is non-zero
+                static int64_t lastMovementTime = 0;
+                if (gx != 0 || gy != 0) {
+                    int64_t now = esp_timer_get_time();
+                    printf("MOVE[%lu]: gyro=(%d,%d) t=%lld\n", renderFrameCount, gx, gy, now/1000);
+                    lastMovementTime = now;
+                }
                 
                 switch (currentAnimMode) {
                     case SceneAnimMode::GYRO_EYES: {
@@ -590,11 +586,34 @@ namespace GpuDriverState {
                         float rightCenterX = 96.0f;
                         float rightCenterY = 16.0f;
                         
-                        // Calculate eye offset from gyro (clamp to reasonable range)
+                        // DIRECT gyro response - no integration, immediate movement!
+                        // Gyro values are typically ±100 for normal movement
+                        // Map directly to pixel offset: divide by sensitivity factor
                         float maxOffsetX = 12.0f;
                         float maxOffsetY = 6.0f;
-                        float offsetX = fmaxf(-maxOffsetX, fminf(maxOffsetX, roll * 0.3f));
-                        float offsetY = fmaxf(-maxOffsetY, fminf(maxOffsetY, -pitch * 0.3f));
+                        
+                        // Direct mapping: gyro value / divisor = pixel offset
+                        // Lower divisor = more sensitive
+                        float divisor = 8.0f;  // ±100 gyro -> ±12.5 pixels
+                        
+                        // gy controls X (left/right tilt), gx controls Y (forward/back tilt)
+                        float rawOffsetX = (float)gy / divisor;
+                        float rawOffsetY = (float)(-gx) / divisor;
+                        
+                        // Clamp to max range
+                        float offsetX = fmaxf(-maxOffsetX, fminf(maxOffsetX, rawOffsetX));
+                        float offsetY = fmaxf(-maxOffsetY, fminf(maxOffsetY, rawOffsetY));
+                        
+                        // DEBUG: Show direct response
+                        static uint32_t lastDebugFrame = 0;
+                        if ((renderFrameCount - lastDebugFrame) >= 30) {
+                            printf("DIRECT: gyro=(%d,%d) -> offset=(%.1f,%.1f)\n", 
+                                   gx, gy, offsetX, offsetY);
+                            lastDebugFrame = renderFrameCount;
+                        }
+                        
+                        // TIMING DEBUG: When do we actually send to GPU?
+                        int64_t t1 = esp_timer_get_time();
                         
                         // Draw left eye
                         float leftX = leftCenterX + offsetX;
@@ -605,20 +624,22 @@ namespace GpuDriverState {
                         float rightY = rightCenterY + offsetY;
                         
                         // Use sprite if available, otherwise draw circles
-                        if (eyeSpriteId >= 0 && spriteReady) {
+                        if (spriteReady) {
                             g_gpu.blitSpriteF(activeSpriteId, leftX, leftY);
                             g_gpu.blitSpriteF(activeSpriteId, rightX, rightY);
                         } else {
-                            // Draw filled circles for eyes (cast to int for GpuCommands)
                             g_gpu.hub75Circle((int16_t)leftX, (int16_t)leftY, (int16_t)eyeSize, 255, 255, 255);
                             g_gpu.hub75Circle((int16_t)rightX, (int16_t)rightY, (int16_t)eyeSize, 255, 255, 255);
                         }
-                        
                         g_gpu.hub75Present();
                         
-                        if (renderFrameCount % 60 == 0) {
-                            printf("GYRO_EYES: Frame %lu - offset=(%.1f,%.1f) pitch=%.1f roll=%.1f\n",
-                                   renderFrameCount, offsetX, offsetY, pitch, roll);
+                        // TIMING DEBUG: How long did GPU commands take?
+                        int64_t t2 = esp_timer_get_time();
+                        static uint32_t lastTimingDebug = 0;
+                        if ((renderFrameCount - lastTimingDebug) >= 30) {
+                            printf("GPU_TIME[%lu]: commands took %lld us, offset=(%.1f,%.1f)\n", 
+                                   renderFrameCount, t2 - t1, offsetX, offsetY);
+                            lastTimingDebug = renderFrameCount;
                         }
                         break;
                     }
@@ -1469,17 +1490,14 @@ void CurrentMode::onStart() {
             // Apply animation-specific parameters from scene.params
             // Note: params is a map<string, float>
             
-            // Gyro eyes parameters
+            // Gyro eyes parameters - always set defaults if not found
             if (scene.animType == "gyro_eyes") {
-                auto it = scene.params.find("intensity");
-                if (it != scene.params.end()) {
-                    GpuDriverState::setGyroEyeParams(
-                        scene.params.count("eye_size") ? scene.params.at("eye_size") : 12.0f,
-                        it->second,
-                        scene.params.count("mirror") ? (scene.params.at("mirror") > 0.5f) : true,
-                        scene.spriteId
-                    );
-                }
+                float eyeSize = scene.params.count("eye_size") ? scene.params.at("eye_size") : 12.0f;
+                float intensity = scene.params.count("intensity") ? scene.params.at("intensity") : 1.0f;
+                bool mirror = scene.params.count("mirror") ? (scene.params.at("mirror") > 0.5f) : true;
+                GpuDriverState::setGyroEyeParams(eyeSize, intensity, mirror, scene.spriteId);
+                printf("  Gyro Eyes: size=%.1f, intensity=%.1f, mirror=%s, spriteId=%d\n",
+                       eyeSize, intensity, mirror ? "YES" : "NO", scene.spriteId);
             }
             // Static image parameters
             else if (scene.animType == "static_image") {
@@ -1507,7 +1525,8 @@ void CurrentMode::onStart() {
             if (scene.spriteId >= 0) {
                 auto* sprite = SystemAPI::Web::HttpServer::findSpriteById(scene.spriteId);
                 if (sprite && !sprite->pixelData.empty()) {
-                    printf("  Uploading scene sprite %d to GPU...\n", scene.spriteId);
+                    printf("  Uploading scene sprite %d to GPU (size=%dx%d, pixels=%zu)...\n", 
+                           scene.spriteId, sprite->width, sprite->height, sprite->pixelData.size());
                     uint8_t gpuSpriteId = 0;
                     GpuDriverState::getGpu().deleteSprite(gpuSpriteId);
                     vTaskDelay(pdMS_TO_TICKS(10));
@@ -1519,9 +1538,15 @@ void CurrentMode::onStart() {
                                                               sprite->height)) {
                         vTaskDelay(pdMS_TO_TICKS(100));
                         GpuDriverState::setSpriteScene(gpuSpriteId, 64.0f, 16.0f, 0.0f, 0, 0, 0);
-                        printf("  Sprite uploaded to GPU slot 0\n");
+                        printf("  Sprite uploaded to GPU slot 0, spriteReady=true\n");
+                    } else {
+                        printf("  ERROR: Sprite upload to GPU failed!\n");
                     }
+                } else {
+                    printf("  WARNING: Sprite %d not found or has no pixel data\n", scene.spriteId);
                 }
+            } else {
+                printf("  No sprite selected for this scene (spriteId=%d)\n", scene.spriteId);
             }
         } else {
             // Display disabled - show nothing or just LEDs
@@ -1544,6 +1569,9 @@ void CurrentMode::onStart() {
     });
     
     printf("  Web-GPU Callbacks: Registered\n");
+    
+    // Auto-activate the saved scene from storage (restores last state on boot)
+    httpServer.autoActivateSavedScene();
     
     // Print sprite storage summary
     {

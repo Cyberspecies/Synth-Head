@@ -1385,6 +1385,7 @@ static void fillRectF(float x, float y, float w, float h, uint8_t r, uint8_t g, 
 // Sprite blit with sub-pixel positioning using BILINEAR SPLATTING
 // Each sprite pixel "splats" its color to the 4 screen pixels it overlaps
 // This creates smooth sub-pixel movement with proper AA
+// O(spritePixels) complexity - same efficient algorithm as blitSpriteRotated
 static void blitSpriteF(int id, float dx, float dy) {
   if (id < 0 || id >= MAX_SPRITES || !gpu.sprites[id].valid) return;
   
@@ -1392,45 +1393,69 @@ static void blitSpriteF(int id, float dx, float dy) {
   
   if (s.format == 0 && gpu.target == 0) {
     if (aa_enabled) {
-      // True coverage-based subpixel blending for smooth movement
-      int screenMinX = (int)floorf(dx) - 1;
-      int screenMaxX = (int)ceilf(dx + s.width) + 1;
-      int screenMinY = (int)floorf(dy) - 1;
-      int screenMaxY = (int)ceilf(dy + s.height) + 1;
-      if (screenMinX < 0) screenMinX = 0;
-      if (screenMinY < 0) screenMinY = 0;
-      if (screenMaxX >= TOTAL_WIDTH) screenMaxX = TOTAL_WIDTH - 1;
-      if (screenMaxY >= TOTAL_HEIGHT) screenMaxY = TOTAL_HEIGHT - 1;
-      for (int y = screenMinY; y <= screenMaxY; y++) {
-        for (int x = screenMinX; x <= screenMaxX; x++) {
-          float accum_r = 0, accum_g = 0, accum_b = 0, accum_w = 0;
-          // For each sprite pixel, compute coverage of this output pixel
-          for (int sy = 0; sy < s.height; sy++) {
-            for (int sx = 0; sx < s.width; sx++) {
-              // Sprite pixel center in screen space
-              float spx = dx + sx + 0.5f;
-              float spy = dy + sy + 0.5f;
-              // Output pixel bounds
-              float left = x, right = x + 1, top = y, bottom = y + 1;
-              // Compute coverage as area of overlap between sprite pixel (point) and output pixel (box)
-              // Use a simple smoothstep falloff for subpixel coverage
-              float dist_x = fabsf(spx - (x + 0.5f));
-              float dist_y = fabsf(spy - (y + 0.5f));
-              float coverage = fmaxf(0.0f, 1.0f - dist_x) * fmaxf(0.0f, 1.0f - dist_y);
-              if (coverage > 0.001f) {
-                int sidx = (sy * s.width + sx) * 3;
-                accum_r += s.data[sidx + 0] * coverage;
-                accum_g += s.data[sidx + 1] * coverage;
-                accum_b += s.data[sidx + 2] * coverage;
-                accum_w += coverage;
-              }
-            }
-          }
-          if (accum_w > 0.001f) {
-            uint8_t r = (uint8_t)fminf(255.0f, accum_r / accum_w);
-            uint8_t g = (uint8_t)fminf(255.0f, accum_g / accum_w);
-            uint8_t b = (uint8_t)fminf(255.0f, accum_b / accum_w);
-            uint8_t alpha = (uint8_t)fminf(255.0f, accum_w * 255.0f);
+      // Efficient bilinear splatting - O(spritePixels) complexity
+      // Same algorithm as blitSpriteRotated but without rotation
+      
+      // Calculate bounding box for splat buffer clear
+      int pMinX = (int)floorf(dx);
+      int pMaxX = (int)ceilf(dx + s.width) + 1;
+      int pMinY = (int)floorf(dy);
+      int pMaxY = (int)ceilf(dy + s.height) + 1;
+      if (pMinX < 0) pMinX = 0;
+      if (pMinY < 0) pMinY = 0;
+      if (pMaxX >= TOTAL_WIDTH) pMaxX = TOTAL_WIDTH - 1;
+      if (pMaxY >= TOTAL_HEIGHT) pMaxY = TOTAL_HEIGHT - 1;
+      
+      // Clear the splat buffer for the affected region
+      for (int y = pMinY; y <= pMaxY; y++) {
+        for (int x = pMinX; x <= pMaxX; x++) {
+          int idx = y * TOTAL_WIDTH + x;
+          splat_r[idx] = splat_g[idx] = splat_b[idx] = splat_w[idx] = 0;
+        }
+      }
+      
+      // For each sprite pixel, splat to 4 overlapping screen pixels
+      for (int sy = 0; sy < s.height; sy++) {
+        for (int sx = 0; sx < s.width; sx++) {
+          // Get sprite pixel color
+          int sidx = (sy * s.width + sx) * 3;
+          float pr = s.data[sidx + 0];
+          float pg = s.data[sidx + 1];
+          float pb = s.data[sidx + 2];
+          
+          // Screen position of this sprite pixel
+          float screenX = dx + sx;
+          float screenY = dy + sy;
+          
+          // Integer screen position and fractional offset
+          int ix = (int)floorf(screenX);
+          int iy = (int)floorf(screenY);
+          float fx = screenX - ix;
+          float fy = screenY - iy;
+          
+          // Bilinear splat weights
+          float w00 = (1.0f - fx) * (1.0f - fy);
+          float w10 = fx * (1.0f - fy);
+          float w01 = (1.0f - fx) * fy;
+          float w11 = fx * fy;
+          
+          // Splat to 4 overlapping screen pixels
+          splatPixel(ix,     iy,     pr, pg, pb, w00);
+          splatPixel(ix + 1, iy,     pr, pg, pb, w10);
+          splatPixel(ix,     iy + 1, pr, pg, pb, w01);
+          splatPixel(ix + 1, iy + 1, pr, pg, pb, w11);
+        }
+      }
+      
+      // Resolve splat buffer to screen
+      for (int y = pMinY; y <= pMaxY; y++) {
+        for (int x = pMinX; x <= pMaxX; x++) {
+          int idx = y * TOTAL_WIDTH + x;
+          if (splat_w[idx] > 0.001f) {
+            uint8_t r = (uint8_t)fminf(255.0f, splat_r[idx] / splat_w[idx]);
+            uint8_t g = (uint8_t)fminf(255.0f, splat_g[idx] / splat_w[idx]);
+            uint8_t b = (uint8_t)fminf(255.0f, splat_b[idx] / splat_w[idx]);
+            uint8_t alpha = (uint8_t)fminf(255.0f, splat_w[idx] * 255.0f);
             if (alpha > 250) {
               setPixelHUB75(x, y, r, g, b);
             } else if (alpha > 4) {
@@ -2661,6 +2686,20 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     }
     
     case CmdType::PRESENT: {
+      // CRITICAL: Flush any buffered commands BEFORE processing present
+      // This ensures we always display the LATEST frame, not stale data
+      size_t buffered = 0;
+      uart_get_buffered_data_len(UART_PORT, &buffered);
+      if (buffered > 256) {  // If there's a significant backlog
+        // Log and flush - we're behind, catch up by discarding old frames
+        static uint32_t flushCount = 0;
+        flushCount++;
+        if ((flushCount % 10) == 1) {  // Log every 10th flush
+          ESP_LOGW(TAG, "PRESENT: flushing %d bytes backlog (catch-up #%lu)", (int)buffered, flushCount);
+        }
+        uart_flush_input(UART_PORT);
+      }
+      
       // Frame rate limiter - drop frames if coming too fast
       int64_t now = esp_timer_get_time();
       int64_t elapsed = now - lastPresentTime;
@@ -3089,9 +3128,21 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
             
             // Apply threshold
             if (lum >= threshold) {
+              // Apply 180° rotation per panel for OLED output
+              int oledX;
+              if (x < PANEL_WIDTH) {
+                // Left panel: rotate 180° within panel (x=0-63 -> x=63-0)
+                oledX = (PANEL_WIDTH - 1) - x;
+              } else {
+                // Right panel: rotate 180° within panel (x=64-127 -> x=127-64)
+                oledX = PANEL_WIDTH + (PANEL_WIDTH - 1) - (x - PANEL_WIDTH);
+              }
+              // Also flip Y within the 32-row region
+              int rotatedOledY = yOffset + (TOTAL_HEIGHT - 1) - y;
+              
               // Set pixel in OLED buffer (1-bit per pixel, column-major pages)
-              int byteIdx = (oledY / 8) * OLED_WIDTH + x;
-              int bitIdx = oledY % 8;
+              int byteIdx = (rotatedOledY / 8) * OLED_WIDTH + oledX;
+              int bitIdx = rotatedOledY % 8;
               oled_buffer[byteIdx] |= (1 << bitIdx);
             }
           }
@@ -3122,10 +3173,22 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
             uint16_t lum = (77 * r + 150 * g + 29 * b) >> 8;
             
             if (lum >= threshold) {
+              // Apply 180° rotation per panel for OLED output
+              int oledX;
+              if (x < PANEL_WIDTH) {
+                // Left panel: rotate 180° within panel (x=0-63 -> x=63-0)
+                oledX = (PANEL_WIDTH - 1) - x;
+              } else {
+                // Right panel: rotate 180° within panel (x=64-127 -> x=127-64)
+                oledX = PANEL_WIDTH + (PANEL_WIDTH - 1) - (x - PANEL_WIDTH);
+              }
+              // Flip Y and scale 4x
+              int baseY = (TOTAL_HEIGHT - 1 - y) * 4;
+              
               // Scale 4x vertically - set 4 consecutive rows
               for (int sy = 0; sy < 4; sy++) {
-                int oledY = y * 4 + sy;
-                int byteIdx = (oledY / 8) * OLED_WIDTH + x;
+                int oledY = baseY + sy;
+                int byteIdx = (oledY / 8) * OLED_WIDTH + oledX;
                 int bitIdx = oledY % 8;
                 oled_buffer[byteIdx] |= (1 << bitIdx);
               }

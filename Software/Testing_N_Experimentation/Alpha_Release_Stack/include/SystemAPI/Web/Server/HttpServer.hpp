@@ -289,6 +289,34 @@ public:
     }
     
     /**
+     * @brief Auto-activate the saved active scene on startup
+     * Call this after setting the scene activated callback
+     */
+    void autoActivateSavedScene() {
+        if (!sceneActivatedCallback_) {
+            ESP_LOGW(HTTP_TAG, "No scene callback registered, cannot auto-activate");
+            return;
+        }
+        
+        if (activeSceneId_ < 0) {
+            ESP_LOGI(HTTP_TAG, "No active scene saved, skipping auto-activate");
+            return;
+        }
+        
+        // Find and activate the saved active scene
+        for (auto& scene : savedScenes_) {
+            if (scene.id == activeSceneId_) {
+                ESP_LOGI(HTTP_TAG, "Auto-activating saved scene: '%s' (id=%d)", 
+                         scene.name.c_str(), scene.id);
+                sceneActivatedCallback_(scene);
+                return;
+            }
+        }
+        
+        ESP_LOGW(HTTP_TAG, "Saved active scene id=%d not found in scene list", activeSceneId_);
+    }
+    
+    /**
      * @brief Set scene updated callback (called when active scene config changes)
      */
     void setSceneUpdatedCallback(std::function<void(const SavedScene&)> callback) {
