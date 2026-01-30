@@ -334,14 +334,15 @@ static const int64_t NO_SIGNAL_TIMEOUT_US = 3000000;  // 3 seconds
 // Circle: center (216, 114), radius 39.5
 // Main outline path (simplified to key vertices)
 static const int16_t LOGO_OUTLINE[] = {
-  238, 3, 221, 1, 161, 1, 142, 2, 106, 5, 89, 6, 73, 11, 59, 16,
-  49, 21, 36, 31, 27, 39, 20, 48, 14, 58, 7, 75, 1, 99, 1, 109,
-  1, 116, 2, 122, 5, 126, 9, 129, 22, 133, 38, 138, 59, 145, 75, 151,
-  90, 159, 102, 167, 117, 178, 131, 189, 140, 198, 149, 206, 159, 212,
-  171, 218, 186, 224, 201, 227, 216, 228, 230, 227, 242, 224, 259, 219,
-  279, 209, 292, 199, 302, 189, 312, 176, 319, 164, 323, 154, 327, 139,
-  329, 122, 329, 106, 327, 89, 322, 73, 317, 61, 311, 51, 304, 43,
-  294, 32, 281, 23, 268, 15, 256, 9, 238, 3
+  // Y coordinates flipped (228 - originalY)
+  238, 225, 221, 227, 161, 227, 142, 226, 106, 223, 89, 222, 73, 217, 59, 212,
+  49, 207, 36, 197, 27, 189, 20, 180, 14, 170, 7, 153, 1, 129, 1, 119,
+  1, 112, 2, 106, 5, 102, 9, 99, 22, 95, 38, 90, 59, 83, 75, 77,
+  90, 69, 102, 61, 117, 50, 131, 39, 140, 30, 149, 22, 159, 16,
+  171, 10, 186, 4, 201, 1, 216, 0, 230, 1, 242, 4, 259, 9,
+  279, 19, 292, 29, 302, 39, 312, 52, 319, 64, 323, 74, 327, 89,
+  329, 106, 329, 122, 327, 139, 322, 155, 317, 167, 311, 177, 304, 185,
+  294, 196, 281, 205, 268, 213, 256, 219, 238, 225
 };
 static const int LOGO_OUTLINE_COUNT = sizeof(LOGO_OUTLINE) / (2 * sizeof(int16_t));
 
@@ -389,9 +390,8 @@ static inline void blendPixelHUB75(int x, int y, uint8_t r, uint8_t g, uint8_t b
 
 static inline void setPixelHUB75(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
   if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
-  // Mirror X: flip left-to-right
-  int mx = (TOTAL_WIDTH - 1) - x;
-  int idx = (y * TOTAL_WIDTH + mx) * 3;
+  // Write directly to buffer - transforms applied in presentHUB75Buffer
+  int idx = (y * TOTAL_WIDTH + x) * 3;
   hub75_buffer[idx + 0] = r;
   hub75_buffer[idx + 1] = g;
   hub75_buffer[idx + 2] = b;
@@ -402,9 +402,8 @@ static inline void getPixelHUB75(int x, int y, uint8_t& r, uint8_t& g, uint8_t& 
     r = g = b = 0;
     return;
   }
-  // Mirror X: flip left-to-right (same as setPixelHUB75)
-  int mx = (TOTAL_WIDTH - 1) - x;
-  int idx = (y * TOTAL_WIDTH + mx) * 3;
+  // Read directly from buffer (matches setPixelHUB75)
+  int idx = (y * TOTAL_WIDTH + x) * 3;
   r = hub75_buffer[idx + 0];
   g = hub75_buffer[idx + 1];
   b = hub75_buffer[idx + 2];
@@ -677,16 +676,366 @@ static void drawNoSignalText(int x, int y, uint8_t intensity, bool isOled, bool 
   }
 }
 
-// Present HUB75 buffer to display using correct API
+// ============================================================
+// PANEL DIAGNOSTIC TEST - CONFIGURABLE SETTINGS
+// ============================================================
+// Adjust these to find the correct panel configuration
+
+// Panel 0 settings (left 64 pixels in buffer)
+static bool PANEL0_MIRROR_X = false;  // Flip horizontally within panel
+static bool PANEL0_MIRROR_Y = false;  // Flip vertically within panel
+static bool PANEL0_SWAP = false;      // If true, panel 0 data goes to right side
+
+// Panel 1 settings (right 64 pixels in buffer)
+static bool PANEL1_MIRROR_X = true;   // Flip horizontally within panel
+static bool PANEL1_MIRROR_Y = false;  // Flip vertically within panel
+
+// Global settings
+static bool GLOBAL_MIRROR_X = true;   // Mirror entire X axis before panel split
+static bool GLOBAL_SWAP_PANELS = true; // Swap left/right panel positions
+
+// RGB Channel order: 0=RGB, 1=RBG, 2=GRB, 3=GBR, 4=BRG, 5=BGR
+static int RGB_ORDER = 1;  // Try RBG (swap G and B)
+
+// Enable diagnostic test mode (set true to run test on boot)
+static bool RUN_PANEL_TEST = false;  // VERIFIED: cyan square moves correctly with these settings
+
+// Helper to set pixel (no RGB correction here - applied in presentHUB75Buffer)
+static inline void setDiagPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+  if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
+  int idx = (y * TOTAL_WIDTH + x) * 3;
+  
+  // Write raw RGB - correction applied in presentHUB75Buffer
+  hub75_buffer[idx + 0] = r;
+  hub75_buffer[idx + 1] = g;
+  hub75_buffer[idx + 2] = b;
+}
+
+// Present HUB75 buffer to display with configurable panel transforms
 static void presentHUB75Buffer() {
   if (!hub75_ok || !hub75) return;
+  
   for (int y = 0; y < TOTAL_HEIGHT; y++) {
     for (int x = 0; x < TOTAL_WIDTH; x++) {
-      int idx = (y * TOTAL_WIDTH + x) * 3;
-      hub75->setPixel(x, y, RGB(hub75_buffer[idx], hub75_buffer[idx+1], hub75_buffer[idx+2]));
+      // Start with buffer coordinates
+      int bufX = x;
+      int bufY = y;
+      
+      // Apply global X mirror if enabled
+      if (GLOBAL_MIRROR_X) {
+        bufX = (TOTAL_WIDTH - 1) - bufX;
+      }
+      
+      // Determine which panel this pixel belongs to (in buffer space)
+      bool isRightPanel = (bufX >= PANEL_WIDTH);
+      int panelX = isRightPanel ? (bufX - PANEL_WIDTH) : bufX;
+      
+      // Apply per-panel transforms
+      int transformedPanelX = panelX;
+      int transformedY = bufY;
+      
+      if (isRightPanel) {
+        // Panel 1 transforms
+        if (PANEL1_MIRROR_X) transformedPanelX = (PANEL_WIDTH - 1) - panelX;
+        if (PANEL1_MIRROR_Y) transformedY = (TOTAL_HEIGHT - 1) - bufY;
+      } else {
+        // Panel 0 transforms
+        if (PANEL0_MIRROR_X) transformedPanelX = (PANEL_WIDTH - 1) - panelX;
+        if (PANEL0_MIRROR_Y) transformedY = (TOTAL_HEIGHT - 1) - bufY;
+      }
+      
+      // Calculate display X position
+      int displayX;
+      if (GLOBAL_SWAP_PANELS) {
+        // Swap panel positions
+        if (isRightPanel) {
+          displayX = transformedPanelX;  // Right panel goes to left side
+        } else {
+          displayX = PANEL_WIDTH + transformedPanelX;  // Left panel goes to right side
+        }
+      } else {
+        // Normal panel positions
+        if (isRightPanel) {
+          displayX = PANEL_WIDTH + transformedPanelX;
+        } else {
+          displayX = transformedPanelX;
+        }
+      }
+      
+      // Handle PANEL0_SWAP (swap which panel's data goes where)
+      int idx;
+      if (PANEL0_SWAP) {
+        // This swaps source data, not output position
+        // Read from opposite panel
+        int readX = isRightPanel ? panelX : (PANEL_WIDTH + panelX);
+        idx = (bufY * TOTAL_WIDTH + readX) * 3;
+      } else {
+        idx = (bufY * TOTAL_WIDTH + x) * 3;
+      }
+      
+      // Apply RGB channel order correction
+      uint8_t r = hub75_buffer[idx];
+      uint8_t g = hub75_buffer[idx + 1];
+      uint8_t b = hub75_buffer[idx + 2];
+      uint8_t ch0, ch1, ch2;
+      switch (RGB_ORDER) {
+        case 0: ch0 = r; ch1 = g; ch2 = b; break;  // RGB
+        case 1: ch0 = r; ch1 = b; ch2 = g; break;  // RBG
+        case 2: ch0 = g; ch1 = r; ch2 = b; break;  // GRB
+        case 3: ch0 = g; ch1 = b; ch2 = r; break;  // GBR
+        case 4: ch0 = b; ch1 = r; ch2 = g; break;  // BRG
+        case 5: ch0 = b; ch1 = g; ch2 = r; break;  // BGR
+        default: ch0 = r; ch1 = g; ch2 = b; break;
+      }
+      hub75->setPixel(displayX, transformedY, RGB(ch0, ch1, ch2));
     }
   }
   hub75->show();
+}
+
+// Draw panel diagnostic test pattern
+// Red square: top-left (should appear at x=0-7, y=0-7)
+// Blue square: bottom-right (should appear at x=120-127, y=24-31)
+// Yellow square: center (should appear at x=60-67, y=12-19)
+// Helper to draw a line using Bresenham's algorithm
+static void drawDiagLine(int x0, int y0, int x1, int y1, uint8_t r, uint8_t g, uint8_t b) {
+  int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+  int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+  int err = dx + dy;
+  while (true) {
+    setDiagPixel(x0, y0, r, g, b);
+    if (x0 == x1 && y0 == y1) break;
+    int e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+}
+
+// Helper to draw a filled circle using midpoint algorithm
+static void drawDiagCircle(int cx, int cy, int radius, uint8_t r, uint8_t g, uint8_t b) {
+  for (int y = -radius; y <= radius; y++) {
+    for (int x = -radius; x <= radius; x++) {
+      if (x*x + y*y <= radius*radius) {
+        setDiagPixel(cx + x, cy + y, r, g, b);
+      }
+    }
+  }
+}
+
+// Helper to draw a filled rectangle
+static void drawDiagRect(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+  for (int py = y; py < y + h; py++) {
+    for (int px = x; px < x + w; px++) {
+      setDiagPixel(px, py, r, g, b);
+    }
+  }
+}
+
+// Diagnostic pattern for each panel: 4 corner squares + connecting lines + center shape
+static void drawPanelDiagnostic() {
+  // Clear buffer
+  memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
+  
+  const int SQUARE_SIZE = 6;
+  const int HALF_SQ = SQUARE_SIZE / 2;
+  
+  // For each panel (left=0, right=1)
+  for (int panel = 0; panel < 2; panel++) {
+    int panelX = panel * PANEL_WIDTH;  // 0 for left, 64 for right
+    
+    // Corner positions (relative to panel)
+    // Top-left corner: (0, 0)
+    // Top-right corner: (PANEL_WIDTH-1, 0)
+    // Bottom-left corner: (0, TOTAL_HEIGHT-1)
+    // Bottom-right corner: (PANEL_WIDTH-1, TOTAL_HEIGHT-1)
+    
+    int tlX = panelX + HALF_SQ;                      // Top-left center
+    int tlY = HALF_SQ;
+    int trX = panelX + PANEL_WIDTH - 1 - HALF_SQ;   // Top-right center
+    int trY = HALF_SQ;
+    int blX = panelX + HALF_SQ;                      // Bottom-left center
+    int blY = TOTAL_HEIGHT - 1 - HALF_SQ;
+    int brX = panelX + PANEL_WIDTH - 1 - HALF_SQ;   // Bottom-right center
+    int brY = TOTAL_HEIGHT - 1 - HALF_SQ;
+    
+    // Draw 4 corner squares:
+    // Top-right = RED
+    drawDiagRect(trX - HALF_SQ, trY - HALF_SQ, SQUARE_SIZE, SQUARE_SIZE, 255, 0, 0);
+    // Top-left = BLUE
+    drawDiagRect(tlX - HALF_SQ, tlY - HALF_SQ, SQUARE_SIZE, SQUARE_SIZE, 0, 0, 255);
+    // Bottom-left = GREEN
+    drawDiagRect(blX - HALF_SQ, blY - HALF_SQ, SQUARE_SIZE, SQUARE_SIZE, 0, 255, 0);
+    // Bottom-right = WHITE
+    drawDiagRect(brX - HALF_SQ, brY - HALF_SQ, SQUARE_SIZE, SQUARE_SIZE, 255, 255, 255);
+    
+    // Draw connecting lines between square centers:
+    // RED line: Red (top-right) to Blue (top-left) - top edge
+    drawDiagLine(trX, trY, tlX, tlY, 255, 0, 0);
+    // BLUE line: Blue (top-left) to Green (bottom-left) - left edge
+    drawDiagLine(tlX, tlY, blX, blY, 0, 0, 255);
+    // GREEN line: Green (bottom-left) to White (bottom-right) - bottom edge
+    drawDiagLine(blX, blY, brX, brY, 0, 255, 0);
+    // WHITE line: White (bottom-right) to Red (top-right) - right edge
+    drawDiagLine(brX, brY, trX, trY, 255, 255, 255);
+    
+    // Center shape
+    int centerX = panelX + PANEL_WIDTH / 2;
+    int centerY = TOTAL_HEIGHT / 2;
+    
+    if (panel == 0) {
+      // Left panel: draw a circle (outline)
+      int radius = 8;
+      for (int y = -radius; y <= radius; y++) {
+        for (int x = -radius; x <= radius; x++) {
+          int distSq = x*x + y*y;
+          // Draw if on the circle edge (between inner and outer radius)
+          if (distSq >= (radius-1)*(radius-1) && distSq <= radius*radius) {
+            setDiagPixel(centerX + x, centerY + y, 255, 255, 0);  // YELLOW circle
+          }
+        }
+      }
+    } else {
+      // Right panel: draw a square (outline)
+      int halfSize = 8;
+      // Top and bottom edges
+      for (int x = -halfSize; x <= halfSize; x++) {
+        setDiagPixel(centerX + x, centerY - halfSize, 255, 0, 255);  // MAGENTA
+        setDiagPixel(centerX + x, centerY + halfSize, 255, 0, 255);
+      }
+      // Left and right edges
+      for (int y = -halfSize; y <= halfSize; y++) {
+        setDiagPixel(centerX - halfSize, centerY + y, 255, 0, 255);
+        setDiagPixel(centerX + halfSize, centerY + y, 255, 0, 255);
+      }
+    }
+  }
+  
+  // Draw panel divider line (between the two panels)
+  for (int y = 0; y < TOTAL_HEIGHT; y++) {
+    setDiagPixel(63, y, 128, 128, 128);  // Gray divider
+    setDiagPixel(64, y, 128, 128, 128);
+  }
+  
+  // Print current config to log
+  ESP_LOGI(TAG, "=== PANEL DIAGNOSTIC ===");
+  ESP_LOGI(TAG, "RGB_ORDER=%d (0=RGB,1=RBG,2=GRB,3=GBR,4=BRG,5=BGR)", RGB_ORDER);
+  ESP_LOGI(TAG, "Panel0: MirrorX=%d MirrorY=%d Swap=%d", PANEL0_MIRROR_X, PANEL0_MIRROR_Y, PANEL0_SWAP);
+  ESP_LOGI(TAG, "Panel1: MirrorX=%d MirrorY=%d", PANEL1_MIRROR_X, PANEL1_MIRROR_Y);
+  ESP_LOGI(TAG, "Global: MirrorX=%d SwapPanels=%d", GLOBAL_MIRROR_X, GLOBAL_SWAP_PANELS);
+  ESP_LOGI(TAG, "Expected: RED=top-left, BLUE=bottom-right, YELLOW=center");
+  ESP_LOGI(TAG, "GREEN line = panel boundary (x=63/64)");
+  ESP_LOGI(TAG, "WHITE logos centered on each panel");
+  
+  presentHUB75Buffer();
+  
+  // === OLED Display ===
+  // Top section (y=0-47): Reference logos (how they SHOULD look)
+  // Middle section (y=48): Divider line
+  // Bottom section (y=49-80): HUB75 buffer replication 1:1 (32 rows)
+  // Lower section (y=88-119): Second copy showing what HUB75 buffer looks like after transforms
+  memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+  
+  // Draw reference logos on OLED top area (y=8-40)
+  // These are drawn directly without any panel transforms
+  float oledLogoScale = 0.10f;
+  float oledLogoW = LOGO_WIDTH * oledLogoScale;
+  float oledLogoH = LOGO_HEIGHT * oledLogoScale;
+  
+  // Left reference logo (x=0-63, y=8-40)
+  float oled_left_offsetX = (64 - oledLogoW) / 2.0f;
+  float oled_left_offsetY = 8 + (32 - oledLogoH) / 2.0f;
+  
+  for (int i = 0; i < LOGO_OUTLINE_COUNT - 1; i++) {
+    int x0 = (int)(LOGO_OUTLINE[i * 2] * oledLogoScale + oled_left_offsetX);
+    int y0 = (int)(LOGO_OUTLINE[i * 2 + 1] * oledLogoScale + oled_left_offsetY);
+    int x1 = (int)(LOGO_OUTLINE[(i + 1) * 2] * oledLogoScale + oled_left_offsetX);
+    int y1 = (int)(LOGO_OUTLINE[(i + 1) * 2 + 1] * oledLogoScale + oled_left_offsetY);
+    // Bresenham line for OLED
+    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+    while (true) {
+      if (x0 >= 0 && x0 < OLED_WIDTH && y0 >= 0 && y0 < OLED_HEIGHT) {
+        int byteIdx = (y0 / 8) * OLED_WIDTH + x0;
+        int bitIdx = y0 % 8;
+        oled_buffer[byteIdx] |= (1 << bitIdx);
+      }
+      if (x0 == x1 && y0 == y1) break;
+      int e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+  }
+  
+  // Right reference logo (x=64-127, y=8-40)
+  float oled_right_offsetX = 64 + (64 - oledLogoW) / 2.0f;
+  float oled_right_offsetY = 8 + (32 - oledLogoH) / 2.0f;
+  
+  for (int i = 0; i < LOGO_OUTLINE_COUNT - 1; i++) {
+    int x0 = (int)(LOGO_OUTLINE[i * 2] * oledLogoScale + oled_right_offsetX);
+    int y0 = (int)(LOGO_OUTLINE[i * 2 + 1] * oledLogoScale + oled_right_offsetY);
+    int x1 = (int)(LOGO_OUTLINE[(i + 1) * 2] * oledLogoScale + oled_right_offsetX);
+    int y1 = (int)(LOGO_OUTLINE[(i + 1) * 2 + 1] * oledLogoScale + oled_right_offsetY);
+    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+    while (true) {
+      if (x0 >= 0 && x0 < OLED_WIDTH && y0 >= 0 && y0 < OLED_HEIGHT) {
+        int byteIdx = (y0 / 8) * OLED_WIDTH + x0;
+        int bitIdx = y0 % 8;
+        oled_buffer[byteIdx] |= (1 << bitIdx);
+      }
+      if (x0 == x1 && y0 == y1) break;
+      int e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+  }
+  
+  // Draw horizontal line separating reference from replication (y=48)
+  for (int x = 0; x < OLED_WIDTH; x++) {
+    int byteIdx = (48 / 8) * OLED_WIDTH + x;
+    int bitIdx = 48 % 8;
+    oled_buffer[byteIdx] |= (1 << bitIdx);
+  }
+  
+  // Draw vertical line at center (x=64) for reference area
+  for (int y = 0; y < 48; y++) {
+    int byteIdx = (y / 8) * OLED_WIDTH + 64;
+    int bitIdx = y % 8;
+    oled_buffer[byteIdx] |= (1 << bitIdx);
+  }
+  
+  // HUB75 buffer replication 1:1 (y=49-80, which is 32 rows for 128x32)
+  // This shows what's in the HUB75 buffer - use raw buffer (correct!)
+  int replicationY = 49;
+  for (int y = 0; y < TOTAL_HEIGHT; y++) {
+    for (int x = 0; x < TOTAL_WIDTH; x++) {
+      int idx = (y * TOTAL_WIDTH + x) * 3;
+      uint8_t r = hub75_buffer[idx + 0];
+      uint8_t g = hub75_buffer[idx + 1];
+      uint8_t b = hub75_buffer[idx + 2];
+      
+      // Luminance threshold (lowered to catch pure blue which has lum=28)
+      uint16_t lum = (77 * r + 150 * g + 29 * b) >> 8;
+      if (lum >= 16) {
+        int oledY = replicationY + y;
+        if (oledY < OLED_HEIGHT) {
+          int byteIdx = (oledY / 8) * OLED_WIDTH + x;
+          int bitIdx = oledY % 8;
+          oled_buffer[byteIdx] |= (1 << bitIdx);
+        }
+      }
+    }
+  }
+  
+  // Update OLED directly (task not running yet)
+  if (oled_ok && oled) {
+    memcpy(oled->getBuffer(), oled_buffer, OLED_BUFFER_SIZE);
+    oled->updateDisplay();
+  }
+  
+  ESP_LOGI(TAG, "OLED: Top=Reference logos, Bottom=Raw HUB75 buffer (1:1)");
 }
 
 // Calculate logo scale to fit within constraints:
@@ -2724,15 +3073,8 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
       }
       
       if (gpu.target == 0 && hub75_ok) {
-        // Optimized: use setPixel which is still needed for the driver,
-        // but we batch all pixels before calling show()
-        for (int y = 0; y < TOTAL_HEIGHT; y++) {
-          for (int x = 0; x < TOTAL_WIDTH; x++) {
-            int idx = (y * TOTAL_WIDTH + x) * 3;
-            hub75->setPixel(x, y, RGB(hub75_buffer[idx], hub75_buffer[idx+1], hub75_buffer[idx+2]));
-          }
-        }
-        hub75->show();
+        // Use presentHUB75Buffer which applies panel transforms and RGB correction
+        presentHUB75Buffer();
         dbg_hub75_presents.fetch_add(1, std::memory_order_relaxed);
         // Use release semantics so Core 0 sees this update
         dbg_last_hub75_present.store(now, std::memory_order_release);
@@ -3062,7 +3404,7 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     }
     
     case CmdType::OLED_MIRROR_HUB75: {
-      // Ultra-fast HUB75 to OLED mirroring using luminance threshold
+      // HUB75 to OLED mirroring using luminance threshold
       // Payload: threshold(1), scaleMode(1), yOffset(1)
       // threshold: 0-255 luminance cutoff (default 128)
       // scaleMode: 0=1:1 (32 rows centered), 1=4x vertical scale (fills 128 rows)
@@ -3075,15 +3417,6 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
       if (hdr->length >= 1) threshold = payload[0];
       if (hdr->length >= 2) scaleMode = payload[1];
       if (hdr->length >= 3) yOffset = payload[2];
-      
-      // NOTE: HUB75 buffer is stored X-mirrored globally (see setPixelHUB75).
-      // Additionally, the LEFT panel (0-63) content is pre-mirrored within the panel,
-      // while the RIGHT panel (64-127) content is stored normally.
-      // After global X-flip in setPixelHUB75, both appear correct on the physical display.
-      //
-      // To read back the visual representation:
-      // - Apply global un-mirror X: mx = 127 - x
-      // - For right panel (visual x >= 64): also mirror within panel
       
       if (scaleMode == 0) {
         // 1:1 mode - direct copy with Y offset
@@ -3100,49 +3433,24 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
           }
         }
         
-        // Now draw the HUB75 content
+        // Direct copy from HUB75 buffer to OLED
         for (int y = 0; y < TOTAL_HEIGHT; y++) {
           int oledY = y + yOffset;
           if (oledY < 0 || oledY >= OLED_HEIGHT) continue;
           
           for (int x = 0; x < TOTAL_WIDTH; x++) {
-            // Calculate buffer read position accounting for per-panel mirroring
-            int bufX;
-            if (x < PANEL_WIDTH) {
-              // Left panel (visual 0-63): global un-mirror only
-              bufX = (TOTAL_WIDTH - 1) - x;
-            } else {
-              // Right panel (visual 64-127): global un-mirror + local panel mirror
-              int globalUnmirror = (TOTAL_WIDTH - 1) - x;
-              bufX = (PANEL_WIDTH - 1) - globalUnmirror;
-            }
-            
-            int idx = (y * TOTAL_WIDTH + bufX) * 3;
+            // Read buffer directly
+            int idx = (y * TOTAL_WIDTH + x) * 3;
             uint8_t r = hub75_buffer[idx + 0];
             uint8_t g = hub75_buffer[idx + 1];
             uint8_t b = hub75_buffer[idx + 2];
             
             // Fast luminance: (77*R + 150*G + 29*B) >> 8
-            // Approximates 0.299*R + 0.587*G + 0.114*B
             uint16_t lum = (77 * r + 150 * g + 29 * b) >> 8;
             
-            // Apply threshold
             if (lum >= threshold) {
-              // Apply 180° rotation per panel for OLED output
-              int oledX;
-              if (x < PANEL_WIDTH) {
-                // Left panel: rotate 180° within panel (x=0-63 -> x=63-0)
-                oledX = (PANEL_WIDTH - 1) - x;
-              } else {
-                // Right panel: rotate 180° within panel (x=64-127 -> x=127-64)
-                oledX = PANEL_WIDTH + (PANEL_WIDTH - 1) - (x - PANEL_WIDTH);
-              }
-              // Also flip Y within the 32-row region
-              int rotatedOledY = yOffset + (TOTAL_HEIGHT - 1) - y;
-              
-              // Set pixel in OLED buffer (1-bit per pixel, column-major pages)
-              int byteIdx = (rotatedOledY / 8) * OLED_WIDTH + oledX;
-              int bitIdx = rotatedOledY % 8;
+              int byteIdx = (oledY / 8) * OLED_WIDTH + x;
+              int bitIdx = oledY % 8;
               oled_buffer[byteIdx] |= (1 << bitIdx);
             }
           }
@@ -3154,17 +3462,11 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         memset(oled_buffer, 0, OLED_BUFFER_SIZE);
         
         for (int y = 0; y < TOTAL_HEIGHT; y++) {
+          int baseY = y * 4;
+          
           for (int x = 0; x < TOTAL_WIDTH; x++) {
-            // Calculate buffer read position accounting for per-panel mirroring
-            int bufX;
-            if (x < PANEL_WIDTH) {
-              bufX = (TOTAL_WIDTH - 1) - x;
-            } else {
-              int globalUnmirror = (TOTAL_WIDTH - 1) - x;
-              bufX = (PANEL_WIDTH - 1) - globalUnmirror;
-            }
-            
-            int idx = (y * TOTAL_WIDTH + bufX) * 3;
+            // Direct buffer read
+            int idx = (y * TOTAL_WIDTH + x) * 3;
             uint8_t r = hub75_buffer[idx + 0];
             uint8_t g = hub75_buffer[idx + 1];
             uint8_t b = hub75_buffer[idx + 2];
@@ -3173,22 +3475,10 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
             uint16_t lum = (77 * r + 150 * g + 29 * b) >> 8;
             
             if (lum >= threshold) {
-              // Apply 180° rotation per panel for OLED output
-              int oledX;
-              if (x < PANEL_WIDTH) {
-                // Left panel: rotate 180° within panel (x=0-63 -> x=63-0)
-                oledX = (PANEL_WIDTH - 1) - x;
-              } else {
-                // Right panel: rotate 180° within panel (x=64-127 -> x=127-64)
-                oledX = PANEL_WIDTH + (PANEL_WIDTH - 1) - (x - PANEL_WIDTH);
-              }
-              // Flip Y and scale 4x
-              int baseY = (TOTAL_HEIGHT - 1 - y) * 4;
-              
               // Scale 4x vertically - set 4 consecutive rows
               for (int sy = 0; sy < 4; sy++) {
                 int oledY = baseY + sy;
-                int byteIdx = (oledY / 8) * OLED_WIDTH + oledX;
+                int byteIdx = (oledY / 8) * OLED_WIDTH + x;
                 int bitIdx = oledY % 8;
                 oled_buffer[byteIdx] |= (1 << bitIdx);
               }
@@ -3751,6 +4041,9 @@ static bool initOLED() {
   
   OLEDConfig oled_cfg;
   oled_cfg.contrast = 0xFF;
+  // OLED is mounted upside down - use default (both true)
+  oled_cfg.flip_horizontal = true;
+  oled_cfg.flip_vertical = true;
   
   oled = new DRIVER_OLED_SH1107(0x3C, 0);
   if (!oled->initialize(oled_cfg)) {
@@ -3830,6 +4123,52 @@ extern "C" void app_main() {
   hub75_ok = initHUB75();
   oled_ok = initOLED();
   initUART();
+  
+  // Run panel diagnostic test if enabled
+  if (RUN_PANEL_TEST && hub75_ok) {
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "*** PANEL ANIMATION TEST ENABLED ***");
+    ESP_LOGI(TAG, "Square moving from left to right...");
+    ESP_LOGI(TAG, "");
+    
+    const int SQUARE_SIZE = 10;
+    const int SPEED = 2;  // pixels per frame
+    int squareX = 0;
+    int squareY = (TOTAL_HEIGHT - SQUARE_SIZE) / 2;  // Center vertically
+    
+    while (RUN_PANEL_TEST) {
+      // Clear buffer
+      memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
+      
+      // Draw moving square (cyan color)
+      for (int y = squareY; y < squareY + SQUARE_SIZE; y++) {
+        for (int x = squareX; x < squareX + SQUARE_SIZE; x++) {
+          if (x >= 0 && x < TOTAL_WIDTH) {
+            setDiagPixel(x, y, 0, 255, 255);  // CYAN
+          }
+        }
+      }
+      
+      // Draw panel divider (gray vertical line)
+      for (int y = 0; y < TOTAL_HEIGHT; y++) {
+        setDiagPixel(63, y, 64, 64, 64);
+        setDiagPixel(64, y, 64, 64, 64);
+      }
+      
+      // Present to display
+      presentHUB75Buffer();
+      
+      // Move square
+      squareX += SPEED;
+      
+      // Wrap around when off the right edge
+      if (squareX >= TOTAL_WIDTH) {
+        squareX = -SQUARE_SIZE;  // Start from off-screen left
+      }
+      
+      vTaskDelay(pdMS_TO_TICKS(30));  // ~33 FPS
+    }
+  }
   
   // Start UART receive task on Core 1 (needs larger stack for command processing)
   xTaskCreatePinnedToCore(uartTask, "uart_rx", 8192, nullptr, 5, nullptr, 1);
