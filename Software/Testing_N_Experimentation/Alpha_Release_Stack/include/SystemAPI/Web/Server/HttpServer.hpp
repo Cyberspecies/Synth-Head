@@ -246,6 +246,12 @@ public:
         loadEquationsFromStorage();
         loadScenesFromStorage();
         
+        // Create default scene if none exist (ensures animation list is never empty)
+        if (savedScenes_.empty()) {
+            ESP_LOGI(HTTP_TAG, "No scenes found, creating default scene");
+            createFallbackDefaultScene();
+        }
+        
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.max_uri_handlers = 80;
         config.stack_size = 8192;
@@ -328,6 +334,14 @@ public:
     void setSceneUpdatedCallback(std::function<void(const SavedScene&)> callback) {
         sceneUpdatedCallback_ = callback;
         ESP_LOGI(HTTP_TAG, "Scene updated callback registered: %s", callback ? "YES" : "NO");
+    }
+    
+    /**
+     * @brief Set single param update callback (called when one param slider changes)
+     */
+    void setSingleParamCallback(std::function<void(const char*, float)> callback) {
+        singleParamCallback_ = callback;
+        ESP_LOGI(HTTP_TAG, "Single param callback registered: %s", callback ? "YES" : "NO");
     }
     
     /**
@@ -1253,6 +1267,56 @@ private:
     }
     
     /**
+     * @brief Create a fallback default scene when no scenes exist
+     * Ensures the animation list is never empty
+     */
+    static void createFallbackDefaultScene() {
+        SavedScene scene;
+        scene.id = nextSceneId_++;
+        scene.name = "Default Eyes";
+        scene.type = 0;  // Generic
+        scene.active = true;
+        scene.displayEnabled = true;
+        scene.ledsEnabled = false;
+        scene.effectsOnly = false;
+        scene.order = 0;
+        scene.animType = "static";  // Use new unified static type
+        scene.transition = "none";
+        scene.spriteId = 0;
+        scene.mirrorSprite = true;  // Default to mirrored (both eyes)
+        scene.shaderAA = true;
+        scene.shaderInvert = false;
+        scene.shaderColorMode = "none";
+        scene.shaderColor = "#ffffff";
+        scene.ledR = 255;
+        scene.ledG = 0;
+        scene.ledB = 255;
+        scene.ledBrightness = 80;
+        
+        // Set default params for mirrored display
+        scene.params["mirror"] = 1.0f;
+        scene.params["left_x"] = 32.0f;
+        scene.params["left_y"] = 16.0f;
+        scene.params["left_rotation"] = 0.0f;
+        scene.params["left_scale"] = 1.0f;
+        scene.params["right_x"] = 96.0f;
+        scene.params["right_y"] = 16.0f;
+        scene.params["right_rotation"] = 180.0f;
+        scene.params["right_scale"] = 1.0f;
+        
+        scene.hasGyroEyeConfig = false;
+        scene.hasStaticSpriteConfig = false;
+        
+        savedScenes_.push_back(scene);
+        activeSceneId_ = scene.id;
+        
+        // Save to storage
+        saveScenesStorage();
+        
+        ESP_LOGI(HTTP_TAG, "Created fallback default scene with ID %d", scene.id);
+    }
+    
+    /**
      * @brief Load scenes from storage (SD card or SPIFFS)
      */
     static void loadScenesFromStorage() {
@@ -2096,14 +2160,56 @@ private:
         cJSON_AddNumberToObject(display, "rotation", it != scene.params.end() ? it->second : 0.0f);
         it = scene.params.find("intensity");
         cJSON_AddNumberToObject(display, "sensitivity", it != scene.params.end() ? it->second : 1.5f);
-        cJSON_AddBoolToObject(display, "mirror", scene.mirrorSprite);
+        
+        // Mirror param - check params map first, then mirrorSprite flag
+        it = scene.params.find("mirror");
+        bool mirrorValue = it != scene.params.end() ? (it->second > 0.5f) : scene.mirrorSprite;
+        cJSON_AddBoolToObject(display, "mirror", mirrorValue);
+        cJSON_AddBoolToObject(display, "mirrorSprite", mirrorValue);  // Legacy field
         
         // Background color
         cJSON* bg = cJSON_CreateObject();
-        cJSON_AddNumberToObject(bg, "r", 0);
-        cJSON_AddNumberToObject(bg, "g", 0);
-        cJSON_AddNumberToObject(bg, "b", 0);
+        cJSON_AddNumberToObject(bg, "r", scene.bgR);
+        cJSON_AddNumberToObject(bg, "g", scene.bgG);
+        cJSON_AddNumberToObject(bg, "b", scene.bgB);
         cJSON_AddItemToObject(display, "background", bg);
+        
+        // Include ALL static animation params (since we unified static_sprite and static_mirrored)
+        // The web UI will show/hide based on the mirror toggle state
+        cJSON* params = cJSON_CreateObject();
+        
+        // Always include the mirror param
+        cJSON_AddNumberToObject(params, "mirror", mirrorValue ? 1.0f : 0.0f);
+        
+        // Single sprite params (for non-mirrored mode)
+        it = scene.params.find("x");
+        cJSON_AddNumberToObject(params, "x", it != scene.params.end() ? it->second : 64.0f);
+        it = scene.params.find("y");
+        cJSON_AddNumberToObject(params, "y", it != scene.params.end() ? it->second : 16.0f);
+        it = scene.params.find("rotation");
+        cJSON_AddNumberToObject(params, "rotation", it != scene.params.end() ? it->second : 0.0f);
+        it = scene.params.find("scale");
+        cJSON_AddNumberToObject(params, "scale", it != scene.params.end() ? it->second : 1.0f);
+        
+        // Mirrored params (for mirrored mode)
+        it = scene.params.find("left_x");
+        cJSON_AddNumberToObject(params, "left_x", it != scene.params.end() ? it->second : 32.0f);
+        it = scene.params.find("left_y");
+        cJSON_AddNumberToObject(params, "left_y", it != scene.params.end() ? it->second : 16.0f);
+        it = scene.params.find("left_rotation");
+        cJSON_AddNumberToObject(params, "left_rotation", it != scene.params.end() ? it->second : 0.0f);
+        it = scene.params.find("left_scale");
+        cJSON_AddNumberToObject(params, "left_scale", it != scene.params.end() ? it->second : 1.0f);
+        it = scene.params.find("right_x");
+        cJSON_AddNumberToObject(params, "right_x", it != scene.params.end() ? it->second : 96.0f);
+        it = scene.params.find("right_y");
+        cJSON_AddNumberToObject(params, "right_y", it != scene.params.end() ? it->second : 16.0f);
+        it = scene.params.find("right_rotation");
+        cJSON_AddNumberToObject(params, "right_rotation", it != scene.params.end() ? it->second : 180.0f);
+        it = scene.params.find("right_scale");
+        cJSON_AddNumberToObject(params, "right_scale", it != scene.params.end() ? it->second : 1.0f);
+        
+        cJSON_AddItemToObject(display, "params", params);
         
         cJSON_AddItemToObject(config, "Display", display);
         
@@ -2602,9 +2708,9 @@ private:
             for (auto& scene : savedScenes_) {
                 if (scene.id == sceneId) {
                     scene.params[paramId] = value;
-                    if (scene.active) {
-                        updatedScene = &scene;
-                    }
+                    // ALWAYS set updatedScene - don't check scene.active
+                    // We want live updates for any scene being configured
+                    updatedScene = &scene;
                     break;
                 }
             }
@@ -2617,9 +2723,9 @@ private:
             activeSet->setParameterValue(paramId, value);
         }
         
-        // Notify callback to update GpuDriverState if scene is active
-        if (updatedScene && getSceneUpdatedCallback()) {
-            getSceneUpdatedCallback()(*updatedScene);
+        // Use single param callback for live updates (doesn't reset other params)
+        if (getSingleParamCallback()) {
+            getSingleParamCallback()(paramId, value);
         }
         
         cJSON_Delete(root);
@@ -3522,6 +3628,15 @@ private:
     static esp_err_t handleApiScenes(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return sendUnauthorized(req);
         
+        // Ensure at least one scene exists (fallback if storage failed to load)
+        if (savedScenes_.empty()) {
+            ESP_LOGI(HTTP_TAG, "handleApiScenes: No scenes found, creating fallback");
+            createFallbackDefaultScene();
+        }
+        
+        ESP_LOGI(HTTP_TAG, "handleApiScenes: Returning %d scenes, activeId=%d", 
+                 (int)savedScenes_.size(), activeSceneId_);
+        
         cJSON* root = cJSON_CreateObject();
         cJSON* scenes = cJSON_CreateArray();
         
@@ -3579,6 +3694,7 @@ private:
         }
         
         cJSON_AddItemToObject(root, "scenes", scenes);
+        cJSON_AddNumberToObject(root, "activeId", activeSceneId_);
         
         char* json = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
@@ -3999,6 +4115,9 @@ private:
         }
         buf[ret] = '\0';
         
+        // DEBUG: Log incoming request
+        printf("[handleApiSceneUpdate] Received: %s\n", buf);
+        
         cJSON* root = cJSON_Parse(buf);
         if (!root) {
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
@@ -4089,20 +4208,35 @@ private:
                     // Animation parameters from nested 'animParams' object (new page format)
                     // MERGE params instead of clearing - so incremental updates work
                     cJSON* animParams = cJSON_GetObjectItem(root, "animParams");
+                    bool hasAnimParamUpdates = false;
                     if (animParams && cJSON_IsObject(animParams)) {
                         printf("[SceneUpdate] Received animParams for scene %d\n", scene.id);
                         cJSON* param = NULL;
                         cJSON_ArrayForEach(param, animParams) {
                             if (param->string) {
+                                float value = 0.0f;
                                 if (cJSON_IsNumber(param)) {
-                                    scene.params[param->string] = (float)param->valuedouble;
-                                    printf("  Set param '%s' = %.2f\n", param->string, (float)param->valuedouble);
+                                    value = (float)param->valuedouble;
+                                    scene.params[param->string] = value;
+                                    printf("  [animParam] '%s' = %.2f\n", param->string, value);
                                 } else if (cJSON_IsBool(param)) {
-                                    scene.params[param->string] = cJSON_IsTrue(param) ? 1.0f : 0.0f;
-                                    printf("  Set param '%s' = %.2f (bool)\n", param->string, cJSON_IsTrue(param) ? 1.0f : 0.0f);
+                                    value = cJSON_IsTrue(param) ? 1.0f : 0.0f;
+                                    scene.params[param->string] = value;
+                                    printf("  [animParam] '%s' = %.2f (bool)\n", param->string, value);
                                 }
+                                // Use single-param callback for immediate live update
+                                auto& singleCallback = getSingleParamCallback();
+                                printf("  [singleCallback] available=%s\n", singleCallback ? "YES" : "NO");
+                                if (singleCallback) {
+                                    printf("  [singleCallback] Calling for '%s' = %.2f\n", param->string, value);
+                                    singleCallback(param->string, value);
+                                    printf("  [singleCallback] Done\n");
+                                }
+                                hasAnimParamUpdates = true;
                             }
                         }
+                    } else {
+                        printf("[SceneUpdate] No animParams object in request\n");
                     }
                     
                     // Update params object (legacy format) - also merge instead of clear
@@ -4175,17 +4309,28 @@ private:
                     }
                     
                     success = true;
-                    saveScenesStorage();
                     
-                    // Notify if this scene is active
-                    auto& callback = getSceneUpdatedCallback();
-                    ESP_LOGI(HTTP_TAG, "Scene %d update complete. Active=%d, Callback=%s", 
-                             scene.id, scene.active, callback ? "YES" : "NO");
-                    if (scene.active && callback) {
-                        ESP_LOGI(HTTP_TAG, "Calling sceneUpdatedCallback for scene %d", scene.id);
-                        callback(scene);
+                    // Only save to storage periodically, not on every slider move
+                    // This prevents SD card writes from blocking the render loop
+                    static uint32_t lastSaveTime = 0;
+                    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                    if (now - lastSaveTime > 2000) {  // Save at most every 2 seconds
+                        saveScenesStorage();
+                        lastSaveTime = now;
+                    }
+                    
+                    // Only call full scene callback if we DIDN'T already handle via single-param
+                    // The single-param callback is more efficient for slider updates
+                    if (!hasAnimParamUpdates) {
+                        auto& callback = getSceneUpdatedCallback();
+                        ESP_LOGI(HTTP_TAG, "Scene %d update complete. Active=%d, Callback=%s", 
+                                 scene.id, scene.active, callback ? "YES" : "NO");
+                        if (callback) {
+                            ESP_LOGI(HTTP_TAG, "Calling sceneUpdatedCallback for scene %d", scene.id);
+                            callback(scene);
+                        }
                     } else {
-                        ESP_LOGW(HTTP_TAG, "NOT calling callback: active=%d callback=%p", scene.active, (void*)&callback);
+                        ESP_LOGI(HTTP_TAG, "Scene %d: Skipping full callback (single-param already applied)", scene.id);
                     }
                     
                     ESP_LOGI(HTTP_TAG, "Updated scene: %s (id %d, animType=%s, transition=%s)", 
@@ -6515,6 +6660,7 @@ Audio:
     // Callbacks stored as instance members (not namespace-level statics)
     std::function<void(const SavedScene&)> sceneActivatedCallback_;
     std::function<void(const SavedScene&)> sceneUpdatedCallback_;
+    std::function<void(const char*, float)> singleParamCallback_;
     std::function<void(const StaticSpriteSceneConfig&)> spriteDisplayCallback_;
     std::function<void()> displayClearCallback_;
     
@@ -6534,6 +6680,9 @@ public:
     // Note: getSceneActivatedCallback() is defined earlier as a public method
     static std::function<void(const SavedScene&)>& getSceneUpdatedCallback() {
         return instance().sceneUpdatedCallback_;
+    }
+    static std::function<void(const char*, float)>& getSingleParamCallback() {
+        return instance().singleParamCallback_;
     }
     
     /**

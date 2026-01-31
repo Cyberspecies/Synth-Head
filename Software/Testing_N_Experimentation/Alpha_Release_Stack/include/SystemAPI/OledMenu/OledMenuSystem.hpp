@@ -15,6 +15,8 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_timer.h"
@@ -72,11 +74,12 @@ static constexpr int MAX_CONTENT_LINES = 9; // (116-18)/11 = ~9 lines
 // TIMING CONSTANTS
 // ============================================================================
 
-static constexpr uint32_t DEBOUNCE_MS = 150;
-static constexpr uint32_t RENDER_NORMAL_MS = 200;   // 5fps for menus
+static constexpr uint32_t DEBOUNCE_MS = 100;        // Button debounce
+static constexpr uint32_t RENDER_NORMAL_MS = 100;   // 10fps for menus
 static constexpr uint32_t RENDER_FAST_MS = 50;      // 20fps for animations
-static constexpr uint32_t RENDER_MARQUEE_MS = 100;  // Marquee scroll speed
-static constexpr uint32_t RENDER_SENSOR_MS = 250;   // Sensor data refresh
+static constexpr uint32_t RENDER_MARQUEE_MS = 100;  // 10fps marquee scroll
+static constexpr uint32_t RENDER_SENSOR_MS = 100;   // 10fps sensor data
+static constexpr uint32_t RENDER_MAX_MS = 1000;     // Force refresh at least 1Hz
 static constexpr uint32_t ON_TIME_SAVE_INTERVAL_MS = 60000;  // Save every minute
 static constexpr uint32_t HOLD_HOME_MS = 3000;      // Hold back for 3s to go home
 
@@ -168,7 +171,11 @@ public:
         // Determine render interval based on state
         uint32_t renderInterval = getRenderInterval();
         
-        if (needsRender_ || (currentTimeMs - lastRenderTime_ >= renderInterval)) {
+        // Also enforce maximum interval to ensure OLED refreshes at least 1Hz
+        uint32_t elapsed = currentTimeMs - lastRenderTime_;
+        bool forceRender = (elapsed >= RENDER_MAX_MS);
+        
+        if (needsRender_ || forceRender || (elapsed >= renderInterval)) {
             lastRenderTime_ = currentTimeMs;
             needsRender_ = false;
             render(currentTimeMs);
@@ -506,7 +513,13 @@ private:
         switch (state_) {
             case MenuState::SENSOR_DETAIL:
                 return RENDER_SENSOR_MS;  // Live sensor data
+            case MenuState::SENSOR_LIST:
+                return RENDER_SENSOR_MS;  // Sensor list also uses slower refresh
             case MenuState::PAGE_VIEW:
+                // System Info pages have lots of text - use slower refresh
+                if (modeIndex_ == (int)Mode::SYSTEM_INFO) {
+                    return RENDER_SENSOR_MS;
+                }
                 return RENDER_MARQUEE_MS;  // Marquee text
             default:
                 return RENDER_NORMAL_MS;
@@ -520,9 +533,9 @@ private:
     void render(uint32_t currentTimeMs) {
         // Standard mode has its own independent rendering - no menu overhead
         if (state_ == MenuState::PAGE_VIEW && modeIndex_ == (int)Mode::STANDARD) {
-            gpu_->oledClear();
+            gpu_->oledClear();  // Has built-in 3ms delay
             renderStandardMode(currentTimeMs);
-            gpu_->oledPresent();
+            gpu_->oledPresent();  // Has built-in 2ms delay
             return;
         }
         
@@ -531,6 +544,9 @@ private:
         beginMarqueeFrame();
         
         gpu_->oledClear();
+        
+        // Small yield to let other tasks run
+        taskYIELD();
         
         switch (state_) {
             case MenuState::MODE_SELECT:
@@ -551,7 +567,7 @@ private:
         renderBreadcrumb(currentTimeMs);
         
         endMarqueeFrame();
-        gpu_->oledPresent();
+        gpu_->oledPresent();  // Has built-in 2ms delay
     }
     
     void renderModeSelect() {

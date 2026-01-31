@@ -2009,6 +2009,171 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
 }
 
 // ============================================================
+// Blits a sprite with rotation AND scaling
+// scale: 1.0 = 100%, 0.5 = 50%, 2.0 = 200%
+// ============================================================
+static void blitSpriteRotatedScaled(int id, float dx, float dy, float angleDeg, float scale) {
+  // Clear ENTIRE splat buffer at start to prevent any cross-sprite ghosting
+  clearSplatBuffer();
+  
+  // Set panel isolation based on sprite center position to prevent bilinear bleed
+  currentSpritePanel = (dx >= PANEL_WIDTH) ? 1 : 0;
+  
+  if (id < 0 || id >= MAX_SPRITES || !gpu.sprites[id].valid) {
+    static int invalid_count = 0;
+    if (++invalid_count <= 5) {
+      ESP_LOGW(TAG, "blitSpriteRotatedScaled: invalid sprite id=%d valid=%d", id, 
+               (id >= 0 && id < MAX_SPRITES) ? gpu.sprites[id].valid : -1);
+    }
+    currentSpritePanel = -1;
+    return;
+  }
+  
+  Sprite& s = gpu.sprites[id];
+  
+  if (s.format != 0 || gpu.target != 0) {
+    blitSprite(id, (int)roundf(dx), (int)roundf(dy));
+    currentSpritePanel = -1;
+    return;
+  }
+  
+  // Clamp scale to reasonable range
+  if (scale < 0.1f) scale = 0.1f;
+  if (scale > 4.0f) scale = 4.0f;
+  
+  // Convert angle to radians
+  float angleRad = angleDeg * (3.14159265f / 180.0f);
+  float cosA = cosf(angleRad);
+  float sinA = sinf(angleRad);
+  
+  // Sprite center (pivot point for rotation)
+  float cx = s.width / 2.0f;
+  float cy = s.height / 2.0f;
+  
+  // Scaled dimensions for bounding box calculation
+  float scaledWidth = s.width * scale;
+  float scaledHeight = s.height * scale;
+  float scaledCx = scaledWidth / 2.0f;
+  float scaledCy = scaledHeight / 2.0f;
+  
+  // Calculate bounding box of rotated AND scaled sprite
+  float corners[4][2] = {
+    {-scaledCx, -scaledCy},
+    {scaledWidth - scaledCx, -scaledCy},
+    {scaledWidth - scaledCx, scaledHeight - scaledCy},
+    {-scaledCx, scaledHeight - scaledCy}
+  };
+  
+  float minX = 9999, maxX = -9999, minY = 9999, maxY = -9999;
+  for (int i = 0; i < 4; i++) {
+    float rx = corners[i][0] * cosA - corners[i][1] * sinA + dx;
+    float ry = corners[i][0] * sinA + corners[i][1] * cosA + dy;
+    if (rx < minX) minX = rx;
+    if (rx > maxX) maxX = rx;
+    if (ry < minY) minY = ry;
+    if (ry > maxY) maxY = ry;
+  }
+  
+  // Screen bounds with margin
+  int pMinX = (int)floorf(minX) - 1;
+  int pMaxX = (int)ceilf(maxX) + 1;
+  int pMinY = (int)floorf(minY) - 1;
+  int pMaxY = (int)ceilf(maxY) + 1;
+  if (pMinX < 0) pMinX = 0;
+  if (pMinY < 0) pMinY = 0;
+  if (pMaxX >= TOTAL_WIDTH) pMaxX = TOTAL_WIDTH - 1;
+  if (pMaxY >= TOTAL_HEIGHT) pMaxY = TOTAL_HEIGHT - 1;
+  
+  // Clamp bounding box to panel boundary
+  if (currentSpritePanel == 0) {
+    if (pMaxX >= PANEL_WIDTH) pMaxX = PANEL_WIDTH - 1;
+  } else if (currentSpritePanel == 1) {
+    if (pMinX < PANEL_WIDTH) pMinX = PANEL_WIDTH;
+  }
+  
+  if (aa_enabled) {
+    // BILINEAR SPLATTING with rotation and scaling
+    for (int y = pMinY; y <= pMaxY; y++) {
+      for (int x = pMinX; x <= pMaxX; x++) {
+        int idx = y * TOTAL_WIDTH + x;
+        splat_r[idx] = splat_g[idx] = splat_b[idx] = splat_w[idx] = 0;
+      }
+    }
+    
+    // Inverse scale factor for sampling
+    float invScale = 1.0f / scale;
+    
+    // For each sprite pixel, rotate, scale, and splat to screen
+    for (int sy = 0; sy < s.height; sy++) {
+      for (int sx = 0; sx < s.width; sx++) {
+        int sidx = (sy * s.width + sx) * 3;
+        float pr = s.data[sidx + 0];
+        float pg = s.data[sidx + 1];
+        float pb = s.data[sidx + 2];
+        
+        // Position relative to sprite center
+        float relX = (sx - cx + 0.5f) * scale;  // Apply scale
+        float relY = (sy - cy + 0.5f) * scale;
+        
+        // Rotate around center and translate to screen position
+        float screenX = relX * cosA - relY * sinA + dx;
+        float screenY = relX * sinA + relY * cosA + dy;
+        
+        // Integer screen position and fractional offset
+        int ix = (int)floorf(screenX);
+        int iy = (int)floorf(screenY);
+        float fx = screenX - ix;
+        float fy = screenY - iy;
+        
+        // Bilinear splat weights (scaled for coverage)
+        float coverage = scale * scale;
+        float w00 = (1.0f - fx) * (1.0f - fy) * coverage;
+        float w10 = fx * (1.0f - fy) * coverage;
+        float w01 = (1.0f - fx) * fy * coverage;
+        float w11 = fx * fy * coverage;
+        
+        splatPixel(ix,     iy,     pr, pg, pb, w00);
+        splatPixel(ix + 1, iy,     pr, pg, pb, w10);
+        splatPixel(ix,     iy + 1, pr, pg, pb, w01);
+        splatPixel(ix + 1, iy + 1, pr, pg, pb, w11);
+      }
+    }
+    
+    flushSplatBuffer(pMinX, pMinY, pMaxX, pMaxY);
+    
+  } else {
+    // No AA: Inverse mapping with nearest neighbor
+    float invScale = 1.0f / scale;
+    
+    for (int py = pMinY; py <= pMaxY; py++) {
+      for (int px = pMinX; px <= pMaxX; px++) {
+        if (currentSpritePanel == 0 && px >= PANEL_WIDTH) continue;
+        if (currentSpritePanel == 1 && px < PANEL_WIDTH) continue;
+        
+        float screenX = (float)px - dx;
+        float screenY = (float)py - dy;
+        
+        // Inverse rotation, then inverse scale
+        float rotatedX = screenX * cosA + screenY * sinA;
+        float rotatedY = -screenX * sinA + screenY * cosA;
+        
+        float spriteX = rotatedX * invScale + cx;
+        float spriteY = rotatedY * invScale + cy;
+        
+        if (spriteX >= 0 && spriteX < s.width && spriteY >= 0 && spriteY < s.height) {
+          int sx = (int)spriteX;
+          int sy = (int)spriteY;
+          int idx = (sy * s.width + sx) * 3;
+          setPixelHUB75(px, py, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+        }
+      }
+    }
+  }
+  
+  currentSpritePanel = -1;
+}
+
+// ============================================================
 // Simple PRNG
 // ============================================================
 static uint16_t gpuRand() {
@@ -2407,6 +2572,7 @@ enum class CmdType : uint8_t {
   BLIT_SPRITE_F = 0x4C,  // Sprite with sub-pixel position: id, x, y as 8.8 fixed point
   BLIT_SPRITE_ROT = 0x4D,// Sprite with rotation: id, x, y (8.8), angle (8.8 fixed = degrees)
   SET_AA = 0x4E,         // Toggle anti-aliasing: 0=off, 1=on (default on)
+  BLIT_SPRITE_ROT_SCALE = 0x4F, // Sprite with rotation+scale: id, x, y, angle, scale (all 8.8 fixed)
   
   SET_TARGET = 0x50,     // 0=HUB75, 1=OLED
   PRESENT = 0x51,        // Push framebuffer to display
@@ -3029,6 +3195,19 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     case CmdType::SET_AA: {
       if (hdr->length >= 1) {
         aa_enabled = (payload[0] != 0);
+      }
+      break;
+    }
+    
+    case CmdType::BLIT_SPRITE_ROT_SCALE: {
+      if (hdr->length >= 9) {
+        uint8_t id = payload[0];
+        float x = (int8_t)payload[2] + (payload[1] / 256.0f);
+        float y = (int8_t)payload[4] + (payload[3] / 256.0f);
+        float angle = (int16_t)(payload[5] | (payload[6] << 8)) / 256.0f;  // 8.8 fixed point degrees
+        float scale = (int16_t)(payload[7] | (payload[8] << 8)) / 256.0f;  // 8.8 fixed point scale
+        
+        blitSpriteRotatedScaled(id, x, y, angle, scale);
       }
       break;
     }

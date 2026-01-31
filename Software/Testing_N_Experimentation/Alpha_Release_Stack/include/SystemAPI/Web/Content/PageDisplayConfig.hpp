@@ -662,6 +662,8 @@ const DisplayConfig = {
     
     // Add animation-specific parameters section based on current animation type
     const animType = config.Display?.animation_type || 'static_mirrored';
+    console.log('[renderConfigForm] animType=' + animType + ', animationFields keys=' + Object.keys(this.animationFields).join(','));
+    console.log('[renderConfigForm] fields for animType=' + JSON.stringify(this.animationFields[animType]));
     html += this.renderAnimParamsSection(animType, config.Display);
     
     // Add remaining sections
@@ -725,27 +727,76 @@ const DisplayConfig = {
       .catch(err => console.error('Failed to load sprites:', err));
   },
   
-  // Animation-specific field definitions
-  // These define which fields appear for each animation type
+  // Animation-specific field definitions with smart control types
+  // Control type is auto-determined by min/max/step:
+  //   - min=0, max=1, step=1 → toggle button
+  //   - any other range → slider
+  // Each param can also specify 'typed: true' for manual input
   animationFields: {
+    'static': {
+      // Single static animation with optional mirroring
+      mirror: { label: 'Mirror to Second Display', min: 0, max: 1, step: 1, param: 'mirror' },
+      // Position (shown when NOT mirrored)
+      position_x: { label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x', hideWhenMirrored: true },
+      position_y: { label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y', hideWhenMirrored: true },
+      rotation: { label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation', hideWhenMirrored: true },
+      scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale', hideWhenMirrored: true },
+      // Left panel (shown when mirrored)
+      left_x: { label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x', showWhenMirrored: true },
+      left_y: { label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y', showWhenMirrored: true },
+      left_rotation: { label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation', showWhenMirrored: true },
+      left_scale: { label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale', showWhenMirrored: true },
+      // Right panel (shown when mirrored)
+      right_x: { label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x', showWhenMirrored: true },
+      right_y: { label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y', showWhenMirrored: true },
+      right_rotation: { label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation', showWhenMirrored: true },
+      right_scale: { label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale', showWhenMirrored: true }
+    },
+    // Legacy support for old animation types - map to static
     'static_sprite': {
-      // Static sprite can be positioned anywhere on the full display
-      position_x: { type: 'slider', label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x' },
-      position_y: { type: 'slider', label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y' },
-      rotation: { type: 'slider', label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation' },
-      scale: { type: 'slider', label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale' }
+      mirror: { label: 'Mirror to Second Display', min: 0, max: 1, step: 1, param: 'mirror' },
+      position_x: { label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x', hideWhenMirrored: true },
+      position_y: { label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y', hideWhenMirrored: true },
+      rotation: { label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation', hideWhenMirrored: true },
+      scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale', hideWhenMirrored: true },
+      left_x: { label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x', showWhenMirrored: true },
+      left_y: { label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y', showWhenMirrored: true },
+      left_rotation: { label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation', showWhenMirrored: true },
+      left_scale: { label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale', showWhenMirrored: true },
+      right_x: { label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x', showWhenMirrored: true },
+      right_y: { label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y', showWhenMirrored: true },
+      right_rotation: { label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation', showWhenMirrored: true },
+      right_scale: { label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale', showWhenMirrored: true }
     },
     'static_mirrored': {
-      // Static mirrored has independent left/right controls
-      left_x: { type: 'slider', label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x' },
-      left_y: { type: 'slider', label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y' },
-      left_rotation: { type: 'slider', label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation' },
-      left_scale: { type: 'slider', label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale' },
-      right_x: { type: 'slider', label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x' },
-      right_y: { type: 'slider', label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y' },
-      right_rotation: { type: 'slider', label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation' },
-      right_scale: { type: 'slider', label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale' }
+      mirror: { label: 'Mirror to Second Display', min: 0, max: 1, step: 1, param: 'mirror' },
+      position_x: { label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x', hideWhenMirrored: true },
+      position_y: { label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y', hideWhenMirrored: true },
+      rotation: { label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation', hideWhenMirrored: true },
+      scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale', hideWhenMirrored: true },
+      left_x: { label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x', showWhenMirrored: true },
+      left_y: { label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y', showWhenMirrored: true },
+      left_rotation: { label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation', showWhenMirrored: true },
+      left_scale: { label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale', showWhenMirrored: true },
+      right_x: { label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x', showWhenMirrored: true },
+      right_y: { label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y', showWhenMirrored: true },
+      right_rotation: { label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation', showWhenMirrored: true },
+      right_scale: { label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale', showWhenMirrored: true }
     }
+  },
+  
+  // Determine control type based on min/max/step
+  getControlType: function(schema) {
+    // If min=0, max=1, step=1 → toggle
+    if (schema.min === 0 && schema.max === 1 && schema.step === 1) {
+      return 'toggle';
+    }
+    // If typed flag is set → number input
+    if (schema.typed) {
+      return 'number';
+    }
+    // Otherwise → slider
+    return 'slider';
   },
   
   // Get current values from sceneData for animation fields
@@ -758,15 +809,21 @@ const DisplayConfig = {
     if (param === 'center_y' && display.position?.y !== undefined) return display.position.y;
     if (param === 'rotation' && display.rotation !== undefined) return display.rotation;
     if (param === 'intensity' && display.sensitivity !== undefined) return display.sensitivity;
-    if (param === 'mirror' && display.mirror !== undefined) return display.mirror;
+    if (param === 'mirror' && display.mirror !== undefined) return display.mirror ? 1 : 0;
     
     // Check params map
     if (display.params && display.params[param] !== undefined) {
       return display.params[param];
     }
     
+    // Check mirrorSprite flag for legacy support
+    if (param === 'mirror' && display.mirrorSprite !== undefined) {
+      return display.mirrorSprite ? 1 : 0;
+    }
+    
     // Return defaults based on param
     const defaults = {
+      'mirror': 0,
       'x': 64, 'y': 16, 'rotation': 0, 'scale': 1.0,
       'left_x': 32, 'left_y': 16, 'left_rotation': 0, 'left_scale': 1.0,
       'right_x': 96, 'right_y': 16, 'right_rotation': 180, 'right_scale': 1.0
@@ -776,7 +833,8 @@ const DisplayConfig = {
   
   // Render animation parameters section based on selected animation type
   renderAnimParamsSection: function(animType, displayConfig) {
-    const fields = this.animationFields[animType] || {};
+    const fields = this.animationFields[animType] || this.animationFields['static'] || {};
+    const isMirrored = this.getAnimFieldValue('mirror', animType) > 0;
     
     let html = `<div class="yaml-section" id="anim-params-section">`;
     html += `<div class="yaml-section-header">`;
@@ -793,9 +851,19 @@ const DisplayConfig = {
     } else {
       for (const [key, fieldSchema] of Object.entries(fields)) {
         const paramName = fieldSchema.param || key;
+        
+        // Check visibility based on mirror state
+        if (fieldSchema.hideWhenMirrored && isMirrored) continue;
+        if (fieldSchema.showWhenMirrored && !isMirrored) continue;
+        
         const value = this.getAnimFieldValue(paramName, animType);
         const path = 'AnimParams.' + paramName;
-        html += this.renderField(path, fieldSchema.label || key, value, fieldSchema);
+        
+        // Determine control type from schema (smart rendering)
+        const controlType = this.getControlType(fieldSchema);
+        const schemaWithType = { ...fieldSchema, type: controlType };
+        
+        html += this.renderSmartField(path, fieldSchema.label || key, value, schemaWithType);
       }
     }
     
@@ -803,12 +871,13 @@ const DisplayConfig = {
     return html;
   },
   
-  // Update animation params section when animation type changes
-  updateAnimParamsSection: function(animType) {
+  // Update animation params section when animation type or mirror state changes
+  updateAnimParamsSection: function(animType, forceMirrorState) {
     const body = document.getElementById('anim-params-body');
     if (!body) return;
     
-    const fields = this.animationFields[animType] || {};
+    const fields = this.animationFields[animType] || this.animationFields['static'] || {};
+    const isMirrored = forceMirrorState !== undefined ? forceMirrorState : (this.getAnimFieldValue('mirror', animType) > 0);
     let html = '';
     
     if (Object.keys(fields).length === 0) {
@@ -816,9 +885,19 @@ const DisplayConfig = {
     } else {
       for (const [key, fieldSchema] of Object.entries(fields)) {
         const paramName = fieldSchema.param || key;
+        
+        // Check visibility based on mirror state
+        if (fieldSchema.hideWhenMirrored && isMirrored) continue;
+        if (fieldSchema.showWhenMirrored && !isMirrored) continue;
+        
         const value = this.getAnimFieldValue(paramName, animType);
         const path = 'AnimParams.' + paramName;
-        html += this.renderField(path, fieldSchema.label || key, value, fieldSchema);
+        
+        // Determine control type from schema (smart rendering)
+        const controlType = this.getControlType(fieldSchema);
+        const schemaWithType = { ...fieldSchema, type: controlType };
+        
+        html += this.renderSmartField(path, fieldSchema.label || key, value, schemaWithType);
       }
     }
     
@@ -826,6 +905,54 @@ const DisplayConfig = {
     
     // Re-attach handlers for new fields
     this.setupFormHandlers();
+  },
+  
+  // Render a smart field based on min/max/step (toggle vs slider)
+  renderSmartField: function(path, label, value, schema) {
+    const controlType = schema.type || this.getControlType(schema);
+    const desc = schema.desc || '';
+    const unit = schema.unit || '';
+    
+    let html = `<div class="yaml-field-row" data-field-path="${path}">`;
+    html += `<label class="yaml-field-label">${label}`;
+    if (desc) {
+      html += `<span class="help-icon" title="${desc}">?</span>`;
+    }
+    html += `</label>`;
+    html += `<div class="yaml-field-control">`;
+    
+    if (controlType === 'toggle') {
+      // Toggle button (boolean 0/1)
+      const checked = value ? 'checked' : '';
+      html += `<label class="yaml-toggle">
+        <input type="checkbox" data-path="${path}" ${checked}>
+        <span class="yaml-toggle-slider"></span>
+      </label>`;
+    } else if (controlType === 'number') {
+      // Typed number input
+      const min = schema.min ?? '';
+      const max = schema.max ?? '';
+      html += `<input type="number" class="yaml-input-number" data-path="${path}"
+        value="${value}" ${min !== '' ? 'min="' + min + '"' : ''} ${max !== '' ? 'max="' + max + '"' : ''}>`;
+      if (unit) {
+        html += `<span class="yaml-input-unit">${unit}</span>`;
+      }
+    } else {
+      // Slider (default)
+      const min = schema.min ?? 0;
+      const max = schema.max ?? 100;
+      const step = schema.step ?? 1;
+      const pathId = path.replace(/\./g, '-');
+      
+      html += `<div class="yaml-slider-container">
+        <input type="range" class="yaml-slider" data-path="${path}"
+          min="${min}" max="${max}" step="${step}" value="${value}">
+        <span class="yaml-slider-value" id="val-${pathId}">${value}${unit ? ' ' + unit : ''}</span>
+      </div>`;
+    }
+    
+    html += `</div></div>`;
+    return html;
   },
   
   // Get default param value
@@ -838,7 +965,8 @@ const DisplayConfig = {
   },
   
   // Fields that should be in Animation Settings, not Display section
-  animationSpecificFields: ['position', 'rotation', 'sensitivity', 'mirror'],
+  // These are SKIPPED when rendering the Display section
+  animationSpecificFields: ['position', 'rotation', 'sensitivity', 'mirror', 'params', 'animation_type', 'mirrorSprite'],
   
   // Render a section
   renderSection: function(key, section) {
@@ -1102,15 +1230,7 @@ const DisplayConfig = {
         desc: 'HUB75 matrix display configuration',
         fields: {
           enabled: { type: 'toggle', label: 'Enable Display' },
-          animation_type: {
-            type: 'dropdown',
-            label: 'Animation Type',
-            options: [
-              { label: 'Static Sprite', value: 'static_sprite' },
-              { label: 'Static Mirrored', value: 'static_mirrored' }
-            ],
-            onChange: 'updateAnimationFields'
-          },
+          // Animation type is now hidden - always static with mirror toggle in Animation Settings
           main_sprite_id: { type: 'file', label: 'Main Sprite', fileType: 'sprite', allowNone: true },
           background: { type: 'color', label: 'Background Color' }
         }
@@ -1256,8 +1376,7 @@ const DisplayConfig = {
         type: 'dropdown',
         label: 'Animation Type',
         options: [
-          { label: 'Static Sprite', value: 'static_sprite' },
-          { label: 'Static Mirrored', value: 'static_mirrored' }
+          { label: 'Static (with Mirror Toggle)', value: 'static' }
         ]
       };
     }
@@ -1290,6 +1409,8 @@ const DisplayConfig = {
   
   // Setup form handlers
   setupFormHandlers: function() {
+    const self = this;
+    
     // Section toggles
     document.querySelectorAll('.yaml-section-header').forEach(header => {
       header.addEventListener('click', () => {
@@ -1300,7 +1421,18 @@ const DisplayConfig = {
     // Toggle inputs
     document.querySelectorAll('.yaml-toggle input').forEach(toggle => {
       toggle.addEventListener('change', (e) => {
-        this.updateField(toggle.dataset.path, toggle.checked, 'boolean');
+        const path = toggle.dataset.path;
+        const value = toggle.checked;
+        self.updateField(path, value, 'boolean');
+        
+        // If this is the mirror toggle, refresh the animation settings section
+        if (path === 'AnimParams.mirror') {
+          const animType = self.sceneData?.Display?.animation_type || 'static';
+          // Small delay to let the update complete
+          setTimeout(() => {
+            self.updateAnimParamsSection(animType, value);
+          }, 100);
+        }
       });
     });
     
@@ -1316,7 +1448,7 @@ const DisplayConfig = {
       });
       
       slider.addEventListener('change', (e) => {
-        this.updateField(slider.dataset.path, parseFloat(slider.value), 'number');
+        self.updateField(slider.dataset.path, parseFloat(slider.value), 'number');
       });
     });
     
@@ -1398,6 +1530,11 @@ const DisplayConfig = {
       const paramName = path.split('.')[1];
       return 'animParams.' + paramName;
     }
+    // Handle Display.params paths - also go to animParams
+    if (path.startsWith('Display.params.')) {
+      const paramName = path.split('.')[2];  // Get 'left_x' from 'Display.params.left_x'
+      return 'animParams.' + paramName;
+    }
     
     const mapping = {
       'Display.enabled': 'displayEnabled',
@@ -1443,6 +1580,7 @@ const DisplayConfig = {
   // Update field via API
   updateField: function(path, value, type) {
     const payload = this.buildUpdatePayload(path, value, type);
+    console.log('[updateField] path=' + path + ' value=' + value + ' payload=' + JSON.stringify(payload));
     
     fetch('/api/scene/update', {
       method: 'POST',

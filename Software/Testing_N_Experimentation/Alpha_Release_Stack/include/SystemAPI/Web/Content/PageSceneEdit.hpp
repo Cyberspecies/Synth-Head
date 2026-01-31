@@ -420,8 +420,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
                     <div class="param-control">
                       <select id="animationType" onchange="selectAnimation(this.value)" style="flex:1;padding:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.9rem;">
                         <option value="gyro_eyes">Gyro Eyes</option>
-                        <option value="static_image">Static Image</option>
-                        <option value="sway">Sway Animation</option>
+                        <option value="static">Static (with Mirror Toggle)</option>
                       </select>
                     </div>
                   </div>
@@ -696,7 +695,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
         '<div class="param-row"><span class="param-label">Eye Size</span><div class="param-control"><input type="range" id="eyeSize" min="4" max="24" value="12" oninput="updateAnimParam(\'size\', this.value);document.getElementById(\'eyeSizeVal\').textContent=this.value+\'px\'"><span class="param-value" id="eyeSizeVal">12px</span></div></div>' +
         '<div class="param-row"><span class="param-label">Sensitivity</span><div class="param-control"><input type="range" id="eyeSensitivity" min="0.1" max="2" step="0.1" value="1" oninput="updateAnimParam(\'sensitivity\', this.value);document.getElementById(\'eyeSensVal\').textContent=this.value+\'x\'"><span class="param-value" id="eyeSensVal">1x</span></div></div>' +
         '<div class="param-row"><span class="param-label">Mirror Eyes</span><div class="param-control"><label class="toggle"><input type="checkbox" id="eyeMirror" checked onchange="updateAnimParam(\'mirror\', this.checked)"><span class="toggle-slider"></span></label></div></div>';
-    } else if (type === 'static_image') {
+    } else if (type === 'static_image' || type === 'static') {
       html = '<div class="subsection-title" style="margin-top:0;">Static Image Settings</div>' +
         '<div class="param-row"><span class="param-label">Sprite</span><div class="param-control"><select id="staticSprite" onchange="updateAnimParam(\'sprite\', this.value)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">' +
         sprites.map(function(s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('') +

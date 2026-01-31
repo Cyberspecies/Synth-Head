@@ -107,6 +107,8 @@ private:
         DRAW_FILL_F = 0x4B,
         BLIT_SPRITE_F = 0x4C,   // Sprite with sub-pixel position
         BLIT_SPRITE_ROT = 0x4D, // Sprite with rotation
+        SET_AA = 0x4E,          // Toggle anti-aliasing
+        BLIT_SPRITE_ROT_SCALE = 0x4F, // Sprite with rotation + scale
         
         // Target/present
         SET_TARGET = 0x50,
@@ -320,6 +322,20 @@ private:
             return;
         }
         
+        sendCmdInternal(type, payload, len);
+    }
+    
+    // Send command with target selection - ATOMIC (mutex held for both setTarget + command)
+    // This prevents interleaving between setTarget and the actual command
+    void sendCmdWithTarget(uint8_t target, CmdType type, const uint8_t* payload, uint16_t len) {
+        GpuUart::GpuUartLock lock;
+        if (!lock.isAcquired()) {
+            ESP_LOGW("GpuCmd", "sendCmdWithTarget: mutex timeout, command 0x%02X dropped", (uint8_t)type);
+            return;
+        }
+        
+        // Send setTarget and command atomically while holding mutex
+        sendCmdInternal(CmdType::SET_TARGET, &target, 1);
         sendCmdInternal(type, payload, len);
     }
     
@@ -958,85 +974,79 @@ public:
     
     // ============================================================
     // HUB75 Commands (128x32 RGB LED matrix)
+    // All HUB75 commands use sendCmdWithTarget for atomic setTarget + command
     // ============================================================
     
-    /** Set target framebuffer (0=HUB75, 1=OLED) */
+    /** Set target framebuffer (0=HUB75, 1=OLED) - standalone use only */
     void setTarget(uint8_t target) {
         sendCmd(CmdType::SET_TARGET, &target, 1);
     }
     
     /** Clear HUB75 display to specified color */
     void hub75Clear(uint8_t r = 0, uint8_t g = 0, uint8_t b = 0) {
-        setTarget(0);
         uint8_t payload[3] = {r, g, b};
-        sendCmd(CmdType::CLEAR, payload, 3);
+        sendCmdWithTarget(0, CmdType::CLEAR, payload, 3);
     }
     
     /** Draw pixel on HUB75 */
     void hub75Pixel(int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b) {
-        setTarget(0);
         uint8_t payload[7];
         encodeI16(payload, 0, x);
         encodeI16(payload, 2, y);
         payload[4] = r; payload[5] = g; payload[6] = b;
-        sendCmd(CmdType::DRAW_PIXEL, payload, 7);
+        sendCmdWithTarget(0, CmdType::DRAW_PIXEL, payload, 7);
     }
     
     /** Draw line on HUB75 */
     void hub75Line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, 
                    uint8_t r, uint8_t g, uint8_t b) {
-        setTarget(0);
         uint8_t payload[11];
         encodeI16(payload, 0, x1);
         encodeI16(payload, 2, y1);
         encodeI16(payload, 4, x2);
         encodeI16(payload, 6, y2);
         payload[8] = r; payload[9] = g; payload[10] = b;
-        sendCmd(CmdType::DRAW_LINE, payload, 11);
+        sendCmdWithTarget(0, CmdType::DRAW_LINE, payload, 11);
     }
     
     /** Draw rectangle outline on HUB75 */
     void hub75Rect(int16_t x, int16_t y, int16_t w, int16_t h,
                    uint8_t r, uint8_t g, uint8_t b) {
-        setTarget(0);
         uint8_t payload[11];
         encodeI16(payload, 0, x);
         encodeI16(payload, 2, y);
         encodeI16(payload, 4, w);
         encodeI16(payload, 6, h);
         payload[8] = r; payload[9] = g; payload[10] = b;
-        sendCmd(CmdType::DRAW_RECT, payload, 11);
+        sendCmdWithTarget(0, CmdType::DRAW_RECT, payload, 11);
     }
     
     /** Draw filled rectangle on HUB75 */
     void hub75Fill(int16_t x, int16_t y, int16_t w, int16_t h,
                    uint8_t r, uint8_t g, uint8_t b) {
-        setTarget(0);
         uint8_t payload[11];
         encodeI16(payload, 0, x);
         encodeI16(payload, 2, y);
         encodeI16(payload, 4, w);
         encodeI16(payload, 6, h);
         payload[8] = r; payload[9] = g; payload[10] = b;
-        sendCmd(CmdType::DRAW_FILL, payload, 11);
+        sendCmdWithTarget(0, CmdType::DRAW_FILL, payload, 11);
     }
     
     /** Draw circle on HUB75 */
     void hub75Circle(int16_t cx, int16_t cy, int16_t radius,
                      uint8_t r, uint8_t g, uint8_t b) {
-        setTarget(0);
         uint8_t payload[9];
         encodeI16(payload, 0, cx);
         encodeI16(payload, 2, cy);
         encodeI16(payload, 4, radius);
         payload[6] = r; payload[7] = g; payload[8] = b;
-        sendCmd(CmdType::DRAW_CIRCLE, payload, 9);
+        sendCmdWithTarget(0, CmdType::DRAW_CIRCLE, payload, 9);
     }
     
     /** Present HUB75 framebuffer */
     void hub75Present() {
-        setTarget(0);
-        sendCmd(CmdType::PRESENT, nullptr, 0);
+        sendCmdWithTarget(0, CmdType::PRESENT, nullptr, 0);
     }
     
     // ============================================================
@@ -1183,6 +1193,21 @@ public:
     }
     
     /**
+     * Blit sprite with rotation and scale
+     * Protocol: BLIT_SPRITE_ROT_SCALE [id:1][x:2][y:2][angle:2][scale:2] (8.8 fixed-point)
+     * @param scale 1.0 = normal size, 0.5 = half size, 2.0 = double size
+     */
+    void blitSpriteRotatedScaled(uint8_t id, float x, float y, float angleDegrees, float scale) {
+        uint8_t payload[9];
+        payload[0] = id;
+        encodeFixed88(payload, 1, x);
+        encodeFixed88(payload, 3, y);
+        encodeFixed88(payload, 5, angleDegrees);
+        encodeFixed88(payload, 7, scale);
+        sendCmd(CmdType::BLIT_SPRITE_ROT_SCALE, payload, 9);
+    }
+    
+    /**
      * Convenience: Upload and immediately blit sprite
      */
     bool uploadAndBlitSprite(uint8_t id, const uint8_t* data, 
@@ -1260,7 +1285,7 @@ public:
                    uint8_t r, uint8_t g, uint8_t b, int scale = 1){
         if(!text) return;
         
-        setTarget(0);
+        // Note: Each hub75Pixel/hub75Fill call now atomically sets target
         int cursorX = x;
         while(*text){
             char c = *text++;
@@ -1302,9 +1327,11 @@ public:
     // OLED Commands (128x128 monochrome)
     // ============================================================
     
-    /** Clear OLED display */
+    /** Clear OLED display - includes small delay for GPU processing */
     void oledClear() {
         sendCmd(CmdType::OLED_CLEAR, nullptr, 0);
+        // Small delay to let GPU process clear before command flood
+        vTaskDelay(pdMS_TO_TICKS(3));
     }
     
     /** Draw pixel on OLED */
@@ -1392,6 +1419,8 @@ public:
     /** Present OLED framebuffer to display */
     void oledPresent() {
         sendCmd(CmdType::OLED_PRESENT, nullptr, 0);
+        // Small delay to let GPU finish frame before next commands
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
     
     /**
