@@ -77,6 +77,7 @@ private:
         UPLOAD_SHADER = 0x10,
         DELETE_SHADER = 0x11,
         EXEC_SHADER = 0x12,
+        SET_SHADER_CONFIG = 0x13,  // Configure shader settings: shaderType, invertColors, maskR, maskG, maskB, param1, param2, param3
         
         // Sprite commands
         UPLOAD_SPRITE = 0x20,
@@ -114,6 +115,8 @@ private:
         SET_TARGET = 0x50,
         PRESENT = 0x51,
         BLIT_SPRITE_ROT_SCALE_FLIP = 0x52, // Sprite with rotation + scale + flip flags
+        SET_SPRITE_SHADER = 0x53,  // Set shader config for sprite rendering
+        SET_SHADER_PALETTE = 0x54, // Set color palette for hue cycle shader
         
         // OLED-specific commands
         OLED_CLEAR = 0x60,
@@ -1224,6 +1227,105 @@ public:
         encodeFixed88(payload, 7, scale);
         payload[9] = (flipX ? 0x01 : 0x00) | (flipY ? 0x02 : 0x00);
         sendCmd(CmdType::BLIT_SPRITE_ROT_SCALE_FLIP, payload, 10);
+    }
+    
+    /**
+     * Shader Types for sprite rendering
+     */
+    enum class ShaderType : uint8_t {
+        NONE = 0,           // No shader - render sprite as-is
+        COLOR_OVERRIDE = 1, // Replace all non-transparent pixels with a specific color
+        HUE_CYCLE = 2       // Cycle through a palette of colors smoothly
+    };
+    
+    /**
+     * Configure the shader settings for sprite rendering
+     * The processing order is: 1) Invert colors, 2) Apply color mask, 3) Apply shader effect
+     * 
+     * Protocol: SET_SPRITE_SHADER [shaderType:1][flags:1][maskR:1][maskG:1][maskB:1][param1:1][param2:1][param3:1]
+     * 
+     * @param shaderType The shader type to use (NONE, COLOR_OVERRIDE, etc.)
+     * @param invertColors If true, invert sprite colors before applying shader
+     * @param maskR Red component of color to make transparent (0-255)
+     * @param maskG Green component of color to make transparent (0-255)
+     * @param maskB Blue component of color to make transparent (0-255)
+     * @param maskEnabled If true, the mask color will be rendered as transparent
+     * @param param1 Shader-specific parameter 1 (e.g., override R for COLOR_OVERRIDE)
+     * @param param2 Shader-specific parameter 2 (e.g., override G for COLOR_OVERRIDE)
+     * @param param3 Shader-specific parameter 3 (e.g., override B for COLOR_OVERRIDE)
+     */
+    void setSpriteShader(ShaderType shaderType, bool invertColors, 
+                         uint8_t maskR, uint8_t maskG, uint8_t maskB, bool maskEnabled,
+                         uint8_t param1 = 0, uint8_t param2 = 0, uint8_t param3 = 0) {
+        uint8_t payload[9];
+        payload[0] = static_cast<uint8_t>(shaderType);
+        payload[1] = (invertColors ? 0x01 : 0x00) | (maskEnabled ? 0x02 : 0x00);
+        payload[2] = maskR;
+        payload[3] = maskG;
+        payload[4] = maskB;
+        payload[5] = param1;
+        payload[6] = param2;
+        payload[7] = param3;
+        payload[8] = 0;  // Reserved for future use
+        sendCmd(CmdType::SET_SPRITE_SHADER, payload, 9);
+    }
+    
+    /**
+     * Convenience: Disable all shader effects
+     */
+    void clearSpriteShader() {
+        setSpriteShader(ShaderType::NONE, false, 0, 0, 0, false);
+    }
+    
+    /**
+     * Convenience: Set color override shader
+     * @param r Red component of override color
+     * @param g Green component of override color
+     * @param b Blue component of override color
+     * @param invertFirst If true, invert colors before applying override
+     * @param maskColor Optional RGB color to make transparent (default black)
+     * @param maskEnabled If true, mask color will be transparent
+     */
+    void setColorOverrideShader(uint8_t r, uint8_t g, uint8_t b, 
+                                bool invertFirst = false,
+                                uint8_t maskR = 0, uint8_t maskG = 0, uint8_t maskB = 0,
+                                bool maskEnabled = true) {
+        setSpriteShader(ShaderType::COLOR_OVERRIDE, invertFirst, maskR, maskG, maskB, maskEnabled, r, g, b);
+    }
+    
+    /**
+     * Set color palette for hue cycle shader
+     * @param colors Array of RGB colors (3 bytes each: R, G, B)
+     * @param count Number of colors in palette (1-8)
+     */
+    void setShaderPalette(const uint8_t* colors, uint8_t count) {
+        if (count < 1) count = 1;
+        if (count > 8) count = 8;
+        
+        uint8_t payload[1 + 8 * 3];  // count + up to 8 RGB colors
+        payload[0] = count;
+        for (int i = 0; i < count; i++) {
+            payload[1 + i * 3 + 0] = colors[i * 3 + 0];  // R
+            payload[1 + i * 3 + 1] = colors[i * 3 + 1];  // G
+            payload[1 + i * 3 + 2] = colors[i * 3 + 2];  // B
+        }
+        sendCmd(CmdType::SET_SHADER_PALETTE, payload, 1 + count * 3);
+    }
+    
+    /**
+     * Convenience: Set hue cycle shader with speed
+     * @param speedMs Time in milliseconds to transition between colors
+     * @param invertFirst If true, invert colors before applying shader
+     * @param maskR/G/B Color to make transparent
+     * @param maskEnabled If true, mask color will be transparent
+     */
+    void setHueCycleShader(uint16_t speedMs,
+                           bool invertFirst = false,
+                           uint8_t maskR = 0, uint8_t maskG = 0, uint8_t maskB = 0,
+                           bool maskEnabled = true) {
+        // param1 = speed low byte, param2 = speed high byte
+        setSpriteShader(ShaderType::HUE_CYCLE, invertFirst, maskR, maskG, maskB, maskEnabled,
+                       (uint8_t)(speedMs & 0xFF), (uint8_t)(speedMs >> 8), 0);
     }
     
     /**

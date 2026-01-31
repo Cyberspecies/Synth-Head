@@ -204,6 +204,34 @@ namespace GpuDriverState {
     static float rightScale = 1.0f;
     static bool rightFlipX = false;  // Horizontal flip for right sprite
     
+    // ====== SHADER STATE ======
+    static uint8_t shaderType = 0;           // 0 = None, 1 = Color Override, 2 = Hue Cycle
+    static bool shaderInvert = false;        // Invert colors before masking
+    static bool shaderMaskEnabled = true;    // Mask transparency enabled
+    static uint8_t shaderMaskR = 0;          // Mask color R (default black)
+    static uint8_t shaderMaskG = 0;          // Mask color G
+    static uint8_t shaderMaskB = 0;          // Mask color B
+    static uint8_t shaderOverrideR = 255;    // Override color R (default white)
+    static uint8_t shaderOverrideG = 255;    // Override color G
+    static uint8_t shaderOverrideB = 255;    // Override color B
+    static bool shaderDirty = true;          // Flag to send shader config to GPU
+    
+    // Hue cycle shader specific state
+    static uint16_t shaderHueCycleSpeed = 1000;  // Speed in ms per color transition
+    static uint8_t shaderHueCycleColorCount = 5; // Number of colors in palette (1-8)
+    static const uint8_t MAX_HUE_COLORS = 8;
+    static uint8_t shaderHuePalette[MAX_HUE_COLORS * 3] = {
+        255, 0, 0,       // Color 1: Red (default)
+        255, 255, 0,     // Color 2: Yellow (default)
+        0, 255, 0,       // Color 3: Green (default)
+        0, 0, 255,       // Color 4: Blue (default)
+        128, 0, 255,     // Color 5: Purple (default)
+        255, 0, 0,       // Color 6: Red (padding)
+        255, 0, 0,       // Color 7: Red (padding)
+        255, 0, 0        // Color 8: Red (padding)
+    };
+    static bool shaderPaletteDirty = true;   // Flag to send palette to GPU
+    
     // ====== COMPLEX TRANSITION ANIMATION ======
     static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
     static bool complexAnimEnabled = false;  // Disabled - use sandbox instead
@@ -575,6 +603,45 @@ namespace GpuDriverState {
             }
             // ====== SCENE-BASED ANIMATION RENDERING ======
             else if (currentAnimMode != SceneAnimMode::NONE) {
+                // Sync shader palette to GPU if changed (must be done before shader config)
+                if (shaderPaletteDirty && shaderType == 2) {  // 2 = HUE_CYCLE
+                    g_gpu.setShaderPalette(shaderHuePalette, shaderHueCycleColorCount);
+                    shaderPaletteDirty = false;
+                    printf("  SHADER PALETTE: Sent %d colors to GPU\n", shaderHueCycleColorCount);
+                }
+                
+                // Sync shader config to GPU if changed
+                if (shaderDirty) {
+                    if (shaderType == 2) {  // HUE_CYCLE
+                        // For HUE_CYCLE: param1,param2 = speed (16-bit), param3 unused
+                        g_gpu.setSpriteShader(
+                            static_cast<GpuCommands::ShaderType>(shaderType),
+                            shaderInvert,
+                            shaderMaskR, shaderMaskG, shaderMaskB,
+                            shaderMaskEnabled,
+                            (uint8_t)(shaderHueCycleSpeed & 0xFF),   // speed low byte
+                            (uint8_t)(shaderHueCycleSpeed >> 8),     // speed high byte
+                            0  // unused
+                        );
+                        printf("  SHADER: Synced HUE_CYCLE to GPU (speed=%d, invert=%d, mask=%d)\n",
+                               shaderHueCycleSpeed, shaderInvert, shaderMaskEnabled);
+                    } else {
+                        // For NONE and COLOR_OVERRIDE
+                        g_gpu.setSpriteShader(
+                            static_cast<GpuCommands::ShaderType>(shaderType),
+                            shaderInvert,
+                            shaderMaskR, shaderMaskG, shaderMaskB,
+                            shaderMaskEnabled,
+                            shaderOverrideR, shaderOverrideG, shaderOverrideB
+                        );
+                        printf("  SHADER: Synced to GPU (type=%d, invert=%d, mask=%d, maskRGB=(%d,%d,%d), overrideRGB=(%d,%d,%d))\n",
+                               shaderType, shaderInvert, shaderMaskEnabled,
+                               shaderMaskR, shaderMaskG, shaderMaskB,
+                               shaderOverrideR, shaderOverrideG, shaderOverrideB);
+                    }
+                    shaderDirty = false;
+                }
+                
                 // Get gyro data DIRECTLY from IMU driver for lowest latency
                 int16_t gx = Drivers::ImuDriver::gyroX;
                 int16_t gy = Drivers::ImuDriver::gyroY;
@@ -943,6 +1010,89 @@ namespace GpuDriverState {
         else if (strcmp(paramName, "flip_x") == 0) { staticFlipX = (value > 0.5f); printf("  -> staticFlipX = %s\n", staticFlipX ? "true" : "false"); }
         else if (strcmp(paramName, "left_flip_x") == 0) { leftFlipX = (value > 0.5f); printf("  -> leftFlipX = %s\n", leftFlipX ? "true" : "false"); }
         else if (strcmp(paramName, "right_flip_x") == 0) { rightFlipX = (value > 0.5f); printf("  -> rightFlipX = %s\n", rightFlipX ? "true" : "false"); }
+        // Shader params
+        else if (strcmp(paramName, "shader_type") == 0) { 
+            shaderType = (uint8_t)value; 
+            shaderDirty = true;
+            printf("  -> shaderType = %d\n", shaderType); 
+        }
+        else if (strcmp(paramName, "shader_invert") == 0) { 
+            shaderInvert = (value > 0.5f); 
+            shaderDirty = true;
+            printf("  -> shaderInvert = %s\n", shaderInvert ? "true" : "false"); 
+        }
+        else if (strcmp(paramName, "shader_mask_enabled") == 0) { 
+            shaderMaskEnabled = (value > 0.5f); 
+            shaderDirty = true;
+            printf("  -> shaderMaskEnabled = %s\n", shaderMaskEnabled ? "true" : "false"); 
+        }
+        else if (strcmp(paramName, "shader_mask_r") == 0) { 
+            shaderMaskR = (uint8_t)value; 
+            shaderDirty = true;
+            printf("  -> shaderMaskR = %d\n", shaderMaskR); 
+        }
+        else if (strcmp(paramName, "shader_mask_g") == 0) { 
+            shaderMaskG = (uint8_t)value; 
+            shaderDirty = true;
+            printf("  -> shaderMaskG = %d\n", shaderMaskG); 
+        }
+        else if (strcmp(paramName, "shader_mask_b") == 0) { 
+            shaderMaskB = (uint8_t)value; 
+            shaderDirty = true;
+            printf("  -> shaderMaskB = %d\n", shaderMaskB); 
+        }
+        else if (strcmp(paramName, "shader_override_r") == 0) { 
+            shaderOverrideR = (uint8_t)value; 
+            shaderDirty = true;
+            printf("  -> shaderOverrideR = %d\n", shaderOverrideR); 
+        }
+        else if (strcmp(paramName, "shader_override_g") == 0) { 
+            shaderOverrideG = (uint8_t)value; 
+            shaderDirty = true;
+            printf("  -> shaderOverrideG = %d\n", shaderOverrideG); 
+        }
+        else if (strcmp(paramName, "shader_override_b") == 0) { 
+            shaderOverrideB = (uint8_t)value; 
+            shaderDirty = true;
+            printf("  -> shaderOverrideB = %d\n", shaderOverrideB); 
+        }
+        // Hue Cycle shader params
+        else if (strcmp(paramName, "shader_hue_speed") == 0) { 
+            shaderHueCycleSpeed = (uint16_t)value; 
+            shaderDirty = true;
+            printf("  -> shaderHueCycleSpeed = %d\n", shaderHueCycleSpeed); 
+        }
+        else if (strcmp(paramName, "shader_hue_color_count") == 0) { 
+            uint8_t count = (uint8_t)value;
+            if (count < 1) count = 1;
+            if (count > 8) count = 8;
+            shaderHueCycleColorCount = count; 
+            shaderPaletteDirty = true;
+            shaderDirty = true;
+            printf("  -> shaderHueCycleColorCount = %d\n", shaderHueCycleColorCount); 
+        }
+        // Individual palette color components (0-7, each with r/g/b)
+        else if (strncmp(paramName, "shader_hue_color_", 17) == 0) {
+            // Parse: shader_hue_color_N_c where N=0-7, c=r/g/b
+            int colorIndex = paramName[17] - '0';
+            if (colorIndex >= 0 && colorIndex < 8 && paramName[18] == '_') {
+                char component = paramName[19];
+                int offset = colorIndex * 3;
+                if (component == 'r') {
+                    shaderHuePalette[offset + 0] = (uint8_t)value;
+                    shaderPaletteDirty = true;
+                    printf("  -> shaderHuePalette[%d].r = %d\n", colorIndex, (uint8_t)value);
+                } else if (component == 'g') {
+                    shaderHuePalette[offset + 1] = (uint8_t)value;
+                    shaderPaletteDirty = true;
+                    printf("  -> shaderHuePalette[%d].g = %d\n", colorIndex, (uint8_t)value);
+                } else if (component == 'b') {
+                    shaderHuePalette[offset + 2] = (uint8_t)value;
+                    shaderPaletteDirty = true;
+                    printf("  -> shaderHuePalette[%d].b = %d\n", colorIndex, (uint8_t)value);
+                }
+            }
+        }
         else { printf("  -> UNKNOWN PARAM\n"); }
     }
     

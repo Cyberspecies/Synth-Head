@@ -4239,6 +4239,77 @@ private:
                         printf("[SceneUpdate] No animParams object in request\n");
                     }
                     
+                    // Shader parameters from nested 'shaderParams' object
+                    cJSON* shaderParams = cJSON_GetObjectItem(root, "shaderParams");
+                    if (shaderParams && cJSON_IsObject(shaderParams)) {
+                        printf("[SceneUpdate] Received shaderParams for scene %d\n", scene.id);
+                        cJSON* param = NULL;
+                        cJSON_ArrayForEach(param, shaderParams) {
+                            if (param->string) {
+                                // Handle color objects (mask_color, override_color)
+                                if (cJSON_IsObject(param)) {
+                                    cJSON* rItem = cJSON_GetObjectItem(param, "r");
+                                    cJSON* gItem = cJSON_GetObjectItem(param, "g");
+                                    cJSON* bItem = cJSON_GetObjectItem(param, "b");
+                                    if (rItem && gItem && bItem) {
+                                        // Convert color object to individual R/G/B params
+                                        if (strcmp(param->string, "mask_color") == 0) {
+                                            auto& singleCallback = getSingleParamCallback();
+                                            if (singleCallback) {
+                                                singleCallback("shader_mask_r", (float)rItem->valueint);
+                                                singleCallback("shader_mask_g", (float)gItem->valueint);
+                                                singleCallback("shader_mask_b", (float)bItem->valueint);
+                                            }
+                                            printf("  [shaderParam] mask_color = (%d,%d,%d)\n", 
+                                                   rItem->valueint, gItem->valueint, bItem->valueint);
+                                        } else if (strcmp(param->string, "override_color") == 0) {
+                                            auto& singleCallback = getSingleParamCallback();
+                                            if (singleCallback) {
+                                                singleCallback("shader_override_r", (float)rItem->valueint);
+                                                singleCallback("shader_override_g", (float)gItem->valueint);
+                                                singleCallback("shader_override_b", (float)bItem->valueint);
+                                            }
+                                            printf("  [shaderParam] override_color = (%d,%d,%d)\n", 
+                                                   rItem->valueint, gItem->valueint, bItem->valueint);
+                                        } else if (strncmp(param->string, "hue_color_", 10) == 0) {
+                                            // Handle hue cycle palette colors (hue_color_0, hue_color_1, etc.)
+                                            int colorIdx = param->string[10] - '0';
+                                            if (colorIdx >= 0 && colorIdx < 8) {
+                                                auto& singleCallback = getSingleParamCallback();
+                                                if (singleCallback) {
+                                                    char paramNameR[32], paramNameG[32], paramNameB[32];
+                                                    snprintf(paramNameR, sizeof(paramNameR), "shader_hue_color_%d_r", colorIdx);
+                                                    snprintf(paramNameG, sizeof(paramNameG), "shader_hue_color_%d_g", colorIdx);
+                                                    snprintf(paramNameB, sizeof(paramNameB), "shader_hue_color_%d_b", colorIdx);
+                                                    singleCallback(paramNameR, (float)rItem->valueint);
+                                                    singleCallback(paramNameG, (float)gItem->valueint);
+                                                    singleCallback(paramNameB, (float)bItem->valueint);
+                                                }
+                                                printf("  [shaderParam] hue_color_%d = (%d,%d,%d)\n", 
+                                                       colorIdx, rItem->valueint, gItem->valueint, bItem->valueint);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Handle simple values (type, invert, mask_enabled)
+                                    float value = 0.0f;
+                                    if (cJSON_IsNumber(param)) {
+                                        value = (float)param->valuedouble;
+                                    } else if (cJSON_IsBool(param)) {
+                                        value = cJSON_IsTrue(param) ? 1.0f : 0.0f;
+                                    }
+                                    // Map shaderParams names to internal param names
+                                    std::string internalName = std::string("shader_") + param->string;
+                                    auto& singleCallback = getSingleParamCallback();
+                                    if (singleCallback) {
+                                        singleCallback(internalName.c_str(), value);
+                                    }
+                                    printf("  [shaderParam] '%s' -> '%s' = %.2f\n", param->string, internalName.c_str(), value);
+                                }
+                            }
+                        }
+                    }
+                    
                     // Update params object (legacy format) - also merge instead of clear
                     cJSON* params = cJSON_GetObjectItem(root, "params");
                     if (params && cJSON_IsObject(params)) {

@@ -311,6 +311,116 @@ static uint8_t gpu_load_percent = 0;       // Estimated GPU load (0-100)
 static uint32_t total_frames = 0;          // Total frames rendered since boot
 
 // ============================================================
+// Sprite Shader Configuration
+// ============================================================
+enum class ShaderType : uint8_t {
+  NONE = 0,           // No shader - render sprite as-is
+  COLOR_OVERRIDE = 1, // Replace all non-transparent pixels with a specific color
+  HUE_CYCLE = 2       // Cycle through a palette of colors smoothly
+};
+
+static ShaderType g_shaderType = ShaderType::NONE;
+static bool g_shaderInvertColors = false;
+static bool g_shaderMaskEnabled = true;    // Default: mask is enabled (black is transparent)
+static uint8_t g_shaderMaskR = 0;          // Default mask color: black
+static uint8_t g_shaderMaskG = 0;
+static uint8_t g_shaderMaskB = 0;
+static uint8_t g_shaderParam1 = 255;       // For COLOR_OVERRIDE: override R, For HUE_CYCLE: speed low byte
+static uint8_t g_shaderParam2 = 255;       // For COLOR_OVERRIDE: override G, For HUE_CYCLE: speed high byte
+static uint8_t g_shaderParam3 = 255;       // For COLOR_OVERRIDE: override B
+
+// Hue cycle shader palette (up to 8 colors)
+static const uint8_t MAX_PALETTE_COLORS = 8;
+static uint8_t g_huePaletteCount = 5;      // Default: 5 colors
+static uint8_t g_huePalette[MAX_PALETTE_COLORS * 3] = {
+  255, 0, 0,       // Red
+  255, 255, 0,     // Yellow
+  0, 255, 0,       // Green
+  0, 0, 255,       // Blue
+  128, 0, 255,     // Purple
+  255, 0, 0,       // Red (padding)
+  255, 0, 0,       // Red (padding)
+  255, 0, 0        // Red (padding)
+};
+static uint32_t g_hueCycleStartTime = 0;   // Time when hue cycle started
+
+// Lerp between two uint8_t values
+static inline uint8_t lerpU8(uint8_t a, uint8_t b, float t) {
+  return (uint8_t)(a + (b - a) * t);
+}
+
+// Get current hue cycle color based on time and speed
+static inline void getHueCycleColor(uint8_t& r, uint8_t& g, uint8_t& b) {
+  if (g_huePaletteCount == 0) {
+    r = g = b = 255;
+    return;
+  }
+  
+  // Get speed in ms (stored as 16-bit in param1,param2)
+  uint16_t speedMs = g_shaderParam1 | (g_shaderParam2 << 8);
+  if (speedMs == 0) speedMs = 1000;  // Default 1 second
+  
+  // Total cycle time
+  uint32_t totalCycleMs = (uint32_t)speedMs * g_huePaletteCount;
+  
+  // Current time in cycle
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);  // Convert to ms
+  uint32_t elapsed = (now - g_hueCycleStartTime) % totalCycleMs;
+  
+  // Which color segment are we in?
+  uint32_t segmentIndex = elapsed / speedMs;
+  float segmentProgress = (float)(elapsed % speedMs) / (float)speedMs;
+  
+  // Get the two colors to interpolate between
+  uint8_t idx1 = segmentIndex % g_huePaletteCount;
+  uint8_t idx2 = (segmentIndex + 1) % g_huePaletteCount;
+  
+  // Interpolate
+  r = lerpU8(g_huePalette[idx1 * 3 + 0], g_huePalette[idx2 * 3 + 0], segmentProgress);
+  g = lerpU8(g_huePalette[idx1 * 3 + 1], g_huePalette[idx2 * 3 + 1], segmentProgress);
+  b = lerpU8(g_huePalette[idx1 * 3 + 2], g_huePalette[idx2 * 3 + 2], segmentProgress);
+}
+
+// Apply shader processing to a pixel color
+// Order: 1) Invert, 2) Check mask (return transparent), 3) Apply shader effect
+// Returns true if pixel should be rendered, false if transparent
+static inline bool applyShaderToPixel(uint8_t& r, uint8_t& g, uint8_t& b, uint8_t alpha) {
+    // Step 1: Invert colors if enabled
+    if (g_shaderInvertColors) {
+        r = 255 - r;
+        g = 255 - g;
+        b = 255 - b;
+    }
+    
+    // Step 2: Check color mask - if pixel matches mask color, make it transparent
+    if (g_shaderMaskEnabled) {
+        if (r == g_shaderMaskR && g == g_shaderMaskG && b == g_shaderMaskB) {
+            return false;  // Transparent
+        }
+    }
+    
+    // Step 3: Apply shader effect
+    switch (g_shaderType) {
+        case ShaderType::COLOR_OVERRIDE:
+            // Replace color with override color (keep alpha)
+            r = g_shaderParam1;
+            g = g_shaderParam2;
+            b = g_shaderParam3;
+            break;
+        case ShaderType::HUE_CYCLE:
+            // Replace color with cycling hue color
+            getHueCycleColor(r, g, b);
+            break;
+        case ShaderType::NONE:
+        default:
+            // No effect - keep original color
+            break;
+    }
+    
+    return true;  // Render the pixel
+}
+
+// ============================================================
 // Boot Animation & No Signal State
 // ============================================================
 enum class BootState {
@@ -1677,7 +1787,14 @@ static void blitSprite(int id, int dx, int dy) {
             }
           }
           // Average the 4 samples
-          setPixelHUB75(dx + x, dy + y, tr >> 2, tg >> 2, tb >> 2);
+          uint8_t pr = tr >> 2;
+          uint8_t pg = tg >> 2;
+          uint8_t pb = tb >> 2;
+          
+          // Apply shader processing (invert, mask, effect)
+          if (applyShaderToPixel(pr, pg, pb, 255)) {
+            setPixelHUB75(dx + x, dy + y, pr, pg, pb);
+          }
         }
       }
     } else {
@@ -1685,7 +1802,14 @@ static void blitSprite(int id, int dx, int dy) {
       for (int y = 0; y < s.height; y++) {
         for (int x = 0; x < s.width; x++) {
           int idx = (y * s.width + x) * 3;
-          setPixelHUB75(dx + x, dy + y, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+          uint8_t r = s.data[idx];
+          uint8_t g = s.data[idx + 1];
+          uint8_t b = s.data[idx + 2];
+          
+          // Apply shader processing (invert, mask, effect)
+          if (applyShaderToPixel(r, g, b, 255)) {
+            setPixelHUB75(dx + x, dy + y, r, g, b);
+          }
         }
       }
     }
@@ -1791,9 +1915,18 @@ static void blitSpriteF(int id, float dx, float dy) {
         for (int sx = 0; sx < s.width; sx++) {
           // Get sprite pixel color
           int sidx = (sy * s.width + sx) * 3;
-          float pr = s.data[sidx + 0];
-          float pg = s.data[sidx + 1];
-          float pb = s.data[sidx + 2];
+          uint8_t pr8 = s.data[sidx + 0];
+          uint8_t pg8 = s.data[sidx + 1];
+          uint8_t pb8 = s.data[sidx + 2];
+          
+          // Apply shader processing (invert, mask, effect)
+          if (!applyShaderToPixel(pr8, pg8, pb8, 255)) {
+            continue;  // Pixel is transparent after shader processing
+          }
+          
+          float pr = pr8;
+          float pg = pg8;
+          float pb = pb8;
           
           // Screen position of this sprite pixel
           float screenX = dx + sx;
@@ -1843,7 +1976,14 @@ static void blitSpriteF(int id, float dx, float dy) {
       for (int y = 0; y < s.height; y++) {
         for (int x = 0; x < s.width; x++) {
           int idx = (y * s.width + x) * 3;
-          setPixelHUB75(ix + x, iy + y, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+          uint8_t r = s.data[idx];
+          uint8_t g = s.data[idx + 1];
+          uint8_t b = s.data[idx + 2];
+          
+          // Apply shader processing (invert, mask, effect)
+          if (applyShaderToPixel(r, g, b, 255)) {
+            setPixelHUB75(ix + x, iy + y, r, g, b);
+          }
         }
       }
     }
@@ -1944,9 +2084,18 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
       for (int sx = 0; sx < s.width; sx++) {
         // Get sprite pixel color
         int sidx = (sy * s.width + sx) * 3;
-        float pr = s.data[sidx + 0];
-        float pg = s.data[sidx + 1];
-        float pb = s.data[sidx + 2];
+        uint8_t pr8 = s.data[sidx + 0];
+        uint8_t pg8 = s.data[sidx + 1];
+        uint8_t pb8 = s.data[sidx + 2];
+        
+        // Apply shader processing (invert, mask, effect)
+        if (!applyShaderToPixel(pr8, pg8, pb8, 255)) {
+          continue;  // Pixel is transparent after shader processing
+        }
+        
+        float pr = pr8;
+        float pg = pg8;
+        float pb = pb8;
         
         // Position relative to sprite center
         float relX = sx - cx + 0.5f;  // +0.5 for pixel center
@@ -1998,7 +2147,14 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
           int sx = (int)spriteX;
           int sy = (int)spriteY;
           int idx = (sy * s.width + sx) * 3;
-          setPixelHUB75(px, py, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+          uint8_t r = s.data[idx];
+          uint8_t g = s.data[idx + 1];
+          uint8_t b = s.data[idx + 2];
+          
+          // Apply shader processing (invert, mask, effect)
+          if (applyShaderToPixel(r, g, b, 255)) {
+            setPixelHUB75(px, py, r, g, b);
+          }
         }
       }
     }
@@ -2107,9 +2263,18 @@ static void blitSpriteRotatedScaled(int id, float dx, float dy, float angleDeg, 
     for (int sy = 0; sy < s.height; sy++) {
       for (int sx = 0; sx < s.width; sx++) {
         int sidx = (sy * s.width + sx) * 3;
-        float pr = s.data[sidx + 0];
-        float pg = s.data[sidx + 1];
-        float pb = s.data[sidx + 2];
+        uint8_t pr8 = s.data[sidx + 0];
+        uint8_t pg8 = s.data[sidx + 1];
+        uint8_t pb8 = s.data[sidx + 2];
+        
+        // Apply shader processing (invert, mask, effect)
+        if (!applyShaderToPixel(pr8, pg8, pb8, 255)) {
+          continue;  // Pixel is transparent after shader processing
+        }
+        
+        float pr = pr8;
+        float pg = pg8;
+        float pb = pb8;
         
         // Position relative to sprite center
         float relX = (sx - cx + 0.5f) * scale;  // Apply scale
@@ -2164,7 +2329,14 @@ static void blitSpriteRotatedScaled(int id, float dx, float dy, float angleDeg, 
           int sx = (int)spriteX;
           int sy = (int)spriteY;
           int idx = (sy * s.width + sx) * 3;
-          setPixelHUB75(px, py, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+          uint8_t r = s.data[idx];
+          uint8_t g = s.data[idx + 1];
+          uint8_t b = s.data[idx + 2];
+          
+          // Apply shader processing (invert, mask, effect)
+          if (applyShaderToPixel(r, g, b, 255)) {
+            setPixelHUB75(px, py, r, g, b);
+          }
         }
       }
     }
@@ -2277,9 +2449,18 @@ static void blitSpriteRotatedScaledFlip(int id, float dx, float dy, float angleD
         int srcY = flipY ? (s.height - 1 - sy) : sy;
         
         int sidx = (srcY * s.width + srcX) * 3;
-        float pr = s.data[sidx + 0];
-        float pg = s.data[sidx + 1];
-        float pb = s.data[sidx + 2];
+        uint8_t pr8 = s.data[sidx + 0];
+        uint8_t pg8 = s.data[sidx + 1];
+        uint8_t pb8 = s.data[sidx + 2];
+        
+        // Apply shader processing (invert, mask, effect)
+        if (!applyShaderToPixel(pr8, pg8, pb8, 255)) {
+          continue;  // Pixel is transparent after shader processing
+        }
+        
+        float pr = pr8;
+        float pg = pg8;
+        float pb = pb8;
         
         // Position relative to sprite center (use original sx/sy for positioning)
         float relX = (sx - cx + 0.5f) * scale;
@@ -2339,7 +2520,14 @@ static void blitSpriteRotatedScaledFlip(int id, float dx, float dy, float angleD
           int srcY = flipY ? (s.height - 1 - sy) : sy;
           
           int idx = (srcY * s.width + srcX) * 3;
-          setPixelHUB75(px, py, s.data[idx], s.data[idx + 1], s.data[idx + 2]);
+          uint8_t pr = s.data[idx];
+          uint8_t pg = s.data[idx + 1];
+          uint8_t pb = s.data[idx + 2];
+          
+          // Apply shader processing (invert, mask, effect)
+          if (applyShaderToPixel(pr, pg, pb, 255)) {
+            setPixelHUB75(px, py, pr, pg, pb);
+          }
         }
       }
     }
@@ -2717,6 +2905,7 @@ enum class CmdType : uint8_t {
   UPLOAD_SHADER = 0x10,
   DELETE_SHADER = 0x11,
   EXEC_SHADER = 0x12,
+  SET_SHADER_CONFIG = 0x13,  // Configure shader settings
   
   UPLOAD_SPRITE = 0x20,
   DELETE_SPRITE = 0x21,
@@ -2752,6 +2941,8 @@ enum class CmdType : uint8_t {
   SET_TARGET = 0x50,     // 0=HUB75, 1=OLED
   PRESENT = 0x51,        // Push framebuffer to display
   BLIT_SPRITE_ROT_SCALE_FLIP = 0x52, // Sprite with rotation+scale+flip: id, x, y, angle, scale, flags (all 8.8 fixed)
+  SET_SPRITE_SHADER = 0x53,  // Configure sprite shader: type, flags, maskRGB, param1-3
+  SET_SHADER_PALETTE = 0x54, // Set color palette for hue cycle shader: count, [R,G,B]*N
   
   // OLED-specific commands (always target OLED buffer)
   OLED_CLEAR = 0x60,
@@ -3399,6 +3590,58 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         bool flipY = (payload[9] & 0x02) != 0;
         
         blitSpriteRotatedScaledFlip(id, x, y, angle, scale, flipX, flipY);
+      }
+      break;
+    }
+    
+    case CmdType::SET_SPRITE_SHADER: {
+      // Payload: [shaderType:1][flags:1][maskR:1][maskG:1][maskB:1][param1:1][param2:1][param3:1][reserved:1]
+      if (hdr->length >= 8) {
+        ShaderType newType = static_cast<ShaderType>(payload[0]);
+        
+        // If switching to HUE_CYCLE, reset the cycle start time
+        if (newType == ShaderType::HUE_CYCLE && g_shaderType != ShaderType::HUE_CYCLE) {
+          g_hueCycleStartTime = (uint32_t)(esp_timer_get_time() / 1000);
+        }
+        
+        g_shaderType = newType;
+        g_shaderInvertColors = (payload[1] & 0x01) != 0;
+        g_shaderMaskEnabled = (payload[1] & 0x02) != 0;
+        g_shaderMaskR = payload[2];
+        g_shaderMaskG = payload[3];
+        g_shaderMaskB = payload[4];
+        g_shaderParam1 = payload[5];  // Override R for COLOR_OVERRIDE, speed low for HUE_CYCLE
+        g_shaderParam2 = payload[6];  // Override G for COLOR_OVERRIDE, speed high for HUE_CYCLE
+        g_shaderParam3 = payload[7];  // Override B for COLOR_OVERRIDE
+        
+        ESP_LOGI(TAG, "SET_SPRITE_SHADER: type=%d invert=%d maskEnabled=%d mask=(%d,%d,%d) params=(%d,%d,%d)",
+                 (int)g_shaderType, g_shaderInvertColors, g_shaderMaskEnabled,
+                 g_shaderMaskR, g_shaderMaskG, g_shaderMaskB,
+                 g_shaderParam1, g_shaderParam2, g_shaderParam3);
+      }
+      break;
+    }
+    
+    case CmdType::SET_SHADER_PALETTE: {
+      // Payload: [count:1][R0:1][G0:1][B0:1][R1:1][G1:1][B1:1]...
+      if (hdr->length >= 4) {  // At least count + 1 color
+        uint8_t count = payload[0];
+        if (count < 1) count = 1;
+        if (count > MAX_PALETTE_COLORS) count = MAX_PALETTE_COLORS;
+        
+        // Verify we have enough data
+        uint16_t expectedLen = 1 + count * 3;
+        if (hdr->length >= expectedLen) {
+          g_huePaletteCount = count;
+          for (int i = 0; i < count; i++) {
+            g_huePalette[i * 3 + 0] = payload[1 + i * 3 + 0];  // R
+            g_huePalette[i * 3 + 1] = payload[1 + i * 3 + 1];  // G
+            g_huePalette[i * 3 + 2] = payload[1 + i * 3 + 2];  // B
+          }
+          
+          ESP_LOGI(TAG, "SET_SHADER_PALETTE: count=%d, first=(%d,%d,%d)",
+                   g_huePaletteCount, g_huePalette[0], g_huePalette[1], g_huePalette[2]);
+        }
       }
       break;
     }

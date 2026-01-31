@@ -702,6 +702,10 @@ const DisplayConfig = {
     const animType = config.Display?.animation_type || 'static_mirrored';
     console.log('[renderConfigForm] animType=' + animType + ', animationFields keys=' + Object.keys(this.animationFields).join(','));
     console.log('[renderConfigForm] fields for animType=' + JSON.stringify(this.animationFields[animType]));
+    
+    // Add shader settings section (between Display and Animation Settings)
+    html += this.renderShaderSection();
+    
     html += this.renderAnimParamsSection(animType, config.Display);
     
     // Add remaining sections
@@ -846,6 +850,158 @@ const DisplayConfig = {
       'right_x': 96, 'right_y': 16, 'right_rotation': 180, 'right_scale': 1.0, 'right_flip_x': 0
     };
     return defaults[param] ?? 0;
+  },
+  
+  // Shader type definitions
+  shaderTypes: [
+    { id: 'none', name: 'None', value: 0 },
+    { id: 'color_override', name: 'Color Override', value: 1 },
+    { id: 'hue_cycle', name: 'RGB Hue Cycle', value: 2 }
+  ],
+  
+  // Get shader field value from sceneData
+  getShaderFieldValue: function(param) {
+    const shader = this.sceneData?.Shader || {};
+    const defaults = {
+      'type': 0,
+      'invert': 0,
+      'mask_enabled': 1,
+      'mask_r': 0,
+      'mask_g': 0,
+      'mask_b': 0,
+      'override_r': 255,
+      'override_g': 255,
+      'override_b': 255,
+      // Hue cycle defaults
+      'hue_speed': 1000,
+      'hue_color_count': 5,
+      'hue_color_0_r': 255, 'hue_color_0_g': 0,   'hue_color_0_b': 0,    // Red
+      'hue_color_1_r': 255, 'hue_color_1_g': 255, 'hue_color_1_b': 0,    // Yellow
+      'hue_color_2_r': 0,   'hue_color_2_g': 255, 'hue_color_2_b': 0,    // Green
+      'hue_color_3_r': 0,   'hue_color_3_g': 0,   'hue_color_3_b': 255,  // Blue
+      'hue_color_4_r': 128, 'hue_color_4_g': 0,   'hue_color_4_b': 255,  // Purple
+      'hue_color_5_r': 255, 'hue_color_5_g': 0,   'hue_color_5_b': 128,  // Pink
+      'hue_color_6_r': 0,   'hue_color_6_g': 255, 'hue_color_6_b': 255,  // Cyan
+      'hue_color_7_r': 255, 'hue_color_7_g': 128, 'hue_color_7_b': 0     // Orange
+    };
+    
+    if (shader[param] !== undefined) return shader[param];
+    return defaults[param] ?? 0;
+  },
+  
+  // Render shader settings section
+  renderShaderSection: function() {
+    let html = `<div class="yaml-section" id="shader-section">`;
+    html += `<div class="yaml-section-header" onclick="YamlUI.toggleSection(this.parentElement)">`;
+    html += `<div class="yaml-section-title">`;
+    html += `<span class="yaml-section-icon">◆</span>`;
+    html += `<span>Shader Settings</span>`;
+    html += `</div>`;
+    html += `<span class="yaml-section-chevron">▼</span>`;
+    html += `</div>`;
+    html += `<div class="yaml-section-body" id="shader-section-body">`;
+    html += `<div class="yaml-section-desc">GPU-based pixel effects applied during rendering</div>`;
+    
+    // Shader Type dropdown
+    const shaderType = this.getShaderFieldValue('type');
+    html += `<div class="yaml-field-row" data-field-path="Shader.type">`;
+    html += `<label class="yaml-field-label">Shader Effect</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<select class="yaml-select" id="shader-type-select" data-path="Shader.type">`;
+    this.shaderTypes.forEach(st => {
+      const selected = st.value === shaderType ? 'selected' : '';
+      html += `<option value="${st.value}" ${selected}>${st.name}</option>`;
+    });
+    html += `</select></div></div>`;
+    
+    // Invert Colors toggle
+    const invert = this.getShaderFieldValue('invert');
+    html += `<div class="yaml-field-row" data-field-path="Shader.invert">`;
+    html += `<label class="yaml-field-label">Invert Colors</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<label class="yaml-toggle">`;
+    html += `<input type="checkbox" data-path="Shader.invert" ${invert ? 'checked' : ''}>`;
+    html += `<span class="yaml-toggle-slider"></span>`;
+    html += `</label></div></div>`;
+    
+    // Mask Enabled toggle
+    const maskEnabled = this.getShaderFieldValue('mask_enabled');
+    html += `<div class="yaml-field-row" data-field-path="Shader.mask_enabled">`;
+    html += `<label class="yaml-field-label">Mask Transparency</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<label class="yaml-toggle">`;
+    html += `<input type="checkbox" data-path="Shader.mask_enabled" ${maskEnabled ? 'checked' : ''}>`;
+    html += `<span class="yaml-toggle-slider"></span>`;
+    html += `</label></div></div>`;
+    
+    // Mask Color picker
+    const maskR = this.getShaderFieldValue('mask_r');
+    const maskG = this.getShaderFieldValue('mask_g');
+    const maskB = this.getShaderFieldValue('mask_b');
+    const maskHex = '#' + [maskR, maskG, maskB].map(c => c.toString(16).padStart(2, '0')).join('');
+    html += `<div class="yaml-field-row" data-field-path="Shader.mask_color">`;
+    html += `<label class="yaml-field-label">Mask Color</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<div class="yaml-color-container">`;
+    html += `<input type="color" class="yaml-color-picker" value="${maskHex}" data-path="Shader.mask_color">`;
+    html += `<span class="yaml-color-value" id="val-Shader-mask_color">${maskHex}</span>`;
+    html += `</div></div></div>`;
+    
+    // Color Override parameters (only shown when shader type is color_override)
+    html += `<div id="shader-color-override-params" style="display: ${shaderType === 1 ? 'block' : 'none'};">`;
+    const overrideR = this.getShaderFieldValue('override_r');
+    const overrideG = this.getShaderFieldValue('override_g');
+    const overrideB = this.getShaderFieldValue('override_b');
+    const overrideHex = '#' + [overrideR, overrideG, overrideB].map(c => c.toString(16).padStart(2, '0')).join('');
+    html += `<div class="yaml-field-row" data-field-path="Shader.override_color">`;
+    html += `<label class="yaml-field-label">Override Color</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<div class="yaml-color-container">`;
+    html += `<input type="color" class="yaml-color-picker" value="${overrideHex}" data-path="Shader.override_color">`;
+    html += `<span class="yaml-color-value" id="val-Shader-override_color">${overrideHex}</span>`;
+    html += `</div></div></div>`;
+    html += `</div>`; // close shader-color-override-params
+    
+    // Hue Cycle parameters (only shown when shader type is hue_cycle)
+    html += `<div id="shader-hue-cycle-params" style="display: ${shaderType === 2 ? 'block' : 'none'};">`;
+    
+    // Speed slider
+    const hueSpeed = this.getShaderFieldValue('hue_speed');
+    html += `<div class="yaml-field-row" data-field-path="Shader.hue_speed">`;
+    html += `<label class="yaml-field-label">Cycle Speed (ms)</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="range" class="yaml-range" min="100" max="5000" step="50" value="${hueSpeed}" data-path="Shader.hue_speed" oninput="document.getElementById('val-Shader-hue_speed').textContent = this.value + 'ms'">`;
+    html += `<span class="yaml-range-value" id="val-Shader-hue_speed">${hueSpeed}ms</span>`;
+    html += `</div></div>`;
+    
+    // Color count number input
+    const colorCount = this.getShaderFieldValue('hue_color_count');
+    html += `<div class="yaml-field-row" data-field-path="Shader.hue_color_count">`;
+    html += `<label class="yaml-field-label">Number of Colors</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="number" class="yaml-input-number" min="1" max="8" step="1" value="${colorCount}" data-path="Shader.hue_color_count" id="hue-color-count-input" onchange="DisplayConfig.updateHuePaletteColors(parseInt(this.value))">`;
+    html += `</div></div>`;
+    
+    // Dynamic color pickers container
+    html += `<div id="hue-palette-colors">`;
+    for (let i = 0; i < colorCount; i++) {
+      const r = this.getShaderFieldValue('hue_color_' + i + '_r');
+      const g = this.getShaderFieldValue('hue_color_' + i + '_g');
+      const b = this.getShaderFieldValue('hue_color_' + i + '_b');
+      const hex = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+      html += `<div class="yaml-field-row" data-field-path="Shader.hue_color_${i}" id="hue-color-row-${i}">`;
+      html += `<label class="yaml-field-label">Color ${i + 1}</label>`;
+      html += `<div class="yaml-field-control">`;
+      html += `<div class="yaml-color-container">`;
+      html += `<input type="color" class="yaml-color-picker" value="${hex}" data-path="Shader.hue_color_${i}" data-color-index="${i}">`;
+      html += `<span class="yaml-color-value" id="val-Shader-hue_color_${i}">${hex}</span>`;
+      html += `</div></div></div>`;
+    }
+    html += `</div>`; // close hue-palette-colors
+    html += `</div>`; // close shader-hue-cycle-params
+    
+    html += `</div></div>`; // close body and section
+    return html;
   },
   
   // Render animation parameters section based on selected animation type
@@ -1482,7 +1638,23 @@ const DisplayConfig = {
     document.querySelectorAll('.yaml-select').forEach(select => {
       select.addEventListener('change', (e) => {
         const type = select.dataset.fileType === 'sprite' ? 'number' : 'string';
-        const value = type === 'number' ? parseInt(select.value) : select.value;
+        let value = type === 'number' ? parseInt(select.value) : select.value;
+        
+        // Shader type is a number
+        if (select.dataset.path === 'Shader.type') {
+          value = parseInt(select.value);
+          // Show/hide color override params based on shader type
+          const overrideParams = document.getElementById('shader-color-override-params');
+          if (overrideParams) {
+            overrideParams.style.display = (value === 1) ? 'block' : 'none';
+          }
+          // Show/hide hue cycle params based on shader type
+          const hueCycleParams = document.getElementById('shader-hue-cycle-params');
+          if (hueCycleParams) {
+            hueCycleParams.style.display = (value === 2) ? 'block' : 'none';
+          }
+        }
+        
         this.updateField(select.dataset.path, value, type);
         
         // If animation type changed, update the animation params section
@@ -1561,6 +1733,11 @@ const DisplayConfig = {
       const paramName = path.split('.')[2];  // Get 'left_x' from 'Display.params.left_x'
       return 'animParams.' + paramName;
     }
+    // Handle Shader paths - all go to shaderParams in the payload
+    if (path.startsWith('Shader.')) {
+      const paramName = path.split('.')[1];
+      return 'shaderParams.' + paramName;
+    }
     
     const mapping = {
       'Display.enabled': 'displayEnabled',
@@ -1590,6 +1767,17 @@ const DisplayConfig = {
       const paramName = fieldName.split('.')[1];
       payload.animParams = {};
       payload.animParams[paramName] = value;
+    }
+    // Handle shaderParams fields
+    else if (fieldName.startsWith('shaderParams.')) {
+      const paramName = fieldName.split('.')[1];
+      payload.shaderParams = {};
+      // Handle color fields specially (mask_color, override_color, hue_color_N)
+      if ((paramName === 'mask_color' || paramName === 'override_color' || paramName.startsWith('hue_color_')) && typeof value === 'object') {
+        payload.shaderParams[paramName] = value;  // {r, g, b}
+      } else {
+        payload.shaderParams[paramName] = value;
+      }
     }
     // Handle background color specially (needs bgR, bgG, bgB)
     else if (fieldName === 'bgColor' && typeof value === 'object') {
@@ -1654,6 +1842,54 @@ const DisplayConfig = {
       
       setTimeout(() => indicator.remove(), 1500);
     }
+  },
+  
+  // Update the dynamic hue palette color pickers when count changes
+  updateHuePaletteColors: function(count) {
+    if (count < 1) count = 1;
+    if (count > 8) count = 8;
+    
+    const container = document.getElementById('hue-palette-colors');
+    if (!container) return;
+    
+    // Clear existing
+    container.innerHTML = '';
+    
+    // Build color pickers
+    for (let i = 0; i < count; i++) {
+      const r = this.getShaderFieldValue('hue_color_' + i + '_r');
+      const g = this.getShaderFieldValue('hue_color_' + i + '_g');
+      const b = this.getShaderFieldValue('hue_color_' + i + '_b');
+      const hex = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+      
+      let html = `<div class="yaml-field-row" data-field-path="Shader.hue_color_${i}" id="hue-color-row-${i}">`;
+      html += `<label class="yaml-field-label">Color ${i + 1}</label>`;
+      html += `<div class="yaml-field-control">`;
+      html += `<div class="yaml-color-container">`;
+      html += `<input type="color" class="yaml-color-picker" value="${hex}" data-path="Shader.hue_color_${i}" data-color-index="${i}">`;
+      html += `<span class="yaml-color-value" id="val-Shader-hue_color_${i}">${hex}</span>`;
+      html += `</div></div></div>`;
+      
+      container.innerHTML += html;
+    }
+    
+    // Re-attach event handlers to new color pickers
+    const self = this;
+    container.querySelectorAll('.yaml-color-picker').forEach(picker => {
+      const pathId = picker.dataset.path.replace(/\./g, '-');
+      const valueSpan = document.getElementById('val-' + pathId);
+      
+      picker.addEventListener('input', (e) => {
+        if (valueSpan) {
+          valueSpan.textContent = picker.value.toUpperCase();
+        }
+        const rgb = self.hexToRgb(picker.value);
+        self.updateField(picker.dataset.path, rgb, 'color');
+      });
+    });
+    
+    // Also send the color count update
+    this.updateField('Shader.hue_color_count', count, 'number');
   },
   
   // Hex to RGB
