@@ -50,9 +50,8 @@ public:
      */
     void init() {
         // Register built-in animation sets
-        registerBuiltIn<GyroEyeAnimationSet>();
         registerBuiltIn<StaticSpriteAnimationSet>();
-        registerBuiltIn<RotatingSpriteAnimationSet>();
+        registerBuiltIn<StaticMirroredAnimationSet>();
         
         initialized_ = true;
     }

@@ -290,7 +290,7 @@ static volatile bool oled_update_pending = false;
 static uint8_t* oled_update_buffer = nullptr;  // Double buffer for safe cross-core transfer
 
 // Anti-aliasing enabled by default
-static bool aa_enabled = true;
+static bool aa_enabled = true;  // Re-enabled with panel boundary fix
 
 // OLED orientation mode (0-7) - controlled by CPU
 // 0 = No transform, 1 = Rotate 180, 2 = Mirror X, 3 = Mirror Y
@@ -332,27 +332,38 @@ static const int64_t NO_SIGNAL_TIMEOUT_US = 3000000;  // 3 seconds
 
 // Logo vertices (scaled from 445x308 SVG)
 // Circle: center (216, 114), radius 39.5
-// Main outline path (simplified to key vertices)
+// Main outline path - exact coordinates from SVG path
 static const int16_t LOGO_OUTLINE[] = {
-  // Y coordinates flipped (228 - originalY)
-  238, 225, 221, 227, 161, 227, 142, 226, 106, 223, 89, 222, 73, 217, 59, 212,
-  49, 207, 36, 197, 27, 189, 20, 180, 14, 170, 7, 153, 1, 129, 1, 119,
-  1, 112, 2, 106, 5, 102, 9, 99, 22, 95, 38, 90, 59, 83, 75, 77,
-  90, 69, 102, 61, 117, 50, 131, 39, 140, 30, 149, 22, 159, 16,
-  171, 10, 186, 4, 201, 1, 216, 0, 230, 1, 242, 4, 259, 9,
-  279, 19, 292, 29, 302, 39, 312, 52, 319, 64, 323, 74, 327, 89,
-  329, 106, 329, 122, 327, 139, 322, 155, 317, 167, 311, 177, 304, 185,
-  294, 196, 281, 205, 268, 213, 256, 219, 238, 225
+  // Path: M238 3 L221.5 0.5 H161 L142 1.5 L106 4.5 L89 6 L72.5 10.5 L58.5 16 L48.5 21 L35.5 30.5
+  // L27 39 L20 47.5 L14 57.5 L7 75 L1 98.5 L0.5 109 V116 L2 122 L5 126 L8.5 128.5 L21.5 132.5
+  // L38 137.5 L58.5 144.5 L75 151 L90 159 L101.5 167 L117 177.5 L131 189 L139.5 197.5 L149 205.5
+  // L158.5 212 L170.5 218 L186 223.5 L201 226.5 L216 227.5 L230 226.5 L242 223.5 L258.5 218.5
+  // L278.5 208.5 L292 198.5 L302 188.5 L312 176 L319 163.5 L323 153.5 L327 138.5 L328.5 122
+  // V106 L326.5 89 L321.5 72.5 L316.5 61 L310.5 51 L303.5 42.5 L293.5 31.5 L281 22.5 L267.5 14.5
+  // L255.5 9 L238 3 Z
+  238, 3,  222, 1,  161, 1,  142, 2,  106, 5,  89, 6,  73, 11,  59, 16,
+  49, 21,  36, 31,  27, 39,  20, 48,  14, 58,  7, 75,  1, 99,  1, 109,
+  1, 116,  2, 122,  5, 126,  9, 129,  22, 133,  38, 138,  59, 145,  75, 151,
+  90, 159,  102, 167,  117, 178,  131, 189,  140, 198,  149, 206,
+  159, 212,  171, 218,  186, 224,  201, 227,  216, 228,  230, 227,  242, 224,  259, 219,
+  279, 209,  292, 199,  302, 189,  312, 176,  319, 164,  323, 154,  327, 139,
+  329, 122,  329, 106,  327, 89,  322, 73,  317, 61,  311, 51,  304, 43,
+  294, 32,  281, 23,  268, 15,  256, 9,  238, 3
 };
 static const int LOGO_OUTLINE_COUNT = sizeof(LOGO_OUTLINE) / (2 * sizeof(int16_t));
 
-// Right decorative path (simplified)
+// Right decorative path - exact coordinates from SVG path
 static const int16_t LOGO_RIGHT[] = {
-  385, 131, 348, 78, 343, 77, 342, 81, 344, 88, 346, 100, 346, 112,
-  345, 127, 343, 140, 339, 156, 332, 171, 323, 189, 312, 204, 298, 217,
-  286, 225, 284, 230, 285, 236, 289, 240, 302, 242, 320, 245, 339, 251,
-  355, 258, 372, 267, 405, 288, 433, 305, 440, 308, 443, 308, 444, 306,
-  444, 290, 442, 272, 434, 240, 420, 199, 405, 166, 385, 131
+  // Path: M384.5 130.5 L347.5 77.5 L346 76 L343.5 76.5 L342 78 V81 L343.5 88 L345.5 99.5 V112
+  // L345 127 L342.5 140 L338.5 156 L332 171 L322.5 188.5 L311.5 203.5 L297.5 216.5 L285.5 225
+  // L284 230 L285 235.5 L289 240 L302 242 L320 245 L339 251 L355 257.5 L372 266.5 L404.5 287.5
+  // L433 305 L439.5 307.5 H442.5 L444 305.5 V290 L441.5 272 L434 240 L419.5 198.5 L405 166
+  // L384.5 130.5 Z
+  385, 131,  348, 78,  346, 76,  344, 77,  342, 78,  342, 81,  344, 88,  346, 100,  346, 112,
+  345, 127,  343, 140,  339, 156,  332, 171,  323, 189,  312, 204,  298, 217,
+  286, 225,  284, 230,  285, 236,  289, 240,  302, 242,  320, 245,  339, 251,
+  355, 258,  372, 267,  405, 288,  433, 305,  440, 308,  443, 308,  444, 306,
+  444, 290,  442, 272,  434, 240,  420, 199,  405, 166,  385, 131
 };
 static const int LOGO_RIGHT_COUNT = sizeof(LOGO_RIGHT) / (2 * sizeof(int16_t));
 
@@ -372,9 +383,8 @@ static const float LOGO_HEIGHT = 308.0f;
 static inline void blendPixelHUB75(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t alpha) {
   if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
   if (alpha == 0) return;
-  // Mirror X: flip left-to-right
-  int mx = (TOTAL_WIDTH - 1) - x;
-  int idx = (y * TOTAL_WIDTH + mx) * 3;
+  // Write directly to buffer - transforms applied in presentHUB75Buffer (consistent with setPixelHUB75)
+  int idx = (y * TOTAL_WIDTH + x) * 3;
   if (alpha == 255) {
     hub75_buffer[idx + 0] = r;
     hub75_buffer[idx + 1] = g;
@@ -1225,10 +1235,11 @@ static bool updateBootAnimation() {
       float hub75_swayY = cosf(t * 0.3f) * hub75_maxSwayY;
       int hub75_textX = (PANEL_WIDTH - textW) / 2 + (int)hub75_swayX;
       int hub75_textY = (PANEL_HEIGHT - textH) / 2 + (int)hub75_swayY;
-      // Left panel (0-63) - draw mirrored so it appears correct after X-flip
-      drawNoSignalText(hub75_textX, hub75_textY, 180, false, true);
-      // Right panel (64-127) - draw normal (X-flip will make it correct)
-      drawNoSignalText(hub75_textX + PANEL_WIDTH, hub75_textY, 180, false, false);
+      // Panel configuration: GLOBAL_MIRROR_X=true, GLOBAL_SWAP_PANELS=true, PANEL1_MIRROR_X=true
+      // blendPixelHUB75 no longer does internal mirroring, so we need to pre-mirror both texts
+      // to compensate for the presentHUB75Buffer transform chain
+      drawNoSignalText(hub75_textX, hub75_textY, 180, false, true);    // Buffer LEFT - pre-mirror
+      drawNoSignalText(hub75_textX + PANEL_WIDTH, hub75_textY, 180, false, true);  // Buffer RIGHT - pre-mirror
       
       // OLED: Single display, larger sway range since screen is bigger
       int oled_maxSwayX = (OLED_WIDTH - textW) / 2 - 4;
@@ -1558,8 +1569,17 @@ static float splat_g[TOTAL_WIDTH * TOTAL_HEIGHT];
 static float splat_b[TOTAL_WIDTH * TOTAL_HEIGHT];
 static float splat_w[TOTAL_WIDTH * TOTAL_HEIGHT];
 
+// Helper: Track which panel each sprite is being drawn to (for splat isolation)
+static int currentSpritePanel = -1;  // 0=left (x<64), 1=right (x>=64), -1=both
+
 static inline void splatPixel(int x, int y, float r, float g, float b, float weight) {
   if (x < 0 || x >= TOTAL_WIDTH || y < 0 || y >= TOTAL_HEIGHT) return;
+  
+  // CRITICAL: Prevent cross-panel bleed from bilinear splatting
+  // If sprite center is on left panel, don't splat to right panel and vice versa
+  if (currentSpritePanel == 0 && x >= PANEL_WIDTH) return;   // Left sprite, don't bleed right
+  if (currentSpritePanel == 1 && x < PANEL_WIDTH) return;    // Right sprite, don't bleed left
+  
   int idx = y * TOTAL_WIDTH + x;
   splat_r[idx] += r * weight;
   splat_g[idx] += g * weight;
@@ -1837,12 +1857,20 @@ static void blitSpriteF(int id, float dx, float dy) {
 // Each sprite pixel is rotated and "splats" to overlapping screen pixels
 // This creates smooth rotation AND sub-pixel movement with proper AA
 static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
+  // Clear ENTIRE splat buffer at start to prevent any cross-sprite ghosting
+  clearSplatBuffer();
+  
+  // Set panel isolation based on sprite center position to prevent bilinear bleed
+  // Left panel: x=0-63, Right panel: x=64-127
+  currentSpritePanel = (dx >= PANEL_WIDTH) ? 1 : 0;
+  
   if (id < 0 || id >= MAX_SPRITES || !gpu.sprites[id].valid) {
     static int invalid_count = 0;
     if (++invalid_count <= 5) {
       ESP_LOGW(TAG, "blitSpriteRotated: invalid sprite id=%d valid=%d", id, 
                (id >= 0 && id < MAX_SPRITES) ? gpu.sprites[id].valid : -1);
     }
+    currentSpritePanel = -1;  // Reset on invalid
     return;
   }
   
@@ -1851,6 +1879,7 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
   if (s.format != 0 || gpu.target != 0) {
     // For OLED or mono sprites, fall back to non-rotated blit
     blitSprite(id, (int)roundf(dx), (int)roundf(dy));
+    currentSpritePanel = -1;  // Reset after
     return;
   }
   
@@ -1890,6 +1919,15 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
   if (pMinY < 0) pMinY = 0;
   if (pMaxX >= TOTAL_WIDTH) pMaxX = TOTAL_WIDTH - 1;
   if (pMaxY >= TOTAL_HEIGHT) pMaxY = TOTAL_HEIGHT - 1;
+  
+  // CRITICAL: Clamp bounding box to panel boundary to prevent cross-panel artifacts
+  if (currentSpritePanel == 0) {
+    // Left panel sprite - clamp max to panel boundary
+    if (pMaxX >= PANEL_WIDTH) pMaxX = PANEL_WIDTH - 1;
+  } else if (currentSpritePanel == 1) {
+    // Right panel sprite - clamp min to panel boundary
+    if (pMinX < PANEL_WIDTH) pMinX = PANEL_WIDTH;
+  }
   
   if (aa_enabled) {
     // BILINEAR SPLATTING with rotation
@@ -1945,6 +1983,10 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
     // No AA: Inverse mapping with nearest neighbor
     for (int py = pMinY; py <= pMaxY; py++) {
       for (int px = pMinX; px <= pMaxX; px++) {
+        // Apply panel isolation for non-AA mode too
+        if (currentSpritePanel == 0 && px >= PANEL_WIDTH) continue;
+        if (currentSpritePanel == 1 && px < PANEL_WIDTH) continue;
+        
         float screenX = (float)px - dx;
         float screenY = (float)py - dy;
         
@@ -1961,6 +2003,9 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
       }
     }
   }
+  
+  // Reset panel isolation after sprite draw
+  currentSpritePanel = -1;
 }
 
 // ============================================================
@@ -3022,6 +3067,8 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
             hub75_buffer[i * 3 + 1] = payload[1];
             hub75_buffer[i * 3 + 2] = payload[2];
           }
+          // Also clear the splat buffer to prevent ghosting between sprites
+          clearSplatBuffer();
         } else {
           uint8_t val = (payload[0] + payload[1] + payload[2]) > 384 ? 0xFF : 0x00;
           memset(oled_buffer, val, OLED_BUFFER_SIZE);

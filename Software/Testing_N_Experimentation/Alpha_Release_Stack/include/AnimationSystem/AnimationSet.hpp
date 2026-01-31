@@ -410,6 +410,75 @@ public:
 };
 
 /**
+ * @brief Static mirrored sprite display (left and right panels)
+ * Shows sprite on both panels with independent position/rotation for each
+ */
+class StaticMirroredAnimationSet : public AnimationSet {
+public:
+    const char* getId() const override { return "static_mirrored"; }
+    const char* getName() const override { return "Static Mirrored"; }
+    const char* getDescription() const override {
+        return "Display sprites on both panels with independent controls";
+    }
+    const char* getCategory() const override { return "Basic"; }
+    
+    StaticMirroredAnimationSet() {
+        parameters_ = {
+            ParameterDef::SpriteSelect("sprite", "Sprite", 0),
+            
+            ParameterDef::Separator("Left Panel (0-63)"),
+            ParameterDef::Slider("left_x", "Left X", 0.0f, 64.0f, 32.0f, "px")
+                .withCategory(ParameterCategory::POSITION),
+            ParameterDef::Slider("left_y", "Left Y", 0.0f, 32.0f, 16.0f, "px")
+                .withCategory(ParameterCategory::POSITION),
+            ParameterDef::Slider("left_rotation", "Left Rotation", 0.0f, 360.0f, 0.0f, "°")
+                .withCategory(ParameterCategory::POSITION),
+            ParameterDef::Slider("left_scale", "Left Scale", 0.1f, 4.0f, 1.0f)
+                .withCategory(ParameterCategory::SIZE),
+            
+            ParameterDef::Separator("Right Panel (64-127)"),
+            ParameterDef::Slider("right_x", "Right X", 64.0f, 128.0f, 96.0f, "px")
+                .withCategory(ParameterCategory::POSITION),
+            ParameterDef::Slider("right_y", "Right Y", 0.0f, 32.0f, 16.0f, "px")
+                .withCategory(ParameterCategory::POSITION),
+            ParameterDef::Slider("right_rotation", "Right Rotation", 0.0f, 360.0f, 180.0f, "°")
+                .withCategory(ParameterCategory::POSITION)
+                .withDescription("Default 180° for mirror effect"),
+            ParameterDef::Slider("right_scale", "Right Scale", 0.1f, 4.0f, 1.0f)
+                .withCategory(ParameterCategory::SIZE),
+            
+            ParameterDef::Separator("Background"),
+            ParameterDef::Color("bg_color", "Background Color", 0, 0, 0),
+        };
+    }
+    
+    void update(uint32_t deltaTimeMs) override {
+        // Static - no animation updates needed
+    }
+    
+    void render(IRenderOutput* output) override {
+        auto* bgColor = getParameter("bg_color");
+        output->clear(bgColor->colorR, bgColor->colorG, bgColor->colorB);
+        
+        int spriteId = getParameter("sprite")->intValue;
+        
+        // Left panel sprite
+        float leftX = getParameter("left_x")->floatValue;
+        float leftY = getParameter("left_y")->floatValue;
+        float leftRot = getParameter("left_rotation")->floatValue;
+        output->blitSpriteRotated(spriteId, leftX, leftY, leftRot);
+        
+        // Right panel sprite
+        float rightX = getParameter("right_x")->floatValue;
+        float rightY = getParameter("right_y")->floatValue;
+        float rightRot = getParameter("right_rotation")->floatValue;
+        output->blitSpriteRotated(spriteId, rightX, rightY, rightRot);
+        
+        output->present();
+    }
+};
+
+/**
  * @brief Rotating sprite animation
  */
 class RotatingSpriteAnimationSet : public AnimationSet {

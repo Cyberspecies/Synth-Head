@@ -10,5 +10,7 @@
 
 #pragma once
 
+#include "FadeTransition.hpp"
 #include "GlitchTransition.hpp"
+#include "LineScanTransition.hpp"
 #include "ParticleTransition.hpp"

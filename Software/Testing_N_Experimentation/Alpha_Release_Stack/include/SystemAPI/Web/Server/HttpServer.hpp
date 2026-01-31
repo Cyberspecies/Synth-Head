@@ -14,7 +14,6 @@
 #include "SystemAPI/Web/Interfaces/ICommandHandler.hpp"
 #include "SystemAPI/Web/Content/WebContent.hpp"
 #include "SystemAPI/Web/Content/PageSdCard.hpp"
-#include "SystemAPI/Web/Content/PageSceneComposition.hpp"
 #include "SystemAPI/Web/Content/PageDisplayConfig.hpp"
 #include "SystemAPI/Misc/SyncState.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
@@ -23,6 +22,10 @@
 #include "SystemAPI/Storage/StorageManager.hpp"
 #include "SystemAPI/Storage/SdCardManager.hpp"
 #include "AnimationSystem/AnimationSystem.hpp"
+#include "AnimationSystem/Core/ShaderRegistry.hpp"
+#include "AnimationSystem/Core/TransitionRegistry.hpp"
+#include "AnimationSystem/Shaders/AllShaders.hpp"
+#include "AnimationSystem/Transitions/AllTransitions.hpp"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -137,8 +140,11 @@ struct SavedScene {
     bool effectsOnly = false;     // Effect overlay (no primary animation)
     int order = 0;                // For drag-drop reordering
     
+    // Background color for display
+    uint8_t bgR = 0, bgG = 0, bgB = 0;
+    
     // New AnimationSystem fields
-    std::string animType = "gyro_eyes";  // Animation type ID: static_image, gyro_eyes, sway
+    std::string animType = "static_sprite";  // Animation type ID: static_sprite (only static for now)
     std::string transition = "none";     // Transition type: none, sdf, glitch, particle
     int spriteId = -1;          // Overlay sprite ID (-1 = none)
     bool mirrorSprite = false;  // Mirror sprite on right panel
@@ -479,7 +485,6 @@ private:
         registerHandler("/api/sdcard/delete", HTTP_POST, handleApiSdCardDelete);
         
         // Animation System API endpoints
-        registerHandler("/scene", HTTP_GET, handlePageSceneComposition);
         registerHandler("/api/animation/sets", HTTP_GET, handleApiAnimationSets);
         registerHandler("/api/animation/params", HTTP_GET, handleApiAnimationParams);
         registerHandler("/api/animation/param", HTTP_POST, handleApiAnimationParam);
@@ -487,6 +492,9 @@ private:
         registerHandler("/api/animation/activate", HTTP_POST, handleApiAnimationActivate);
         registerHandler("/api/animation/stop", HTTP_POST, handleApiAnimationStop);
         registerHandler("/api/animation/reset", HTTP_POST, handleApiAnimationReset);
+        registerHandler("/api/registry/shaders", HTTP_GET, handleApiRegistryShaders);
+        registerHandler("/api/registry/transitions", HTTP_GET, handleApiRegistryTransitions);
+        registerHandler("/api/registry/animations", HTTP_GET, handleApiRegistryAnimations);
         registerHandler("/api/scene/save", HTTP_POST, handleApiSceneSave);
         registerHandler("/api/scene/param", HTTP_POST, handleApiSceneParam);
         registerHandler("/api/scene/preview", HTTP_POST, handleApiScenePreview);
@@ -1443,6 +1451,14 @@ private:
                     if ((val = cJSON_GetObjectItem(sprite, "bgB"))) scene.staticSprite.bgB = val->valueint;
                 }
                 
+                // MIGRATION: Force all animation types to static_sprite
+                // Old types like gyro_eyes, sway, sdf_morph are no longer supported
+                if (scene.animType != "static_sprite" && scene.animType != "static_image") {
+                    ESP_LOGW(HTTP_TAG, "Migrating scene '%s' from animType '%s' to 'static_sprite'",
+                             scene.name.c_str(), scene.animType.c_str());
+                    scene.animType = "static_sprite";
+                }
+                
                 savedScenes_.push_back(scene);
             }
             
@@ -2129,19 +2145,6 @@ private:
     // ========== Animation System Handlers ==========
     
     /**
-     * @brief Serve the Scene Composition page
-     */
-    static esp_err_t handlePageSceneComposition(httpd_req_t* req) {
-        if (requiresAuthRedirect(req)) return redirectToLogin(req);
-        
-        ESP_LOGI(HTTP_TAG, "Serving Scene Composition page");
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-        httpd_resp_send(req, Content::PAGE_SCENE_COMPOSITION, HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
-    
-    /**
      * @brief Get list of all available animation sets
      * GET /api/animation/sets
      */
@@ -2423,6 +2426,76 @@ private:
         return ESP_OK;
     }
     
+    // ========================================================
+    // REGISTRY API ENDPOINTS
+    // Dynamic type discovery for UI
+    // ========================================================
+    
+    /**
+     * @brief Get registered shader types
+     * GET /api/registry/shaders
+     * Returns: {"shaders": [{"id": "...", "name": "...", "params": [...]}]}
+     */
+    static esp_err_t handleApiRegistryShaders(httpd_req_t* req) {
+        ESP_LOGI(HTTP_TAG, "API: Get shader registry");
+        
+        auto& registry = AnimationSystem::ShaderRegistry::instance();
+        std::string json = registry.exportJson();
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json.c_str(), HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get registered transition types
+     * GET /api/registry/transitions
+     * Returns: {"transitions": [{"id": "...", "name": "...", "icon": "...", "params": [...]}]}
+     */
+    static esp_err_t handleApiRegistryTransitions(httpd_req_t* req) {
+        ESP_LOGI(HTTP_TAG, "API: Get transition registry");
+        
+        auto& registry = AnimationSystem::TransitionRegistry::instance();
+        std::string json = registry.exportJson();
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json.c_str(), HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get registered animation types
+     * GET /api/registry/animations
+     * Returns: {"animations": [{"id": "...", "name": "...", "description": "...", "category": "..."}]}
+     */
+    static esp_err_t handleApiRegistryAnimations(httpd_req_t* req) {
+        ESP_LOGI(HTTP_TAG, "API: Get animation registry");
+        
+        auto& paramReg = AnimationSystem::getParameterRegistry();
+        
+        // Build JSON from ParameterRegistry
+        std::string json = "{\"animations\":[";
+        auto infos = paramReg.getAnimationSetInfos();
+        bool first = true;
+        
+        for (const auto& info : infos) {
+            if (!first) json += ",";
+            first = false;
+            
+            json += "{";
+            json += "\"id\":\"" + info.id + "\",";
+            json += "\"name\":\"" + info.name + "\",";
+            json += "\"description\":\"" + info.description + "\",";
+            json += "\"category\":\"" + info.category + "\"";
+            json += "}";
+        }
+        json += "]}";
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json.c_str(), HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
     /**
      * @brief Save current scene configuration
      * POST /api/scene/save
@@ -2523,11 +2596,15 @@ private:
         ESP_LOGI(HTTP_TAG, "API: Update scene param %s = %.2f", paramId, value);
         
         // Update the scene's params if sceneId provided
+        SavedScene* updatedScene = nullptr;
         if (sceneIdItem && cJSON_IsNumber(sceneIdItem)) {
             int sceneId = sceneIdItem->valueint;
             for (auto& scene : savedScenes_) {
                 if (scene.id == sceneId) {
                     scene.params[paramId] = value;
+                    if (scene.active) {
+                        updatedScene = &scene;
+                    }
                     break;
                 }
             }
@@ -2538,6 +2615,11 @@ private:
         AnimationSystem::AnimationSet* activeSet = mode.getActiveAnimationSet();
         if (activeSet) {
             activeSet->setParameterValue(paramId, value);
+        }
+        
+        // Notify callback to update GpuDriverState if scene is active
+        if (updatedScene && getSceneUpdatedCallback()) {
+            getSceneUpdatedCallback()(*updatedScene);
         }
         
         cJSON_Delete(root);
@@ -2581,48 +2663,42 @@ private:
         ESP_LOGI(HTTP_TAG, "API: Preview scene animType=%s transition=%s sprite=%d mirror=%d", 
                  animType, transition, spriteId, mirror);
         
-        // Map animType string to animation set ID
-        // Animation set IDs: gyro_eye, static_sprite, rotating_sprite, etc.
-        std::string animSetId;
-        if (strcmp(animType, "gyro_eyes") == 0) {
-            animSetId = "gyro_eye";
-        } else if (strcmp(animType, "sdf_morph") == 0) {
-            animSetId = "sdf_morph";
-        } else if (strcmp(animType, "shader_test") == 0) {
-            animSetId = "shader_test";
-        } else if (strcmp(animType, "glitch_tv") == 0) {
-            animSetId = "glitch_tv";
-        } else if (strcmp(animType, "sprite_display") == 0) {
-            animSetId = "static_sprite";
-        } else {
-            animSetId = animType;  // Use as-is if not in map
-        }
+        // Build a temporary SavedScene to pass through the callback system
+        // This ensures the preview uses the same rendering path as scene activation
+        SavedScene previewScene;
+        previewScene.id = -1;  // Negative ID indicates preview mode
+        previewScene.name = "Preview";
+        previewScene.active = true;
+        previewScene.displayEnabled = true;
+        previewScene.animType = animType;
+        previewScene.transition = transition;
+        previewScene.spriteId = spriteId;
+        previewScene.mirrorSprite = mirror;
         
-        auto& mode = AnimationSystem::getAnimationMode();
-        
-        // Activate the animation set
-        if (!animSetId.empty()) {
-            mode.activateAnimationSet(animSetId);
-        }
-        
-        // Apply parameters if provided
-        AnimationSystem::AnimationSet* activeSet = mode.getActiveAnimationSet();
-        if (activeSet && paramsItem && cJSON_IsObject(paramsItem)) {
+        // Copy parameters from JSON
+        if (paramsItem && cJSON_IsObject(paramsItem)) {
             cJSON* param = NULL;
             cJSON_ArrayForEach(param, paramsItem) {
                 if (cJSON_IsNumber(param) && param->string) {
-                    activeSet->setParameterValue(param->string, (float)param->valuedouble);
+                    previewScene.params[param->string] = (float)param->valuedouble;
                 }
             }
         }
         
-        // Enable the animation
-        mode.setEnabled(true);
-        
         cJSON_Delete(root);
         
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        // Use the scene activation callback to trigger actual rendering
+        // This connects to GpuDriverState::setSceneAnimation() in CurrentMode.cpp
+        auto& callback = getSceneActivatedCallback();
+        if (callback) {
+            callback(previewScene);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        } else {
+            ESP_LOGW(HTTP_TAG, "No scene callback registered, preview not available");
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, "{\"success\":false,\"error\":\"Scene callback not registered\"}", HTTPD_RESP_USE_STRLEN);
+        }
         return ESP_OK;
     }
     
@@ -2635,8 +2711,18 @@ private:
         
         ESP_LOGI(HTTP_TAG, "API: Stop scene preview");
         
-        auto& mode = AnimationSystem::getAnimationMode();
-        mode.stop();
+        // Create a "none" scene to stop the animation through the proper callback
+        SavedScene stopScene;
+        stopScene.id = -1;
+        stopScene.name = "Stop";
+        stopScene.active = true;
+        stopScene.displayEnabled = true;
+        stopScene.animType = "none";  // This triggers SceneAnimMode::NONE
+        
+        auto& callback = getSceneActivatedCallback();
+        if (callback) {
+            callback(stopScene);
+        }
         
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
@@ -3543,7 +3629,7 @@ private:
             scene.ledsEnabled = false;
             scene.effectsOnly = false;
             scene.order = (int)savedScenes_.size();
-            scene.animType = "gyro_eyes";
+            scene.animType = "static_sprite";
             scene.transition = "none";
             scene.shaderAA = true;
             scene.shaderInvert = false;
@@ -3972,6 +4058,17 @@ private:
                         scene.shaderColor = item->valuestring;
                     }
                     
+                    // Background color (display background)
+                    if ((item = cJSON_GetObjectItem(root, "bgR")) && cJSON_IsNumber(item)) {
+                        scene.bgR = (uint8_t)item->valueint;
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "bgG")) && cJSON_IsNumber(item)) {
+                        scene.bgG = (uint8_t)item->valueint;
+                    }
+                    if ((item = cJSON_GetObjectItem(root, "bgB")) && cJSON_IsNumber(item)) {
+                        scene.bgB = (uint8_t)item->valueint;
+                    }
+                    
                     // LED settings
                     cJSON* ledColor = cJSON_GetObjectItem(root, "ledColor");
                     if (ledColor && cJSON_IsObject(ledColor)) {
@@ -4082,8 +4179,13 @@ private:
                     
                     // Notify if this scene is active
                     auto& callback = getSceneUpdatedCallback();
+                    ESP_LOGI(HTTP_TAG, "Scene %d update complete. Active=%d, Callback=%s", 
+                             scene.id, scene.active, callback ? "YES" : "NO");
                     if (scene.active && callback) {
+                        ESP_LOGI(HTTP_TAG, "Calling sceneUpdatedCallback for scene %d", scene.id);
                         callback(scene);
+                    } else {
+                        ESP_LOGW(HTTP_TAG, "NOT calling callback: active=%d callback=%p", scene.active, (void*)&callback);
                     }
                     
                     ESP_LOGI(HTTP_TAG, "Updated scene: %s (id %d, animType=%s, transition=%s)", 

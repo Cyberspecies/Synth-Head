@@ -728,33 +728,23 @@ const DisplayConfig = {
   // Animation-specific field definitions
   // These define which fields appear for each animation type
   animationFields: {
+    'static_sprite': {
+      // Static sprite can be positioned anywhere on the full display
+      position_x: { type: 'slider', label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x' },
+      position_y: { type: 'slider', label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y' },
+      rotation: { type: 'slider', label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation' },
+      scale: { type: 'slider', label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale' }
+    },
     'static_mirrored': {
-      // Static mirrored just uses fixed positions (32,16 and 96,16)
-      // Only rotation is adjustable
-      rotation: { type: 'slider', label: 'Rotation', min: -180, max: 180, step: 1, unit: '°', param: 'rotation' }
-    },
-    'static_image': {
-      // Static image can be positioned anywhere
-      position_x: { type: 'slider', label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'center_x' },
-      position_y: { type: 'slider', label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'center_y' },
-      rotation: { type: 'slider', label: 'Rotation', min: -180, max: 180, step: 1, unit: '°', param: 'rotation' }
-    },
-    'gyro_eyes': {
-      // Gyro eyes respond to IMU with sensitivity control
-      sensitivity: { type: 'slider', label: 'Sensitivity', min: 0.1, max: 3.0, step: 0.1, param: 'intensity' },
-      eye_size: { type: 'slider', label: 'Eye Size', min: 5, max: 20, step: 1, unit: 'px', param: 'eye_size' },
-      mirror: { type: 'toggle', label: 'Mirror Eyes', param: 'mirror' }
-    },
-    'sway': {
-      // Sway moves the sprite in a wave pattern
-      speed: { type: 'slider', label: 'Speed', min: 0.1, max: 3.0, step: 0.1, param: 'speed' },
-      sway_x: { type: 'slider', label: 'Horizontal Sway', min: 0, max: 30, step: 1, unit: 'px', param: 'sway_x' },
-      sway_y: { type: 'slider', label: 'Vertical Sway', min: 0, max: 15, step: 1, unit: 'px', param: 'sway_y' },
-      rot_range: { type: 'slider', label: 'Rotation Range', min: 0, max: 45, step: 1, unit: '°', param: 'rot_range' }
-    },
-    'sdf_morph': {
-      // SDF morphing between shapes
-      morph_speed: { type: 'slider', label: 'Morph Speed', min: 0.1, max: 2.0, step: 0.1, param: 'morph_speed' }
+      // Static mirrored has independent left/right controls
+      left_x: { type: 'slider', label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x' },
+      left_y: { type: 'slider', label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y' },
+      left_rotation: { type: 'slider', label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation' },
+      left_scale: { type: 'slider', label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale' },
+      right_x: { type: 'slider', label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x' },
+      right_y: { type: 'slider', label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y' },
+      right_rotation: { type: 'slider', label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation' },
+      right_scale: { type: 'slider', label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale' }
     }
   },
   
@@ -777,10 +767,9 @@ const DisplayConfig = {
     
     // Return defaults based on param
     const defaults = {
-      'center_x': 64, 'center_y': 16, 'rotation': 0,
-      'intensity': 1.0, 'sensitivity': 1.0, 'eye_size': 12, 'mirror': true,
-      'speed': 1.0, 'sway_x': 10, 'sway_y': 5, 'rot_range': 15,
-      'morph_speed': 0.5
+      'x': 64, 'y': 16, 'rotation': 0, 'scale': 1.0,
+      'left_x': 32, 'left_y': 16, 'left_rotation': 0, 'left_scale': 1.0,
+      'right_x': 96, 'right_y': 16, 'right_rotation': 180, 'right_scale': 1.0
     };
     return defaults[param] ?? 0;
   },
@@ -1117,11 +1106,8 @@ const DisplayConfig = {
             type: 'dropdown',
             label: 'Animation Type',
             options: [
-              { label: 'Static Mirrored', value: 'static_mirrored' },
-              { label: 'Gyro Eyes', value: 'gyro_eyes' },
-              { label: 'Static Image', value: 'static_image' },
-              { label: 'Sway', value: 'sway' },
-              { label: 'SDF Morph', value: 'sdf_morph' }
+              { label: 'Static Sprite', value: 'static_sprite' },
+              { label: 'Static Mirrored', value: 'static_mirrored' }
             ],
             onChange: 'updateAnimationFields'
           },
@@ -1187,27 +1173,21 @@ const DisplayConfig = {
   // Get animation-specific parameter schema
   getAnimationParamsSchema: function(animType) {
     const animSchemas = {
+      'static_sprite': {
+        position_x: { type: 'slider', label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x' },
+        position_y: { type: 'slider', label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y' },
+        rotation: { type: 'slider', label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation' },
+        scale: { type: 'slider', label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale' }
+      },
       'static_mirrored': {
-        // Static mirrored uses fixed positions (32,16 and 96,16), only rotation matters
-        // No extra params needed - just sprite and rotation
-      },
-      'static_image': {
-        position_x: { type: 'slider', label: 'Position X', min: 0, max: 128, unit: 'px', param: 'center_x' },
-        position_y: { type: 'slider', label: 'Position Y', min: 0, max: 32, unit: 'px', param: 'center_y' }
-      },
-      'gyro_eyes': {
-        sensitivity: { type: 'slider', label: 'Sensitivity', min: 0.1, max: 3, step: 0.1, param: 'intensity' },
-        eye_size: { type: 'slider', label: 'Eye Size', min: 5, max: 20, step: 1, param: 'eye_size' },
-        mirror: { type: 'toggle', label: 'Mirror Eyes', param: 'mirror' }
-      },
-      'sway': {
-        speed: { type: 'slider', label: 'Speed', min: 0.1, max: 3, step: 0.1, param: 'speed' },
-        x_intensity: { type: 'slider', label: 'X Sway', min: 0, max: 30, step: 1, unit: 'px', param: 'sway_x' },
-        y_intensity: { type: 'slider', label: 'Y Sway', min: 0, max: 15, step: 1, unit: 'px', param: 'sway_y' },
-        rotation_range: { type: 'slider', label: 'Rotation Range', min: 0, max: 45, step: 1, unit: '°', param: 'rot_range' }
-      },
-      'sdf_morph': {
-        morph_speed: { type: 'slider', label: 'Morph Speed', min: 0.1, max: 2, step: 0.1, param: 'morph_speed' }
+        left_x: { type: 'slider', label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x' },
+        left_y: { type: 'slider', label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y' },
+        left_rotation: { type: 'slider', label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation' },
+        left_scale: { type: 'slider', label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale' },
+        right_x: { type: 'slider', label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x' },
+        right_y: { type: 'slider', label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y' },
+        right_rotation: { type: 'slider', label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation' },
+        right_scale: { type: 'slider', label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale' }
       }
     };
     return animSchemas[animType] || {};
@@ -1276,13 +1256,22 @@ const DisplayConfig = {
         type: 'dropdown',
         label: 'Animation Type',
         options: [
-          { label: 'Static Mirrored', value: 'static_mirrored' },
-          { label: 'Gyro Eyes', value: 'gyro_eyes' },
-          { label: 'Static Image', value: 'static_image' },
-          { label: 'Sway', value: 'sway' },
-          { label: 'SDF Morph', value: 'sdf_morph' }
+          { label: 'Static Sprite', value: 'static_sprite' },
+          { label: 'Static Mirrored', value: 'static_mirrored' }
         ]
       };
+    }
+    if (key === 'left_x' || key === 'right_x') {
+      return { type: 'slider', min: 0, max: 128, step: 1, unit: 'px' };
+    }
+    if (key === 'left_y' || key === 'right_y') {
+      return { type: 'slider', min: 0, max: 32, step: 1, unit: 'px' };
+    }
+    if (key === 'left_rotation' || key === 'right_rotation') {
+      return { type: 'slider', min: 0, max: 360, step: 1, unit: '°' };
+    }
+    if (key === 'left_scale' || key === 'right_scale' || key === 'scale') {
+      return { type: 'slider', min: 0.1, max: 4.0, step: 0.1 };
     }
     
     // Type-based inference

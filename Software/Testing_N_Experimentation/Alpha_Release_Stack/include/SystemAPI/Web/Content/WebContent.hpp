@@ -27,7 +27,6 @@
 #include "PageAdvancedMenu.hpp"
 #include "PageSprite.hpp"
 #include "PageEquations.hpp"
-#include "PageSceneComposition.hpp"
 #include "PageSceneList.hpp"
 #include "PageSceneEdit.hpp"
 #include "PageSettings.hpp"

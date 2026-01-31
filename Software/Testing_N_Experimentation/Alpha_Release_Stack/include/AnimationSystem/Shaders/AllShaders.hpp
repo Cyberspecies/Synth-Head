@@ -11,3 +11,5 @@
 #pragma once
 
 #include "GlitchShader.hpp"
+#include "HueCycleShader.hpp"
+#include "HueGradientShader.hpp"

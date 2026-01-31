@@ -188,6 +188,16 @@ namespace GpuDriverState {
     static float staticPosX = 64.0f;
     static float staticPosY = 16.0f;
     
+    // Static mirrored state (separate left/right controls)
+    static float leftPosX = 32.0f;
+    static float leftPosY = 16.0f;
+    static float leftRotation = 0.0f;
+    static float leftScale = 1.0f;
+    static float rightPosX = 96.0f;
+    static float rightPosY = 16.0f;
+    static float rightRotation = 180.0f;
+    static float rightScale = 1.0f;
+    
     // ====== COMPLEX TRANSITION ANIMATION ======
     static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
     static bool complexAnimEnabled = false;  // Disabled - use sandbox instead
@@ -574,75 +584,9 @@ namespace GpuDriverState {
                 }
                 
                 switch (currentAnimMode) {
-                    case SceneAnimMode::GYRO_EYES: {
-                        // Gyro-controlled eyes animation
-                        g_gpu.hub75Clear(0, 0, 0);
-                        
-                        // Left eye position (panel 0, center = 32, 16)
-                        float leftCenterX = 32.0f;
-                        float leftCenterY = 16.0f;
-                        
-                        // Right eye position (panel 1, center = 96, 16)
-                        float rightCenterX = 96.0f;
-                        float rightCenterY = 16.0f;
-                        
-                        // DIRECT gyro response - no integration, immediate movement!
-                        // Gyro values are typically ±100 for normal movement
-                        // Map directly to pixel offset: divide by sensitivity factor
-                        float maxOffsetX = 12.0f;
-                        float maxOffsetY = 6.0f;
-                        
-                        // Direct mapping: gyro value / divisor = pixel offset
-                        // Lower divisor = more sensitive
-                        float divisor = 8.0f;  // ±100 gyro -> ±12.5 pixels
-                        
-                        // gy controls X (left/right tilt), gx controls Y (forward/back tilt)
-                        float rawOffsetX = (float)gy / divisor;
-                        float rawOffsetY = (float)(-gx) / divisor;
-                        
-                        // Clamp to max range
-                        float offsetX = fmaxf(-maxOffsetX, fminf(maxOffsetX, rawOffsetX));
-                        float offsetY = fmaxf(-maxOffsetY, fminf(maxOffsetY, rawOffsetY));
-                        
-                        // DEBUG: Show direct response
-                        static uint32_t lastDebugFrame = 0;
-                        if ((renderFrameCount - lastDebugFrame) >= 30) {
-                            printf("DIRECT: gyro=(%d,%d) -> offset=(%.1f,%.1f)\n", 
-                                   gx, gy, offsetX, offsetY);
-                            lastDebugFrame = renderFrameCount;
-                        }
-                        
-                        // TIMING DEBUG: When do we actually send to GPU?
-                        int64_t t1 = esp_timer_get_time();
-                        
-                        // Draw left eye
-                        float leftX = leftCenterX + offsetX;
-                        float leftY = leftCenterY + offsetY;
-                        
-                        // Draw right eye (optionally mirrored)
-                        float rightX = rightCenterX + (eyeMirror ? -offsetX : offsetX);
-                        float rightY = rightCenterY + offsetY;
-                        
-                        // Use sprite if available, otherwise draw circles
-                        if (spriteReady) {
-                            g_gpu.blitSpriteF(activeSpriteId, leftX, leftY);
-                            g_gpu.blitSpriteF(activeSpriteId, rightX, rightY);
-                        } else {
-                            g_gpu.hub75Circle((int16_t)leftX, (int16_t)leftY, (int16_t)eyeSize, 255, 255, 255);
-                            g_gpu.hub75Circle((int16_t)rightX, (int16_t)rightY, (int16_t)eyeSize, 255, 255, 255);
-                        }
-                        g_gpu.hub75Present();
-                        
-                        // TIMING DEBUG: How long did GPU commands take?
-                        int64_t t2 = esp_timer_get_time();
-                        static uint32_t lastTimingDebug = 0;
-                        if ((renderFrameCount - lastTimingDebug) >= 30) {
-                            printf("GPU_TIME[%lu]: commands took %lld us, offset=(%.1f,%.1f)\n", 
-                                   renderFrameCount, t2 - t1, offsetX, offsetY);
-                            lastTimingDebug = renderFrameCount;
-                        }
-                        break;
-                    }
+                    case SceneAnimMode::GYRO_EYES:
+                        // DEPRECATED: Gyro eyes removed - fall through to STATIC_IMAGE
+                        // This case should not happen due to migration, but handle gracefully
                     
                     case SceneAnimMode::STATIC_IMAGE: {
                         // Static sprite display (single, centered on full display)
@@ -660,98 +604,61 @@ namespace GpuDriverState {
                     }
                     
                     case SceneAnimMode::STATIC_MIRRORED: {
-                        // Static sprite on both panels (left and right, mirrored)
+                        // Static sprite on both panels with independent left/right controls
                         g_gpu.hub75Clear(bgR, bgG, bgB);
                         
-                        // Left panel center: 32, 16
-                        // Right panel center: 96, 16
-                        const float leftCenterX = 32.0f;
-                        const float rightCenterX = 96.0f;
-                        const float panelCenterY = 16.0f;
-                        
                         if (spriteReady) {
-                            // Draw on left panel (normal orientation)
-                            g_gpu.blitSpriteRotated(activeSpriteId, leftCenterX, panelCenterY, staticRotation);
-                            // Draw on right panel (flipped 180° for mirror effect)
-                            g_gpu.blitSpriteRotated(activeSpriteId, rightCenterX, panelCenterY, 180.0f + staticRotation);
+                            // Draw on left panel with left-specific params
+                            g_gpu.blitSpriteRotated(activeSpriteId, leftPosX, leftPosY, leftRotation);
+                            // Draw on right panel with right-specific params
+                            g_gpu.blitSpriteRotated(activeSpriteId, rightPosX, rightPosY, rightRotation);
                         } else {
-                            // No sprite uploaded - use default vector eye drawing with rotation
-                            drawDefaultVectorEye(g_gpu, leftCenterX, panelCenterY, false, staticRotation);   // Left eye (normal)
-                            drawDefaultVectorEye(g_gpu, rightCenterX, panelCenterY, true, staticRotation);   // Right eye (mirrored)
+                            // No sprite uploaded - use default vector eye drawing
+                            drawDefaultVectorEye(g_gpu, leftPosX, leftPosY, false, leftRotation);
+                            drawDefaultVectorEye(g_gpu, rightPosX, rightPosY, true, rightRotation);
                         }
                         
                         g_gpu.hub75Present();
                         
                         if (renderFrameCount % 120 == 0) {
-                            printf("STATIC_MIRRORED: Frame %lu - sprite=%d, rot=%.1f, using %s\n", 
-                                   renderFrameCount, spriteReady ? activeSpriteId : -1, staticRotation,
-                                   spriteReady ? "uploaded sprite" : "default vector eye");
+                            printf("STATIC_MIRRORED: Frame %lu - L(%.0f,%.0f,%.0f) R(%.0f,%.0f,%.0f)\n", 
+                                   renderFrameCount, leftPosX, leftPosY, leftRotation,
+                                   rightPosX, rightPosY, rightRotation);
                         }
                         break;
                     }
                     
-                    case SceneAnimMode::SWAY: {
-                        // Swaying sprite animation
-                        swayTime += (float)RENDER_INTERVAL_MS / 1000.0f * swaySpeed;
-                        
-                        float swayX = swayCosX ? cosf(swayTime * 2.0f) * swayXIntensity : sinf(swayTime * 2.0f) * swayXIntensity;
-                        float swayY = sinf(swayTime * 1.5f) * swayYIntensity;
-                        float swayRot = sinf(swayTime) * swayRotRange;
-                        
-                        g_gpu.hub75Clear(bgR, bgG, bgB);
-                        
-                        // Sway around center of display
-                        float centerX = 64.0f + swayX;
-                        float centerY = 16.0f + swayY;
-                        
-                        if (spriteReady) {
-                            g_gpu.blitSpriteRotated(activeSpriteId, centerX, centerY, swayRot);
-                        } else {
-                            // No sprite, draw swaying circle (cast to int)
-                            g_gpu.hub75Circle((int16_t)centerX, (int16_t)centerY, 10, 255, 255, 255);
+                    case SceneAnimMode::SWAY:
+                        // DEPRECATED: Sway animation removed - fall through to STATIC_IMAGE behavior
+                        {
+                            g_gpu.hub75Clear(bgR, bgG, bgB);
+                            if (spriteReady) {
+                                g_gpu.blitSpriteRotated(activeSpriteId, staticPosX, staticPosY, staticRotation);
+                            } else {
+                                drawDefaultVectorEye(g_gpu, 64.0f, 16.0f, false, staticRotation);
+                            }
+                            g_gpu.hub75Present();
                         }
-                        
+                        break;
+                    
+                    case SceneAnimMode::SDF_MORPH:
+                        // DEPRECATED: SDF_MORPH removed - fall through to static
+                        {
+                            g_gpu.hub75Clear(bgR, bgG, bgB);
+                            if (spriteReady) {
+                                g_gpu.blitSpriteRotated(activeSpriteId, staticPosX, staticPosY, staticRotation);
+                            } else {
+                                drawDefaultVectorEye(g_gpu, 64.0f, 16.0f, false, staticRotation);
+                            }
+                            g_gpu.hub75Present();
+                        }
+                        break;
+                    
+                    case SceneAnimMode::NONE:
+                        // No animation - just clear screen
+                        g_gpu.hub75Clear(0, 0, 0);
                         g_gpu.hub75Present();
-                        
-                        if (renderFrameCount % 60 == 0) {
-                            printf("SWAY: Frame %lu - pos=(%.1f,%.1f) rot=%.1f time=%.2f\n",
-                                   renderFrameCount, centerX, centerY, swayRot, swayTime);
-                        }
                         break;
-                    }
-                    
-                    case SceneAnimMode::SDF_MORPH: {
-                        // SDF morphing uses sandbox
-                        if (!sandboxInitialized) {
-                            auto& sandbox = AnimationSystem::Sandbox::getSandbox();
-                            
-                            sandbox.clear = [](uint8_t r, uint8_t g, uint8_t b) { g_gpu.hub75Clear(r, g, b); };
-                            sandbox.fillRect = [](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
-                                if (w > 0 && h > 0) g_gpu.hub75Fill(x, y, w, h, r, g, b);
-                            };
-                            sandbox.drawPixel = [](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-                                g_gpu.hub75Pixel(x, y, r, g, b);
-                            };
-                            sandbox.drawCircleF = [](float x, float y, float radius, uint8_t r, uint8_t g, uint8_t b) {
-                                g_gpu.hub75Circle((int16_t)x, (int16_t)y, (int16_t)radius, r, g, b);
-                            };
-                            sandbox.present = []() { g_gpu.hub75Present(); vTaskDelay(pdMS_TO_TICKS(2)); };
-                            
-                            sandbox.setEnabled(true);
-                            sandbox.setAnimation(AnimationSystem::Sandbox::SandboxController::Animation::SDF_MORPH);
-                            sandboxInitialized = true;
-                            printf("SDF_MORPH: Initialized\n");
-                        }
-                        
-                        auto& sandbox = AnimationSystem::Sandbox::getSandbox();
-                        sandbox.gyroX = sandboxPitch;
-                        sandbox.gyroY = sandboxRoll;
-                        sandbox.gyroZ = sandboxAudioLevel;
-                        sandbox.update(RENDER_INTERVAL_MS);
-                        vTaskDelay(pdMS_TO_TICKS(1));
-                        sandbox.render();
-                        break;
-                    }
                     
                     default:
                         break;
@@ -896,9 +803,11 @@ namespace GpuDriverState {
     void setSceneAnimation(const std::string& animType) {
         printf("  SCENE: Setting animation type to '%s'\n", animType.c_str());
         
-        if (animType == "gyro_eyes") {
+        if (animType == "none" || animType.empty()) {
+            currentAnimMode = SceneAnimMode::NONE;
+        } else if (animType == "gyro_eyes") {
             currentAnimMode = SceneAnimMode::GYRO_EYES;
-        } else if (animType == "static_image" || animType == "static") {
+        } else if (animType == "static_image" || animType == "static" || animType == "static_sprite") {
             currentAnimMode = SceneAnimMode::STATIC_IMAGE;
         } else if (animType == "static_mirrored") {
             currentAnimMode = SceneAnimMode::STATIC_MIRRORED;
@@ -908,7 +817,8 @@ namespace GpuDriverState {
             currentAnimMode = SceneAnimMode::SDF_MORPH;
             sandboxEnabled = true;  // SDF morph uses sandbox
         } else {
-            currentAnimMode = SceneAnimMode::GYRO_EYES;  // Default
+            // Default to static image for unknown animation types
+            currentAnimMode = SceneAnimMode::STATIC_IMAGE;
         }
         
         // Reset animation state
@@ -945,6 +855,24 @@ namespace GpuDriverState {
         staticRotation = rotation;
         staticPosX = posX;
         staticPosY = posY;
+    }
+    
+    void setMirroredParams(float lx, float ly, float lrot, float lscale,
+                           float rx, float ry, float rrot, float rscale) {
+        leftPosX = lx;
+        leftPosY = ly;
+        leftRotation = lrot;
+        leftScale = lscale;
+        rightPosX = rx;
+        rightPosY = ry;
+        rightRotation = rrot;
+        rightScale = rscale;
+    }
+    
+    void setBackgroundColor(uint8_t r, uint8_t g, uint8_t b) {
+        bgR = r;
+        bgG = g;
+        bgB = b;
     }
 
     void updateSandboxSensors(float gyroX, float gyroY, float gyroZ) {
@@ -1480,7 +1408,11 @@ void CurrentMode::onStart() {
         printf("  Animation Type: %s\n", scene.animType.c_str());
         printf("  Display Enabled: %s\n", scene.displayEnabled ? "YES" : "NO");
         printf("  LEDs Enabled: %s\n", scene.ledsEnabled ? "YES" : "NO");
+        printf("  Background: RGB(%d,%d,%d)\n", scene.bgR, scene.bgG, scene.bgB);
         printf("  ========================================\n\n");
+        
+        // Set background color
+        GpuDriverState::setBackgroundColor(scene.bgR, scene.bgG, scene.bgB);
         
         // Update animation mode based on scene settings
         if (scene.displayEnabled) {
@@ -1500,11 +1432,21 @@ void CurrentMode::onStart() {
                        eyeSize, intensity, mirror ? "YES" : "NO", scene.spriteId);
             }
             // Static image parameters
-            else if (scene.animType == "static_image") {
-                float posX = scene.params.count("center_x") ? scene.params.at("center_x") : 64.0f;
-                float posY = scene.params.count("center_y") ? scene.params.at("center_y") : 16.0f;
+            else if (scene.animType == "static_image" || scene.animType == "static_sprite") {
+                float posX = scene.params.count("center_x") ? scene.params.at("center_x") : 
+                             (scene.params.count("x") ? scene.params.at("x") : 64.0f);
+                float posY = scene.params.count("center_y") ? scene.params.at("center_y") : 
+                             (scene.params.count("y") ? scene.params.at("y") : 16.0f);
                 float rot = scene.params.count("rotation") ? scene.params.at("rotation") : 0.0f;
-                GpuDriverState::setStaticParams(1.0f, rot, posX, posY);
+                float scale = scene.params.count("scale") ? scene.params.at("scale") : 1.0f;
+                GpuDriverState::setStaticParams(scale, rot, posX, posY);
+                printf("  Static Image: pos=(%.1f,%.1f), rot=%.1f, scale=%.1f, mirror=%s\n", 
+                       posX, posY, rot, scale, scene.mirrorSprite ? "YES" : "NO");
+                
+                // Override animation mode to mirrored if mirror sprite is enabled
+                if (scene.mirrorSprite) {
+                    GpuDriverState::setSceneAnimation("static_mirrored");
+                }
             }
             // Sway parameters
             else if (scene.animType == "sway") {
@@ -1514,11 +1456,21 @@ void CurrentMode::onStart() {
                 float speed = scene.params.count("speed") ? scene.params.at("speed") : 1.0f;
                 GpuDriverState::setSwayParams(swayX, swayY, rotRange, speed, false);
             }
-            // Static mirrored - just use rotation
+            // Static mirrored - read left/right individual parameters
             else if (scene.animType == "static_mirrored") {
-                float rot = scene.params.count("rotation") ? scene.params.at("rotation") : 0.0f;
-                printf("  Static Mirrored: rotation=%.1f (params count=%zu)\n", rot, scene.params.size());
-                GpuDriverState::setStaticParams(1.0f, rot, 64.0f, 16.0f);
+                // Left panel params
+                float lx = scene.params.count("left_x") ? scene.params.at("left_x") : 32.0f;
+                float ly = scene.params.count("left_y") ? scene.params.at("left_y") : 16.0f;
+                float lrot = scene.params.count("left_rotation") ? scene.params.at("left_rotation") : 0.0f;
+                float lscale = scene.params.count("left_scale") ? scene.params.at("left_scale") : 1.0f;
+                // Right panel params
+                float rx = scene.params.count("right_x") ? scene.params.at("right_x") : 96.0f;
+                float ry = scene.params.count("right_y") ? scene.params.at("right_y") : 16.0f;
+                float rrot = scene.params.count("right_rotation") ? scene.params.at("right_rotation") : 180.0f;
+                float rscale = scene.params.count("right_scale") ? scene.params.at("right_scale") : 1.0f;
+                
+                GpuDriverState::setMirroredParams(lx, ly, lrot, lscale, rx, ry, rrot, rscale);
+                printf("  Static Mirrored: L(%.0f,%.0f,%.0f) R(%.0f,%.0f,%.0f)\n", lx, ly, lrot, rx, ry, rrot);
             }
             
             // Handle sprite upload if scene uses a sprite
@@ -1537,7 +1489,7 @@ void CurrentMode::onStart() {
                                                               sprite->width,
                                                               sprite->height)) {
                         vTaskDelay(pdMS_TO_TICKS(100));
-                        GpuDriverState::setSpriteScene(gpuSpriteId, 64.0f, 16.0f, 0.0f, 0, 0, 0);
+                        GpuDriverState::setSpriteScene(gpuSpriteId, 64.0f, 16.0f, 0.0f, scene.bgR, scene.bgG, scene.bgB);
                         printf("  Sprite uploaded to GPU slot 0, spriteReady=true\n");
                     } else {
                         printf("  ERROR: Sprite upload to GPU failed!\n");
@@ -1566,6 +1518,63 @@ void CurrentMode::onStart() {
             GpuDriverState::setLedsEnabled(false);
             printf("  LEDs: Disabled\n");
         }
+    });
+    
+    // Callback for live scene parameter updates - updates GpuDriverState when sliders change
+    httpServer.setSceneUpdatedCallback([](const SystemAPI::Web::SavedScene& scene) {
+        printf("\n*** SCENE UPDATED CALLBACK ***\n");
+        printf("  Scene ID: %d, AnimType: '%s'\n", scene.id, scene.animType.c_str());
+        printf("  Background: RGB(%d,%d,%d)\n", scene.bgR, scene.bgG, scene.bgB);
+        printf("  Params count: %zu\n", scene.params.size());
+        for (const auto& p : scene.params) {
+            printf("    %s = %.2f\n", p.first.c_str(), p.second);
+        }
+        
+        // Set background color
+        GpuDriverState::setBackgroundColor(scene.bgR, scene.bgG, scene.bgB);
+        
+        // Apply animation-specific params based on type
+        if (scene.animType == "static_sprite") {
+            float posX = scene.params.count("center_x") ? scene.params.at("center_x") : 
+                         (scene.params.count("x") ? scene.params.at("x") : 64.0f);
+            float posY = scene.params.count("center_y") ? scene.params.at("center_y") : 
+                         (scene.params.count("y") ? scene.params.at("y") : 16.0f);
+            float rot = scene.params.count("rotation") ? scene.params.at("rotation") : 0.0f;
+            float scale = scene.params.count("scale") ? scene.params.at("scale") : 1.0f;
+            printf("  -> setStaticParams(scale=%.2f, rot=%.2f, x=%.2f, y=%.2f)\n", scale, rot, posX, posY);
+            GpuDriverState::setStaticParams(scale, rot, posX, posY);
+        }
+        else if (scene.animType == "static_mirrored") {
+            float lx = scene.params.count("left_x") ? scene.params.at("left_x") : 32.0f;
+            float ly = scene.params.count("left_y") ? scene.params.at("left_y") : 16.0f;
+            float lrot = scene.params.count("left_rotation") ? scene.params.at("left_rotation") : 0.0f;
+            float lscale = scene.params.count("left_scale") ? scene.params.at("left_scale") : 1.0f;
+            float rx = scene.params.count("right_x") ? scene.params.at("right_x") : 96.0f;
+            float ry = scene.params.count("right_y") ? scene.params.at("right_y") : 16.0f;
+            float rrot = scene.params.count("right_rotation") ? scene.params.at("right_rotation") : 180.0f;
+            float rscale = scene.params.count("right_scale") ? scene.params.at("right_scale") : 1.0f;
+            printf("  -> setMirroredParams(L: %.0f,%.0f,%.0f R: %.0f,%.0f,%.0f)\n", lx, ly, lrot, rx, ry, rrot);
+            GpuDriverState::setMirroredParams(lx, ly, lrot, lscale, rx, ry, rrot, rscale);
+        }
+        else if (scene.animType == "gyro_eyes") {
+            float eyeSize = scene.params.count("eye_size") ? scene.params.at("eye_size") : 12.0f;
+            float intensity = scene.params.count("intensity") ? scene.params.at("intensity") : 1.0f;
+            bool mirror = scene.params.count("mirror") ? (scene.params.at("mirror") > 0.5f) : true;
+            printf("  -> setGyroEyeParams(size=%.2f, intensity=%.2f, mirror=%d)\n", eyeSize, intensity, mirror);
+            GpuDriverState::setGyroEyeParams(eyeSize, intensity, mirror, scene.spriteId);
+        }
+        else if (scene.animType == "sway") {
+            float swayX = scene.params.count("sway_x") ? scene.params.at("sway_x") : 10.0f;
+            float swayY = scene.params.count("sway_y") ? scene.params.at("sway_y") : 5.0f;
+            float rotRange = scene.params.count("rot_range") ? scene.params.at("rot_range") : 15.0f;
+            float speed = scene.params.count("speed") ? scene.params.at("speed") : 1.0f;
+            printf("  -> setSwayParams(swayX=%.2f, swayY=%.2f)\n", swayX, swayY);
+            GpuDriverState::setSwayParams(swayX, swayY, rotRange, speed, false);
+        }
+        else {
+            printf("  -> Unknown animType, no params applied!\n");
+        }
+        printf("*** END CALLBACK ***\n\n");
     });
     
     printf("  Web-GPU Callbacks: Registered\n");

@@ -467,7 +467,7 @@ public:
         scene.ledsEnabled = false;
         scene.effectsOnly = false;
         scene.order = (int)Web::savedScenes_.size();
-        scene.animType = "gyro_eyes";
+        scene.animType = "static_sprite";
         scene.transition = "none";
         scene.spriteId = -1;
         scene.mirrorSprite = false;
@@ -2390,7 +2390,7 @@ public:
         scene.ledsEnabled = false;
         scene.effectsOnly = false;
         scene.order = (int)Web::savedScenes_.size();
-        scene.animType = "gyro_eyes";
+        scene.animType = "static_sprite";
         scene.transition = "none";
         scene.spriteId = -1;
         scene.mirrorSprite = false;
