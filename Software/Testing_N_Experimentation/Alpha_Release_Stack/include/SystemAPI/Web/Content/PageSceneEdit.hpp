@@ -419,8 +419,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
                     <span class="param-label">Animation</span>
                     <div class="param-control">
                       <select id="animationType" onchange="selectAnimation(this.value)" style="flex:1;padding:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.9rem;">
-                        <option value="gyro_eyes">Gyro Eyes</option>
-                        <option value="static">Static (with Mirror Toggle)</option>
+                        <!-- Populated dynamically from /api/registry/animations -->
                       </select>
                     </div>
                   </div>
@@ -545,7 +544,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
     displayEnabled: true,
     ledsEnabled: false,
     effectsOnly: false,
-    animationType: 'gyro_eyes',
+    animationType: 'static',
     animParams: {},
     shaderAA: true,
     shaderInvert: false,
@@ -556,6 +555,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
     ledBrightness: 80
   };
   var sprites = [];
+  var animations = [];
 
   // Get scene ID from URL
   function getSceneId() {
@@ -596,6 +596,35 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
       .catch(function() {});
   }
 
+  // Load animations from registry
+  function loadAnimations() {
+    fetch('/api/registry/animations')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        animations = data.animations || [];
+        populateAnimationDropdown();
+      })
+      .catch(function() {
+        console.error('Failed to load animations');
+      });
+  }
+
+  // Populate animation dropdown from API data
+  function populateAnimationDropdown() {
+    var select = document.getElementById('animationType');
+    select.innerHTML = '';
+    animations.forEach(function(anim) {
+      var opt = document.createElement('option');
+      opt.value = anim.id;
+      opt.textContent = anim.name;
+      select.appendChild(opt);
+    });
+    // Set current value if scene already has one
+    if (scene.animationType) {
+      select.value = scene.animationType;
+    }
+  }
+
   // Render scene state to UI
   function renderScene() {
     document.getElementById('sceneName').value = scene.name || '';
@@ -615,7 +644,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
     document.getElementById('effectsOnly').checked = scene.effectsOnly || false;
     
     // Animation
-    selectAnimation(scene.animationType || 'gyro_eyes');
+    selectAnimation(scene.animationType || 'static');
     
     // Shader
     document.getElementById('shaderAA').checked = scene.shaderAA !== false;
@@ -686,16 +715,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
     var container = document.getElementById('animParams');
     var html = '';
     
-    if (type === 'gyro_eyes') {
-      html = '<div class="subsection-title" style="margin-top:0;">Gyro Eyes Settings</div>' +
-        '<div class="param-row"><span class="param-label">Eye Sprite</span><div class="param-control"><select id="eyeSprite" onchange="updateAnimParam(\'sprite\', this.value)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">' +
-        '<option value="">Default (Circle)</option>' +
-        sprites.map(function(s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('') +
-        '</select></div></div>' +
-        '<div class="param-row"><span class="param-label">Eye Size</span><div class="param-control"><input type="range" id="eyeSize" min="4" max="24" value="12" oninput="updateAnimParam(\'size\', this.value);document.getElementById(\'eyeSizeVal\').textContent=this.value+\'px\'"><span class="param-value" id="eyeSizeVal">12px</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Sensitivity</span><div class="param-control"><input type="range" id="eyeSensitivity" min="0.1" max="2" step="0.1" value="1" oninput="updateAnimParam(\'sensitivity\', this.value);document.getElementById(\'eyeSensVal\').textContent=this.value+\'x\'"><span class="param-value" id="eyeSensVal">1x</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Mirror Eyes</span><div class="param-control"><label class="toggle"><input type="checkbox" id="eyeMirror" checked onchange="updateAnimParam(\'mirror\', this.checked)"><span class="toggle-slider"></span></label></div></div>';
-    } else if (type === 'static_image' || type === 'static') {
+    if (type === 'static_sprite' || type === 'static_image' || type === 'static') {
       html = '<div class="subsection-title" style="margin-top:0;">Static Image Settings</div>' +
         '<div class="param-row"><span class="param-label">Sprite</span><div class="param-control"><select id="staticSprite" onchange="updateAnimParam(\'sprite\', this.value)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">' +
         sprites.map(function(s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('') +
@@ -703,18 +723,22 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
         '<div class="param-row"><span class="param-label">Scale</span><div class="param-control"><input type="range" id="staticScale" min="0.5" max="4" step="0.1" value="1" oninput="updateAnimParam(\'scale\', this.value);document.getElementById(\'staticScaleVal\').textContent=this.value+\'x\'"><span class="param-value" id="staticScaleVal">1x</span></div></div>' +
         '<div class="param-row"><span class="param-label">Rotation</span><div class="param-control"><input type="range" id="staticRotation" min="0" max="360" value="0" oninput="updateAnimParam(\'rotation\', this.value);document.getElementById(\'staticRotVal\').textContent=this.value+\'°\'"><span class="param-value" id="staticRotVal">0°</span></div></div>' +
         '<div class="param-row"><span class="param-label">Position X</span><div class="param-control"><input type="range" id="staticX" min="0" max="128" value="64" oninput="updateAnimParam(\'posX\', this.value);document.getElementById(\'staticXVal\').textContent=this.value"><span class="param-value" id="staticXVal">64</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Position Y</span><div class="param-control"><input type="range" id="staticY" min="0" max="32" value="16" oninput="updateAnimParam(\'posY\', this.value);document.getElementById(\'staticYVal\').textContent=this.value"><span class="param-value" id="staticYVal">16</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Mirror Displays</span><div class="param-control"><label class="toggle"><input type="checkbox" id="staticMirror" checked onchange="updateAnimParam(\'mirror\', this.checked)"><span class="toggle-slider"></span></label></div></div>';
-    } else if (type === 'sway') {
-      html = '<div class="subsection-title" style="margin-top:0;">Sway Settings</div>' +
-        '<div class="param-row"><span class="param-label">Sprite</span><div class="param-control"><select id="swaySprite" onchange="updateAnimParam(\'sprite\', this.value)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">' +
+        '<div class="param-row"><span class="param-label">Position Y</span><div class="param-control"><input type="range" id="staticY" min="0" max="32" value="16" oninput="updateAnimParam(\'posY\', this.value);document.getElementById(\'staticYVal\').textContent=this.value"><span class="param-value" id="staticYVal">16</span></div></div>';
+    } else if (type === 'static_mirrored') {
+      html = '<div class="subsection-title" style="margin-top:0;">Mirrored Display Settings</div>' +
+        '<div class="param-row"><span class="param-label">Sprite</span><div class="param-control"><select id="mirroredSprite" onchange="updateAnimParam(\'sprite\', this.value)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">' +
         sprites.map(function(s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('') +
         '</select></div></div>' +
-        '<div class="param-row"><span class="param-label">X Intensity</span><div class="param-control"><input type="range" id="swayXInt" min="0" max="30" value="10" oninput="updateAnimParam(\'xIntensity\', this.value);document.getElementById(\'swayXVal\').textContent=this.value+\'px\'"><span class="param-value" id="swayXVal">10px</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Y Intensity</span><div class="param-control"><input type="range" id="swayYInt" min="0" max="15" value="5" oninput="updateAnimParam(\'yIntensity\', this.value);document.getElementById(\'swayYVal\').textContent=this.value+\'px\'"><span class="param-value" id="swayYVal">5px</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Rotation Range</span><div class="param-control"><input type="range" id="swayRot" min="0" max="45" value="15" oninput="updateAnimParam(\'rotRange\', this.value);document.getElementById(\'swayRotVal\').textContent=\'±\'+this.value+\'°\'"><span class="param-value" id="swayRotVal">±15°</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Speed</span><div class="param-control"><input type="range" id="swaySpeed" min="0.5" max="3" step="0.1" value="1" oninput="updateAnimParam(\'speed\', this.value);document.getElementById(\'swaySpeedVal\').textContent=this.value+\'x\'"><span class="param-value" id="swaySpeedVal">1x</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Use Cosine for X</span><div class="param-control"><label class="toggle"><input type="checkbox" id="swayCosX" onchange="updateAnimParam(\'cosX\', this.checked)"><span class="toggle-slider"></span></label></div></div>';
+        '<div class="subsection-title" style="margin-top:12px;">Left Panel</div>' +
+        '<div class="param-row"><span class="param-label">Position X</span><div class="param-control"><input type="range" id="leftX" min="0" max="64" value="32" oninput="updateAnimParam(\'left_x\', this.value);document.getElementById(\'leftXVal\').textContent=this.value"><span class="param-value" id="leftXVal">32</span></div></div>' +
+        '<div class="param-row"><span class="param-label">Position Y</span><div class="param-control"><input type="range" id="leftY" min="0" max="32" value="16" oninput="updateAnimParam(\'left_y\', this.value);document.getElementById(\'leftYVal\').textContent=this.value"><span class="param-value" id="leftYVal">16</span></div></div>' +
+        '<div class="param-row"><span class="param-label">Rotation</span><div class="param-control"><input type="range" id="leftRot" min="0" max="360" value="0" oninput="updateAnimParam(\'left_rotation\', this.value);document.getElementById(\'leftRotVal\').textContent=this.value+\'°\'"><span class="param-value" id="leftRotVal">0°</span></div></div>' +
+        '<div class="param-row"><span class="param-label">Scale</span><div class="param-control"><input type="range" id="leftScale" min="0.5" max="4" step="0.1" value="1" oninput="updateAnimParam(\'left_scale\', this.value);document.getElementById(\'leftScaleVal\').textContent=this.value+\'x\'"><span class="param-value" id="leftScaleVal">1x</span></div></div>' +
+        '<div class="subsection-title" style="margin-top:12px;">Right Panel</div>' +
+        '<div class="param-row"><span class="param-label">Position X</span><div class="param-control"><input type="range" id="rightX" min="64" max="128" value="96" oninput="updateAnimParam(\'right_x\', this.value);document.getElementById(\'rightXVal\').textContent=this.value"><span class="param-value" id="rightXVal">96</span></div></div>' +
+        '<div class="param-row"><span class="param-label">Position Y</span><div class="param-control"><input type="range" id="rightY" min="0" max="32" value="16" oninput="updateAnimParam(\'right_y\', this.value);document.getElementById(\'rightYVal\').textContent=this.value"><span class="param-value" id="rightYVal">16</span></div></div>' +
+        '<div class="param-row"><span class="param-label">Rotation</span><div class="param-control"><input type="range" id="rightRot" min="0" max="360" value="180" oninput="updateAnimParam(\'right_rotation\', this.value);document.getElementById(\'rightRotVal\').textContent=this.value+\'°\'"><span class="param-value" id="rightRotVal">180°</span></div></div>' +
+        '<div class="param-row"><span class="param-label">Scale</span><div class="param-control"><input type="range" id="rightScale" min="0.5" max="4" step="0.1" value="1" oninput="updateAnimParam(\'right_scale\', this.value);document.getElementById(\'rightScaleVal\').textContent=this.value+\'x\'"><span class="param-value" id="rightScaleVal">1x</span></div></div>';
     }
     
     container.innerHTML = html;
@@ -808,7 +832,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
       displayEnabled: scene.displayEnabled,
       ledsEnabled: scene.ledsEnabled,
       effectsOnly: scene.effectsOnly,
-      animType: scene.animationType || 'gyro_eyes',
+      animType: scene.animationType || 'static',
       transition: scene.transition || 'none',
       shaderAA: scene.shaderAA,
       shaderInvert: scene.shaderInvert,
@@ -851,6 +875,7 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
   }
 
   // Initialize
+  loadAnimations();
   loadSprites();
   loadScene();
   </script>

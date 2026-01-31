@@ -567,6 +567,7 @@ const DisplayConfig = {
   currentSceneId: null,
   sceneData: null,
   requestedSceneId: null,
+  animationsList: [],
   
   // Initialize
   init: function() {
@@ -576,8 +577,45 @@ const DisplayConfig = {
     if (idParam) {
       this.requestedSceneId = parseInt(idParam);
     }
+    this.loadAnimations();
     this.loadSceneList();
     this.setupEventHandlers();
+  },
+  
+  // Load available animations from registry
+  loadAnimations: function() {
+    const self = this;
+    fetch('/api/registry/animations')
+      .then(r => r.json())
+      .then(data => {
+        self.animationsList = data.animations || [];
+        console.log('[loadAnimations] Loaded:', self.animationsList);
+        // Re-populate animation dropdown if it exists
+        self.populateAnimationDropdown();
+      })
+      .catch(err => {
+        console.error('Failed to load animations:', err);
+        // Fallback to built-in types
+        self.animationsList = [
+          { id: 'static_sprite', name: 'Static Sprite' },
+          { id: 'static_mirrored', name: 'Static Mirrored' }
+        ];
+      });
+  },
+  
+  // Populate animation type dropdown
+  populateAnimationDropdown: function() {
+    const select = document.getElementById('animation-type-select');
+    if (!select) return;
+    const currentValue = select.value || this.sceneData?.Display?.animation_type || 'static_sprite';
+    select.innerHTML = '';
+    this.animationsList.forEach(anim => {
+      const opt = document.createElement('option');
+      opt.value = anim.id;
+      opt.textContent = anim.name;
+      if (anim.id === currentValue) opt.selected = true;
+      select.appendChild(opt);
+    });
   },
   
   // Load available scenes
@@ -734,54 +772,33 @@ const DisplayConfig = {
   // Each param can also specify 'typed: true' for manual input
   animationFields: {
     'static': {
-      // Single static animation with optional mirroring
-      mirror: { label: 'Mirror to Second Display', min: 0, max: 1, step: 1, param: 'mirror' },
-      // Position (shown when NOT mirrored)
-      position_x: { label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x', hideWhenMirrored: true },
-      position_y: { label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y', hideWhenMirrored: true },
-      rotation: { label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation', hideWhenMirrored: true },
-      scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale', hideWhenMirrored: true },
-      // Left panel (shown when mirrored)
-      left_x: { label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x', showWhenMirrored: true },
-      left_y: { label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y', showWhenMirrored: true },
-      left_rotation: { label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation', showWhenMirrored: true },
-      left_scale: { label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale', showWhenMirrored: true },
-      // Right panel (shown when mirrored)
-      right_x: { label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x', showWhenMirrored: true },
-      right_y: { label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y', showWhenMirrored: true },
-      right_rotation: { label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation', showWhenMirrored: true },
-      right_scale: { label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale', showWhenMirrored: true }
+      // Single static sprite - no mirroring
+      position_x: { label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x' },
+      position_y: { label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y' },
+      rotation: { label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation' },
+      scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale' },
+      flip_x: { label: 'Flip Horizontal', min: 0, max: 1, step: 1, param: 'flip_x' }
     },
-    // Legacy support for old animation types - map to static
     'static_sprite': {
-      mirror: { label: 'Mirror to Second Display', min: 0, max: 1, step: 1, param: 'mirror' },
-      position_x: { label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x', hideWhenMirrored: true },
-      position_y: { label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y', hideWhenMirrored: true },
-      rotation: { label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation', hideWhenMirrored: true },
-      scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale', hideWhenMirrored: true },
-      left_x: { label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x', showWhenMirrored: true },
-      left_y: { label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y', showWhenMirrored: true },
-      left_rotation: { label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation', showWhenMirrored: true },
-      left_scale: { label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale', showWhenMirrored: true },
-      right_x: { label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x', showWhenMirrored: true },
-      right_y: { label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y', showWhenMirrored: true },
-      right_rotation: { label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation', showWhenMirrored: true },
-      right_scale: { label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale', showWhenMirrored: true }
+      // Single static sprite - no mirroring
+      position_x: { label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x' },
+      position_y: { label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y' },
+      rotation: { label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation' },
+      scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale' },
+      flip_x: { label: 'Flip Horizontal', min: 0, max: 1, step: 1, param: 'flip_x' }
     },
     'static_mirrored': {
-      mirror: { label: 'Mirror to Second Display', min: 0, max: 1, step: 1, param: 'mirror' },
-      position_x: { label: 'Position X', min: 0, max: 128, step: 1, unit: 'px', param: 'x', hideWhenMirrored: true },
-      position_y: { label: 'Position Y', min: 0, max: 32, step: 1, unit: 'px', param: 'y', hideWhenMirrored: true },
-      rotation: { label: 'Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'rotation', hideWhenMirrored: true },
-      scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'scale', hideWhenMirrored: true },
-      left_x: { label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x', showWhenMirrored: true },
-      left_y: { label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y', showWhenMirrored: true },
-      left_rotation: { label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation', showWhenMirrored: true },
-      left_scale: { label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale', showWhenMirrored: true },
-      right_x: { label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x', showWhenMirrored: true },
-      right_y: { label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y', showWhenMirrored: true },
-      right_rotation: { label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation', showWhenMirrored: true },
-      right_scale: { label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale', showWhenMirrored: true }
+      // Mirrored display - separate controls for left and right panels
+      left_x: { label: 'Left X', min: 0, max: 64, step: 1, unit: 'px', param: 'left_x' },
+      left_y: { label: 'Left Y', min: 0, max: 32, step: 1, unit: 'px', param: 'left_y' },
+      left_rotation: { label: 'Left Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'left_rotation' },
+      left_scale: { label: 'Left Scale', min: 0.1, max: 4.0, step: 0.1, param: 'left_scale' },
+      left_flip_x: { label: 'Left Flip', min: 0, max: 1, step: 1, param: 'left_flip_x' },
+      right_x: { label: 'Right X', min: 64, max: 128, step: 1, unit: 'px', param: 'right_x' },
+      right_y: { label: 'Right Y', min: 0, max: 32, step: 1, unit: 'px', param: 'right_y' },
+      right_rotation: { label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation' },
+      right_scale: { label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale' },
+      right_flip_x: { label: 'Right Flip', min: 0, max: 1, step: 1, param: 'right_flip_x' }
     }
   },
   
@@ -824,9 +841,9 @@ const DisplayConfig = {
     // Return defaults based on param
     const defaults = {
       'mirror': 0,
-      'x': 64, 'y': 16, 'rotation': 0, 'scale': 1.0,
-      'left_x': 32, 'left_y': 16, 'left_rotation': 0, 'left_scale': 1.0,
-      'right_x': 96, 'right_y': 16, 'right_rotation': 180, 'right_scale': 1.0
+      'x': 64, 'y': 16, 'rotation': 0, 'scale': 1.0, 'flip_x': 0,
+      'left_x': 32, 'left_y': 16, 'left_rotation': 0, 'left_scale': 1.0, 'left_flip_x': 0,
+      'right_x': 96, 'right_y': 16, 'right_rotation': 180, 'right_scale': 1.0, 'right_flip_x': 0
     };
     return defaults[param] ?? 0;
   },
@@ -834,7 +851,6 @@ const DisplayConfig = {
   // Render animation parameters section based on selected animation type
   renderAnimParamsSection: function(animType, displayConfig) {
     const fields = this.animationFields[animType] || this.animationFields['static'] || {};
-    const isMirrored = this.getAnimFieldValue('mirror', animType) > 0;
     
     let html = `<div class="yaml-section" id="anim-params-section">`;
     html += `<div class="yaml-section-header">`;
@@ -846,16 +862,23 @@ const DisplayConfig = {
     html += `</div>`;
     html += `<div class="yaml-section-body" id="anim-params-body">`;
     
+    // Animation type dropdown
+    html += `<div class="yaml-field-row" data-field-path="Display.animation_type">`;
+    html += `<label class="yaml-field-label">Animation Type</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<select class="yaml-select" id="animation-type-select" data-path="Display.animation_type">`;
+    // Options will be populated dynamically from animationsList
+    this.animationsList.forEach(anim => {
+      const selected = anim.id === animType ? 'selected' : '';
+      html += `<option value="${anim.id}" ${selected}>${anim.name}</option>`;
+    });
+    html += `</select></div></div>`;
+    
     if (Object.keys(fields).length === 0) {
       html += `<div class="yaml-section-desc">No adjustable settings for this animation type.</div>`;
     } else {
       for (const [key, fieldSchema] of Object.entries(fields)) {
         const paramName = fieldSchema.param || key;
-        
-        // Check visibility based on mirror state
-        if (fieldSchema.hideWhenMirrored && isMirrored) continue;
-        if (fieldSchema.showWhenMirrored && !isMirrored) continue;
-        
         const value = this.getAnimFieldValue(paramName, animType);
         const path = 'AnimParams.' + paramName;
         
@@ -871,25 +894,29 @@ const DisplayConfig = {
     return html;
   },
   
-  // Update animation params section when animation type or mirror state changes
-  updateAnimParamsSection: function(animType, forceMirrorState) {
+  // Update animation params section when animation type changes
+  updateAnimParamsSection: function(animType) {
     const body = document.getElementById('anim-params-body');
     if (!body) return;
     
     const fields = this.animationFields[animType] || this.animationFields['static'] || {};
-    const isMirrored = forceMirrorState !== undefined ? forceMirrorState : (this.getAnimFieldValue('mirror', animType) > 0);
-    let html = '';
+    
+    // Start with the animation type dropdown
+    let html = `<div class="yaml-field-row" data-field-path="Display.animation_type">`;
+    html += `<label class="yaml-field-label">Animation Type</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<select class="yaml-select" id="animation-type-select" data-path="Display.animation_type">`;
+    this.animationsList.forEach(anim => {
+      const selected = anim.id === animType ? 'selected' : '';
+      html += `<option value="${anim.id}" ${selected}>${anim.name}</option>`;
+    });
+    html += `</select></div></div>`;
     
     if (Object.keys(fields).length === 0) {
-      html = `<div class="yaml-section-desc">No adjustable settings for this animation type.</div>`;
+      html += `<div class="yaml-section-desc">No adjustable settings for this animation type.</div>`;
     } else {
       for (const [key, fieldSchema] of Object.entries(fields)) {
         const paramName = fieldSchema.param || key;
-        
-        // Check visibility based on mirror state
-        if (fieldSchema.hideWhenMirrored && isMirrored) continue;
-        if (fieldSchema.showWhenMirrored && !isMirrored) continue;
-        
         const value = this.getAnimFieldValue(paramName, animType);
         const path = 'AnimParams.' + paramName;
         
@@ -966,7 +993,7 @@ const DisplayConfig = {
   
   // Fields that should be in Animation Settings, not Display section
   // These are SKIPPED when rendering the Display section
-  animationSpecificFields: ['position', 'rotation', 'sensitivity', 'mirror', 'params', 'animation_type', 'mirrorSprite'],
+  animationSpecificFields: ['enabled', 'position', 'rotation', 'sensitivity', 'mirror', 'params', 'animation_type', 'mirrorSprite'],
   
   // Render a section
   renderSection: function(key, section) {
@@ -1229,7 +1256,6 @@ const DisplayConfig = {
         label: 'Display Settings',
         desc: 'HUB75 matrix display configuration',
         fields: {
-          enabled: { type: 'toggle', label: 'Enable Display' },
           // Animation type is now hidden - always static with mirror toggle in Animation Settings
           main_sprite_id: { type: 'file', label: 'Main Sprite', fileType: 'sprite', allowNone: true },
           background: { type: 'color', label: 'Background Color' }
@@ -1545,7 +1571,7 @@ const DisplayConfig = {
       'Display.mirror': 'mirrorSprite',
       'Display.position.x': 'animParams.center_x',
       'Display.position.y': 'animParams.center_y',
-      'Display.background': 'animParams.background',
+      'Display.background': 'bgColor',
       'Global.name': 'name',
       'LEDS.enabled': 'ledsEnabled',
       'LEDS.brightness': 'ledBrightness',
@@ -1564,6 +1590,12 @@ const DisplayConfig = {
       const paramName = fieldName.split('.')[1];
       payload.animParams = {};
       payload.animParams[paramName] = value;
+    }
+    // Handle background color specially (needs bgR, bgG, bgB)
+    else if (fieldName === 'bgColor' && typeof value === 'object') {
+      payload.bgR = value.r || 0;
+      payload.bgG = value.g || 0;
+      payload.bgB = value.b || 0;
     }
     // Handle ledColor specially (needs r,g,b object)
     else if (fieldName === 'ledColor' && typeof value === 'object') {

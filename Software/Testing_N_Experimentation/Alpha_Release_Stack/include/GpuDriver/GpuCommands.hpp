@@ -113,6 +113,7 @@ private:
         // Target/present
         SET_TARGET = 0x50,
         PRESENT = 0x51,
+        BLIT_SPRITE_ROT_SCALE_FLIP = 0x52, // Sprite with rotation + scale + flip flags
         
         // OLED-specific commands
         OLED_CLEAR = 0x60,
@@ -1205,6 +1206,24 @@ public:
         encodeFixed88(payload, 5, angleDegrees);
         encodeFixed88(payload, 7, scale);
         sendCmd(CmdType::BLIT_SPRITE_ROT_SCALE, payload, 9);
+    }
+    
+    /**
+     * Blit sprite with rotation, scale, and flip flags
+     * Protocol: BLIT_SPRITE_ROT_SCALE_FLIP [id:1][x:2][y:2][angle:2][scale:2][flags:1] (8.8 fixed-point)
+     * @param scale 1.0 = normal size, 0.5 = half size, 2.0 = double size
+     * @param flipX If true, flip the sprite horizontally (mirror around vertical axis)
+     * @param flipY If true, flip the sprite vertically (mirror around horizontal axis)
+     */
+    void blitSpriteRotatedScaledFlip(uint8_t id, float x, float y, float angleDegrees, float scale, bool flipX, bool flipY = false) {
+        uint8_t payload[10];
+        payload[0] = id;
+        encodeFixed88(payload, 1, x);
+        encodeFixed88(payload, 3, y);
+        encodeFixed88(payload, 5, angleDegrees);
+        encodeFixed88(payload, 7, scale);
+        payload[9] = (flipX ? 0x01 : 0x00) | (flipY ? 0x02 : 0x00);
+        sendCmd(CmdType::BLIT_SPRITE_ROT_SCALE_FLIP, payload, 10);
     }
     
     /**
