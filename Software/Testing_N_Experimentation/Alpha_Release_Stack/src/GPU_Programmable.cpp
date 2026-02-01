@@ -362,7 +362,13 @@ static inline uint32_t glitchRandom() {
 // Called each frame when glitch shader is active
 static void updateGlitchState() {
   if (g_shaderType != ShaderType::GLITCH) {
-    g_glitchActive = false;
+    // Not in glitch mode - ensure all glitch state is cleared
+    if (g_glitchActive) {
+      g_glitchActive = false;
+      for (int i = 0; i < 32; i++) {
+        g_glitchRowOffsets[i] = 0;
+      }
+    }
     return;
   }
   
@@ -3838,6 +3844,24 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         // If switching to HUE_CYCLE, reset the cycle start time
         if (newType == ShaderType::HUE_CYCLE && g_shaderType != ShaderType::HUE_CYCLE) {
           g_hueCycleStartTime = (uint32_t)(esp_timer_get_time() / 1000);
+        }
+        
+        // If switching away from GLITCH, clear glitch state
+        if (g_shaderType == ShaderType::GLITCH && newType != ShaderType::GLITCH) {
+          g_glitchActive = false;
+          for (int i = 0; i < 32; i++) {
+            g_glitchRowOffsets[i] = 0;
+          }
+          ESP_LOGI(TAG, "GLITCH shader disabled, cleared row offsets");
+        }
+        
+        // If switching to GLITCH, initialize glitch timing
+        if (newType == ShaderType::GLITCH && g_shaderType != ShaderType::GLITCH) {
+          g_lastGlitchTime = 0;  // Force immediate first update
+          g_glitchActive = false;
+          for (int i = 0; i < 32; i++) {
+            g_glitchRowOffsets[i] = 0;
+          }
         }
         
         g_shaderType = newType;

@@ -1876,6 +1876,69 @@ void CurrentMode::onStart() {
             GpuDriverState::setSceneAnimation("none");
         }
         
+        // Apply shader params from scene.params (stored from Advanced editor)
+        // These are stored with "shader_" prefix in the params map
+        if (scene.params.count("shader_type")) {
+            float shaderTypeVal = scene.params.at("shader_type");
+            GpuDriverState::setSingleParam("shader_type", shaderTypeVal);
+            printf("  Shader Type: %d\n", (int)shaderTypeVal);
+        }
+        if (scene.params.count("shader_invert")) {
+            GpuDriverState::setSingleParam("shader_invert", scene.params.at("shader_invert"));
+        }
+        if (scene.params.count("shader_mask_enabled")) {
+            GpuDriverState::setSingleParam("shader_mask_enabled", scene.params.at("shader_mask_enabled"));
+        }
+        if (scene.params.count("shader_mask_r")) {
+            GpuDriverState::setSingleParam("shader_mask_r", scene.params.at("shader_mask_r"));
+        }
+        if (scene.params.count("shader_mask_g")) {
+            GpuDriverState::setSingleParam("shader_mask_g", scene.params.at("shader_mask_g"));
+        }
+        if (scene.params.count("shader_mask_b")) {
+            GpuDriverState::setSingleParam("shader_mask_b", scene.params.at("shader_mask_b"));
+        }
+        // Hue/Gradient cycle speed
+        if (scene.params.count("shader_hue_cycle_speed")) {
+            GpuDriverState::setSingleParam("shader_hue_cycle_speed", scene.params.at("shader_hue_cycle_speed"));
+        }
+        // Hue color count and palette
+        if (scene.params.count("shader_hue_color_count")) {
+            GpuDriverState::setSingleParam("shader_hue_color_count", scene.params.at("shader_hue_color_count"));
+        }
+        for (int i = 0; i < 32; i++) {
+            char rKey[32], gKey[32], bKey[32];
+            snprintf(rKey, sizeof(rKey), "shader_hue_color_%d_r", i);
+            snprintf(gKey, sizeof(gKey), "shader_hue_color_%d_g", i);
+            snprintf(bKey, sizeof(bKey), "shader_hue_color_%d_b", i);
+            if (scene.params.count(rKey)) GpuDriverState::setSingleParam(rKey, scene.params.at(rKey));
+            if (scene.params.count(gKey)) GpuDriverState::setSingleParam(gKey, scene.params.at(gKey));
+            if (scene.params.count(bKey)) GpuDriverState::setSingleParam(bKey, scene.params.at(bKey));
+        }
+        // Gradient params
+        if (scene.params.count("shader_gradient_distance")) {
+            GpuDriverState::setSingleParam("shader_gradient_distance", scene.params.at("shader_gradient_distance"));
+        }
+        if (scene.params.count("shader_gradient_angle")) {
+            GpuDriverState::setSingleParam("shader_gradient_angle", scene.params.at("shader_gradient_angle"));
+        }
+        if (scene.params.count("shader_gradient_mirror")) {
+            GpuDriverState::setSingleParam("shader_gradient_mirror", scene.params.at("shader_gradient_mirror"));
+        }
+        // Glitch params
+        if (scene.params.count("shader_glitch_speed")) {
+            GpuDriverState::setSingleParam("shader_glitch_speed", scene.params.at("shader_glitch_speed"));
+        }
+        if (scene.params.count("shader_glitch_intensity")) {
+            GpuDriverState::setSingleParam("shader_glitch_intensity", scene.params.at("shader_glitch_intensity"));
+        }
+        if (scene.params.count("shader_glitch_chromatic")) {
+            GpuDriverState::setSingleParam("shader_glitch_chromatic", scene.params.at("shader_glitch_chromatic"));
+        }
+        if (scene.params.count("shader_glitch_quantity")) {
+            GpuDriverState::setSingleParam("shader_glitch_quantity", scene.params.at("shader_glitch_quantity"));
+        }
+        
         // Handle LED control from scene settings
         if (scene.ledsEnabled) {
             // Set LED color and brightness from scene

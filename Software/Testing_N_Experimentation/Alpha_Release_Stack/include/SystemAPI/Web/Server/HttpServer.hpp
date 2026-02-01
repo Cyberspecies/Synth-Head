@@ -4254,6 +4254,10 @@ private:
                                     if (rItem && gItem && bItem) {
                                         // Convert color object to individual R/G/B params
                                         if (strcmp(param->string, "mask_color") == 0) {
+                                            // Store in scene.params for persistence
+                                            scene.params["shader_mask_r"] = (float)rItem->valueint;
+                                            scene.params["shader_mask_g"] = (float)gItem->valueint;
+                                            scene.params["shader_mask_b"] = (float)bItem->valueint;
                                             auto& singleCallback = getSingleParamCallback();
                                             if (singleCallback) {
                                                 singleCallback("shader_mask_r", (float)rItem->valueint);
@@ -4263,6 +4267,10 @@ private:
                                             printf("  [shaderParam] mask_color = (%d,%d,%d)\n", 
                                                    rItem->valueint, gItem->valueint, bItem->valueint);
                                         } else if (strcmp(param->string, "override_color") == 0) {
+                                            // Store in scene.params for persistence
+                                            scene.params["shader_override_r"] = (float)rItem->valueint;
+                                            scene.params["shader_override_g"] = (float)gItem->valueint;
+                                            scene.params["shader_override_b"] = (float)bItem->valueint;
                                             auto& singleCallback = getSingleParamCallback();
                                             if (singleCallback) {
                                                 singleCallback("shader_override_r", (float)rItem->valueint);
@@ -4283,12 +4291,16 @@ private:
                                                 }
                                             }
                                             if (colorIdx >= 0 && colorIdx < 32) {
+                                                // Store in scene.params for persistence
+                                                char paramNameR[32], paramNameG[32], paramNameB[32];
+                                                snprintf(paramNameR, sizeof(paramNameR), "shader_hue_color_%d_r", colorIdx);
+                                                snprintf(paramNameG, sizeof(paramNameG), "shader_hue_color_%d_g", colorIdx);
+                                                snprintf(paramNameB, sizeof(paramNameB), "shader_hue_color_%d_b", colorIdx);
+                                                scene.params[paramNameR] = (float)rItem->valueint;
+                                                scene.params[paramNameG] = (float)gItem->valueint;
+                                                scene.params[paramNameB] = (float)bItem->valueint;
                                                 auto& singleCallback = getSingleParamCallback();
                                                 if (singleCallback) {
-                                                    char paramNameR[32], paramNameG[32], paramNameB[32];
-                                                    snprintf(paramNameR, sizeof(paramNameR), "shader_hue_color_%d_r", colorIdx);
-                                                    snprintf(paramNameG, sizeof(paramNameG), "shader_hue_color_%d_g", colorIdx);
-                                                    snprintf(paramNameB, sizeof(paramNameB), "shader_hue_color_%d_b", colorIdx);
                                                     singleCallback(paramNameR, (float)rItem->valueint);
                                                     singleCallback(paramNameG, (float)gItem->valueint);
                                                     singleCallback(paramNameB, (float)bItem->valueint);
@@ -4306,13 +4318,14 @@ private:
                                     } else if (cJSON_IsBool(param)) {
                                         value = cJSON_IsTrue(param) ? 1.0f : 0.0f;
                                     }
-                                    // Map shaderParams names to internal param names
+                                    // Map shaderParams names to internal param names and store in scene.params
                                     std::string internalName = std::string("shader_") + param->string;
+                                    scene.params[internalName] = value;
                                     auto& singleCallback = getSingleParamCallback();
                                     if (singleCallback) {
                                         singleCallback(internalName.c_str(), value);
                                     }
-                                    printf("  [shaderParam] '%s' -> '%s' = %.2f\n", param->string, internalName.c_str(), value);
+                                    printf("  [shaderParam] '%s' -> '%s' = %.2f (saved to scene)\n", param->string, internalName.c_str(), value);
                                 }
                             }
                         }
