@@ -1318,14 +1318,16 @@ public:
      * Set gradient cycle shader parameters
      * @param distance Pixels between color bands
      * @param angle Travel direction in degrees (-180 to 180)
+     * @param mirror Mirror gradient on right panel
      */
-    void setGradientParams(uint16_t distance, int16_t angle) {
-        uint8_t payload[4];
+    void setGradientParams(uint16_t distance, int16_t angle, bool mirror = false) {
+        uint8_t payload[5];
         payload[0] = (uint8_t)(distance & 0xFF);        // distance low byte
         payload[1] = (uint8_t)(distance >> 8);          // distance high byte
         payload[2] = (uint8_t)(angle & 0xFF);           // angle low byte (signed)
         payload[3] = (uint8_t)((uint16_t)angle >> 8);   // angle high byte
-        sendCmd(CmdType::SET_GRADIENT_PARAMS, payload, 4);
+        payload[4] = mirror ? 1 : 0;                    // mirror flag
+        sendCmd(CmdType::SET_GRADIENT_PARAMS, payload, 5);
     }
     
     /**

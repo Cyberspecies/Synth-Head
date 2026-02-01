@@ -339,6 +339,7 @@ static uint32_t g_hueCycleStartTime = 0;   // Time when hue cycle started
 // Gradient cycle specific params
 static uint16_t g_gradientDistance = 20;   // Pixels between color bands
 static int16_t g_gradientAngle = 0;        // Angle in degrees (-180 to 180)
+static bool g_gradientMirror = false;      // Mirror gradient on right panel
 
 // Initialize default palette
 static void initDefaultPalette() {
@@ -410,19 +411,31 @@ static inline void getGradientCycleColor(int16_t pixelX, int16_t pixelY, uint8_t
   uint16_t speedMs = g_shaderParam1 | (g_shaderParam2 << 8);
   if (speedMs == 0) speedMs = 1000;  // Default 1 second
   
-  // Calculate direction vector from angle
-  float angleRad = (float)g_gradientAngle * 3.14159265f / 180.0f;
+  // Calculate effective position for gradient calculation
+  int16_t effectiveX = pixelX;
+  int16_t effectiveAngle = g_gradientAngle;
+  bool isRightPanel = (pixelX >= PANEL_WIDTH);
+  
+  if (g_gradientMirror && isRightPanel) {
+    // Mirror effect: transform right panel coordinates to mirror left panel
+    // Map x from [64-127] to [63-0] (mirror around the center line)
+    effectiveX = TOTAL_WIDTH - 1 - pixelX;
+    // Negate the angle to flip the gradient direction horizontally
+    effectiveAngle = -g_gradientAngle;
+  }
+  
+  float angleRad = (float)effectiveAngle * 3.14159265f / 180.0f;
   float dirX = cosf(angleRad);
   float dirY = sinf(angleRad);
   
   // Debug output every ~1 second (assuming ~60fps, ~4096 pixels per frame)
   if (++debugCounter % 250000 == 0) {
-    ESP_LOGI(TAG, "GRADIENT: angle=%d, dirX=%.3f, dirY=%.3f, dist=%d, colors=%d",
-             g_gradientAngle, dirX, dirY, g_gradientDistance, g_huePaletteCount);
+    ESP_LOGI(TAG, "GRADIENT: angle=%d, mirror=%d, dirX=%.3f, dirY=%.3f, dist=%d, colors=%d",
+             g_gradientAngle, g_gradientMirror, dirX, dirY, g_gradientDistance, g_huePaletteCount);
   }
   
   // Project pixel position onto direction vector to get position along gradient
-  float projectedPos = (float)pixelX * dirX + (float)pixelY * dirY;
+  float projectedPos = (float)effectiveX * dirX + (float)pixelY * dirY;
   
   // Time-based offset for scrolling
   uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
@@ -3740,10 +3753,15 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     }
     
     case CmdType::SET_GRADIENT_PARAMS: {
-      // Payload: [distLo:1][distHi:1][angleLo:1][angleHi:1]
+      // Payload: [distLo:1][distHi:1][angleLo:1][angleHi:1][mirror:1]
       if (hdr->length >= 4) {
         g_gradientDistance = payload[0] | (payload[1] << 8);
         g_gradientAngle = (int16_t)(payload[2] | (payload[3] << 8));
+        
+        // Optional mirror flag (byte 5)
+        if (hdr->length >= 5) {
+          g_gradientMirror = (payload[4] != 0);
+        }
         
         // Clamp angle to -180 to 180
         if (g_gradientAngle > 180) g_gradientAngle = 180;
@@ -3752,8 +3770,8 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         // Ensure distance is at least 1
         if (g_gradientDistance < 1) g_gradientDistance = 1;
         
-        ESP_LOGI(TAG, "SET_GRADIENT_PARAMS: distance=%d, angle=%d",
-                 g_gradientDistance, g_gradientAngle);
+        ESP_LOGI(TAG, "SET_GRADIENT_PARAMS: distance=%d, angle=%d, mirror=%d",
+                 g_gradientDistance, g_gradientAngle, g_gradientMirror);
       }
       break;
     }

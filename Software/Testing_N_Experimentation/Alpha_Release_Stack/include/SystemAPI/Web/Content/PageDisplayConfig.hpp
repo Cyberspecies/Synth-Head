@@ -893,7 +893,8 @@ const DisplayConfig = {
       'hue_color_7_r': 255, 'hue_color_7_g': 128, 'hue_color_7_b': 0,    // Orange
       // Gradient cycle specific
       'gradient_distance': 20,
-      'gradient_angle': 0
+      'gradient_angle': 0,
+      'gradient_mirror': 0
     };
     
     // For colors beyond 7, default to red
@@ -1046,6 +1047,16 @@ const DisplayConfig = {
     html += `<input type="range" class="yaml-range" min="-180" max="180" step="1" value="${angle}" data-path="Shader.gradient_angle" oninput="document.getElementById('val-Shader-gradient_angle').textContent = this.value + '°'">`;
     html += `<span class="yaml-range-value" id="val-Shader-gradient_angle">${angle}°</span>`;
     html += `</div></div>`;
+    
+    // Mirror gradient toggle
+    const gradientMirror = this.getShaderFieldValue('gradient_mirror') || 0;
+    html += `<div class="yaml-field-row" data-field-path="Shader.gradient_mirror">`;
+    html += `<label class="yaml-field-label">Mirror Gradient</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<label class="yaml-toggle">`;
+    html += `<input type="checkbox" data-path="Shader.gradient_mirror" ${gradientMirror ? 'checked' : ''}>`;
+    html += `<span class="yaml-toggle-slider"></span>`;
+    html += `</label></div></div>`;
     
     // Color count number input (shared with hue cycle)
     const gradColorCount = this.getShaderFieldValue('hue_color_count');

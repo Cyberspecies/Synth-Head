@@ -239,6 +239,7 @@ namespace GpuDriverState {
     // Gradient cycle shader specific state
     static uint16_t shaderGradientDistance = 20;  // Pixels between color bands
     static int16_t shaderGradientAngle = 0;       // Travel angle in degrees (-180 to 180)
+    static bool shaderGradientMirror = false;     // Mirror gradient on right panel
     static bool shaderGradientParamsDirty = true; // Flag to send gradient params to GPU
     
     // ====== COMPLEX TRANSITION ANIMATION ======
@@ -621,9 +622,9 @@ namespace GpuDriverState {
                 
                 // Sync gradient params to GPU if changed (before shader config)
                 if (shaderGradientParamsDirty && shaderType == 3) {  // 3 = GRADIENT_CYCLE
-                    g_gpu.setGradientParams(shaderGradientDistance, shaderGradientAngle);
+                    g_gpu.setGradientParams(shaderGradientDistance, shaderGradientAngle, shaderGradientMirror);
                     shaderGradientParamsDirty = false;
-                    printf("  GRADIENT PARAMS: distance=%d, angle=%d\n", shaderGradientDistance, shaderGradientAngle);
+                    printf("  GRADIENT PARAMS: distance=%d, angle=%d, mirror=%d\n", shaderGradientDistance, shaderGradientAngle, shaderGradientMirror);
                 }
                 
                 // Sync shader config to GPU if changed
@@ -1137,6 +1138,11 @@ namespace GpuDriverState {
             shaderGradientAngle = (int16_t)value; 
             shaderGradientParamsDirty = true;
             printf("  -> shaderGradientAngle = %d\n", shaderGradientAngle); 
+        }
+        else if (strcmp(paramName, "shader_gradient_mirror") == 0) { 
+            shaderGradientMirror = (value != 0); 
+            shaderGradientParamsDirty = true;
+            printf("  -> shaderGradientMirror = %s\n", shaderGradientMirror ? "true" : "false"); 
         }
         else { printf("  -> UNKNOWN PARAM\n"); }
     }
