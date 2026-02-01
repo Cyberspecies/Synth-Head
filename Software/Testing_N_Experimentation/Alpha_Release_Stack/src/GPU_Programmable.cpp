@@ -317,7 +317,8 @@ enum class ShaderType : uint8_t {
   NONE = 0,           // No shader - render sprite as-is
   COLOR_OVERRIDE = 1, // Replace all non-transparent pixels with a specific color
   HUE_CYCLE = 2,      // Cycle through a palette of colors smoothly
-  GRADIENT_CYCLE = 3  // Gradient colors across canvas that scroll
+  GRADIENT_CYCLE = 3, // Gradient colors across canvas that scroll
+  GLITCH = 4          // Glitch effect with displacement and chromatic aberration
 };
 
 static ShaderType g_shaderType = ShaderType::NONE;
@@ -340,6 +341,88 @@ static uint32_t g_hueCycleStartTime = 0;   // Time when hue cycle started
 static uint16_t g_gradientDistance = 20;   // Pixels between color bands
 static int16_t g_gradientAngle = 0;        // Angle in degrees (-180 to 180)
 static bool g_gradientMirror = false;      // Mirror gradient on right panel
+
+// Glitch shader specific params
+static uint8_t g_glitchSpeed = 128;        // Speed of glitch changes (0-255)
+static uint8_t g_glitchIntensity = 64;     // Intensity of displacement (0-255)
+static uint8_t g_glitchChromatic = 32;     // Chromatic aberration intensity (0-255)
+static uint8_t g_glitchQuantity = 50;      // Quantity/density of glitch bands (0-100)
+static uint32_t g_glitchSeed = 12345;      // Random seed for glitch
+static uint32_t g_lastGlitchTime = 0;      // Last time glitch state changed
+static int16_t g_glitchRowOffsets[32];     // Per-row horizontal displacement (32 rows max)
+static bool g_glitchActive = false;        // Whether glitch effect is currently active
+
+// Simple fast pseudo-random generator for glitch
+static inline uint32_t glitchRandom() {
+  g_glitchSeed = g_glitchSeed * 1103515245 + 12345;
+  return (g_glitchSeed >> 16) & 0x7FFF;
+}
+
+// Update glitch state - generates per-row displacement pattern
+// Called each frame when glitch shader is active
+static void updateGlitchState() {
+  if (g_shaderType != ShaderType::GLITCH) {
+    g_glitchActive = false;
+    return;
+  }
+  
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+  
+  // Speed determines how often glitch pattern changes
+  // speed 0 = 150ms interval, speed 100 = 15ms interval (much faster overall)
+  uint32_t interval = 150 - (g_glitchSpeed * 135 / 100);
+  if (interval < 15) interval = 15;
+  
+  if (now - g_lastGlitchTime < interval) {
+    return;  // Not time to update yet
+  }
+  g_lastGlitchTime = now;
+  
+  // Reset all row offsets to 0
+  for (int i = 0; i < 32; i++) {
+    g_glitchRowOffsets[i] = 0;
+  }
+  
+  // Randomly decide glitch intensity this frame
+  // Higher chance of "no glitch" makes it snappier - glitches appear and disappear quickly
+  uint32_t chance = glitchRandom() % 100;
+  if (chance < 55) {
+    // 55% chance: no glitch this frame (snappy on/off behavior)
+    g_glitchActive = false;
+    return;
+  }
+  
+  g_glitchActive = true;
+  
+  // Max displacement based on intensity (0-100 maps to 0-24 pixels)
+  int16_t maxDisp = 2 + (g_glitchIntensity * 22 / 100);
+  
+  // Generate random glitch bands - quantity controls max bands (1 to 8)
+  int maxBands = 1 + (g_glitchQuantity * 7 / 100);  // quantity 0=1 band, 100=8 bands
+  int numBands = 1 + (glitchRandom() % maxBands);
+  
+  for (int band = 0; band < numBands; band++) {
+    int startRow = glitchRandom() % PANEL_HEIGHT;
+    int bandHeight = 1 + (glitchRandom() % 4);  // 1-4 rows tall (slightly smaller bands)
+    int16_t offset = (int16_t)((glitchRandom() % (maxDisp * 2 + 1))) - maxDisp;
+    
+    // Apply offset to rows in this band
+    for (int row = startRow; row < startRow + bandHeight && row < PANEL_HEIGHT; row++) {
+      g_glitchRowOffsets[row] = offset;
+    }
+  }
+  
+  // Occasionally add scattered single-row glitches - chance and count based on quantity
+  int scatterChance = 20 + (g_glitchQuantity * 40 / 100);  // 20-60% chance
+  if (glitchRandom() % 100 < (uint32_t)scatterChance) {
+    int maxLines = 1 + (g_glitchQuantity * 5 / 100);  // 1-6 lines
+    int numLines = 1 + (glitchRandom() % maxLines);
+    for (int i = 0; i < numLines; i++) {
+      int row = glitchRandom() % PANEL_HEIGHT;
+      g_glitchRowOffsets[row] = (int16_t)((glitchRandom() % (maxDisp * 2 + 1))) - maxDisp;
+    }
+  }
+}
 
 // Initialize default palette
 static void initDefaultPalette() {
@@ -474,7 +557,7 @@ static inline void getGradientCycleColor(int16_t pixelX, int16_t pixelY, uint8_t
 // Apply shader processing to a pixel color
 // Order: 1) Invert, 2) Check mask (return transparent), 3) Apply shader effect
 // Returns true if pixel should be rendered, false if transparent
-// Note: pixelX/Y only used for GRADIENT_CYCLE shader
+// Note: pixelX/Y used for GRADIENT_CYCLE and GLITCH shaders
 static inline bool applyShaderToPixel(uint8_t& r, uint8_t& g, uint8_t& b, uint8_t alpha, int16_t pixelX = 0, int16_t pixelY = 0) {
     // Step 1: Invert colors if enabled
     if (g_shaderInvertColors) {
@@ -505,6 +588,10 @@ static inline bool applyShaderToPixel(uint8_t& r, uint8_t& g, uint8_t& b, uint8_
         case ShaderType::GRADIENT_CYCLE:
             // Replace color with gradient based on position
             getGradientCycleColor(pixelX, pixelY, r, g, b);
+            break;
+        case ShaderType::GLITCH:
+            // Glitch effect is applied as post-process in presentHUB75Buffer
+            // Keep original color here - the displacement happens during present
             break;
         case ShaderType::NONE:
         default:
@@ -930,7 +1017,25 @@ static inline void setDiagPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
 static void presentHUB75Buffer() {
   if (!hub75_ok || !hub75) return;
   
+  // Update glitch state once per frame (if glitch shader is active)
+  updateGlitchState();
+  
   for (int y = 0; y < TOTAL_HEIGHT; y++) {
+    // Get glitch offset for this row
+    int16_t glitchOffset = 0;
+    int16_t glitchChromaR = 0;
+    int16_t glitchChromaB = 0;
+    
+    if (g_glitchActive && g_shaderType == ShaderType::GLITCH) {
+      glitchOffset = g_glitchRowOffsets[y];
+      // Chromatic aberration: shift R and B channels relative to G
+      if (g_glitchChromatic > 0 && glitchOffset != 0) {
+        int16_t chromaAmount = 1 + (g_glitchChromatic * abs(glitchOffset) / 80);
+        glitchChromaR = (glitchOffset > 0) ? -chromaAmount : chromaAmount;
+        glitchChromaB = (glitchOffset > 0) ? chromaAmount : -chromaAmount;
+      }
+    }
+    
     for (int x = 0; x < TOTAL_WIDTH; x++) {
       // Start with buffer coordinates
       int bufX = x;
@@ -978,29 +1083,53 @@ static void presentHUB75Buffer() {
       }
       
       // Handle PANEL0_SWAP (swap which panel's data goes where)
+      // Also apply glitch offset to source X coordinate
+      int srcX = x + glitchOffset;
+      
+      // Clamp srcX to valid range (wrap or clamp)
+      if (srcX < 0) srcX = 0;
+      if (srcX >= TOTAL_WIDTH) srcX = TOTAL_WIDTH - 1;
+      
       int idx;
       if (PANEL0_SWAP) {
         // This swaps source data, not output position
         // Read from opposite panel
         int readX = isRightPanel ? panelX : (PANEL_WIDTH + panelX);
+        readX += glitchOffset;
+        if (readX < 0) readX = 0;
+        if (readX >= TOTAL_WIDTH) readX = TOTAL_WIDTH - 1;
         idx = (bufY * TOTAL_WIDTH + readX) * 3;
       } else {
-        idx = (bufY * TOTAL_WIDTH + x) * 3;
+        idx = (bufY * TOTAL_WIDTH + srcX) * 3;
       }
       
+      // Read G channel (green is the reference for chromatic aberration)
+      uint8_t g_ch = hub75_buffer[idx + 1];
+      
+      // Read R channel with chromatic offset
+      int srcXr = srcX + glitchChromaR;
+      if (srcXr < 0) srcXr = 0;
+      if (srcXr >= TOTAL_WIDTH) srcXr = TOTAL_WIDTH - 1;
+      int idxR = (bufY * TOTAL_WIDTH + srcXr) * 3;
+      uint8_t r_ch = hub75_buffer[idxR];
+      
+      // Read B channel with chromatic offset
+      int srcXb = srcX + glitchChromaB;
+      if (srcXb < 0) srcXb = 0;
+      if (srcXb >= TOTAL_WIDTH) srcXb = TOTAL_WIDTH - 1;
+      int idxB = (bufY * TOTAL_WIDTH + srcXb) * 3;
+      uint8_t b_ch = hub75_buffer[idxB + 2];
+      
       // Apply RGB channel order correction
-      uint8_t r = hub75_buffer[idx];
-      uint8_t g = hub75_buffer[idx + 1];
-      uint8_t b = hub75_buffer[idx + 2];
       uint8_t ch0, ch1, ch2;
       switch (RGB_ORDER) {
-        case 0: ch0 = r; ch1 = g; ch2 = b; break;  // RGB
-        case 1: ch0 = r; ch1 = b; ch2 = g; break;  // RBG
-        case 2: ch0 = g; ch1 = r; ch2 = b; break;  // GRB
-        case 3: ch0 = g; ch1 = b; ch2 = r; break;  // GBR
-        case 4: ch0 = b; ch1 = r; ch2 = g; break;  // BRG
-        case 5: ch0 = b; ch1 = g; ch2 = r; break;  // BGR
-        default: ch0 = r; ch1 = g; ch2 = b; break;
+        case 0: ch0 = r_ch; ch1 = g_ch; ch2 = b_ch; break;  // RGB
+        case 1: ch0 = r_ch; ch1 = b_ch; ch2 = g_ch; break;  // RBG
+        case 2: ch0 = g_ch; ch1 = r_ch; ch2 = b_ch; break;  // GRB
+        case 3: ch0 = g_ch; ch1 = b_ch; ch2 = r_ch; break;  // GBR
+        case 4: ch0 = b_ch; ch1 = r_ch; ch2 = g_ch; break;  // BRG
+        case 5: ch0 = b_ch; ch1 = g_ch; ch2 = r_ch; break;  // BGR
+        default: ch0 = r_ch; ch1 = g_ch; ch2 = b_ch; break;
       }
       hub75->setPixel(displayX, transformedY, RGB(ch0, ch1, ch2));
     }
@@ -3049,6 +3178,7 @@ enum class CmdType : uint8_t {
   SET_SPRITE_SHADER = 0x53,  // Configure sprite shader: type, flags, maskRGB, param1-3
   SET_SHADER_PALETTE = 0x54, // Set color palette for shaders: count, [R,G,B]*N (up to 32 colors)
   SET_GRADIENT_PARAMS = 0x55, // Set gradient cycle params: distLo, distHi, angleLo, angleHi (signed)
+  SET_GLITCH_PARAMS = 0x56,   // Set glitch shader params: speed, intensity, chromatic
   
   // OLED-specific commands (always target OLED buffer)
   OLED_CLEAR = 0x60,
@@ -3772,6 +3902,22 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         
         ESP_LOGI(TAG, "SET_GRADIENT_PARAMS: distance=%d, angle=%d, mirror=%d",
                  g_gradientDistance, g_gradientAngle, g_gradientMirror);
+      }
+      break;
+    }
+    
+    case CmdType::SET_GLITCH_PARAMS: {
+      // Payload: [speed:1][intensity:1][chromatic:1][quantity:1]
+      if (hdr->length >= 3) {
+        g_glitchSpeed = payload[0];
+        g_glitchIntensity = payload[1];
+        g_glitchChromatic = payload[2];
+        if (hdr->length >= 4) {
+          g_glitchQuantity = payload[3];
+        }
+        
+        ESP_LOGI(TAG, "SET_GLITCH_PARAMS: speed=%d, intensity=%d, chromatic=%d, quantity=%d",
+                 g_glitchSpeed, g_glitchIntensity, g_glitchChromatic, g_glitchQuantity);
       }
       break;
     }

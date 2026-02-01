@@ -242,6 +242,13 @@ namespace GpuDriverState {
     static bool shaderGradientMirror = false;     // Mirror gradient on right panel
     static bool shaderGradientParamsDirty = true; // Flag to send gradient params to GPU
     
+    // Glitch shader specific state
+    static uint8_t shaderGlitchSpeed = 50;        // Speed of glitch updates (0-100)
+    static uint8_t shaderGlitchIntensity = 30;    // Intensity of displacement (0-100)
+    static uint8_t shaderGlitchChromatic = 20;    // Chromatic aberration amount (0-100)
+    static uint8_t shaderGlitchQuantity = 50;     // Quantity/density of glitch bands (0-100)
+    static bool shaderGlitchParamsDirty = true;   // Flag to send glitch params to GPU
+    
     // ====== COMPLEX TRANSITION ANIMATION ======
     static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
     static bool complexAnimEnabled = false;  // Disabled - use sandbox instead
@@ -627,6 +634,13 @@ namespace GpuDriverState {
                     printf("  GRADIENT PARAMS: distance=%d, angle=%d, mirror=%d\n", shaderGradientDistance, shaderGradientAngle, shaderGradientMirror);
                 }
                 
+                // Sync glitch params to GPU if changed (before shader config)
+                if (shaderGlitchParamsDirty && shaderType == 4) {  // 4 = GLITCH
+                    g_gpu.setGlitchParams(shaderGlitchSpeed, shaderGlitchIntensity, shaderGlitchChromatic, shaderGlitchQuantity);
+                    shaderGlitchParamsDirty = false;
+                    printf("  GLITCH PARAMS: speed=%d, intensity=%d, chromatic=%d, quantity=%d\n", shaderGlitchSpeed, shaderGlitchIntensity, shaderGlitchChromatic, shaderGlitchQuantity);
+                }
+                
                 // Sync shader config to GPU if changed
                 if (shaderDirty) {
                     if (shaderType == 2 || shaderType == 3) {  // HUE_CYCLE or GRADIENT_CYCLE
@@ -642,6 +656,19 @@ namespace GpuDriverState {
                         );
                         printf("  SHADER: Synced type=%d to GPU (speed=%d, invert=%d, mask=%d)\n",
                                shaderType, shaderHueCycleSpeed, shaderInvert, shaderMaskEnabled);
+                    } else if (shaderType == 4) {  // GLITCH
+                        // For GLITCH: params sent separately via setGlitchParams
+                        g_gpu.setSpriteShader(
+                            static_cast<GpuCommands::ShaderType>(shaderType),
+                            shaderInvert,
+                            shaderMaskR, shaderMaskG, shaderMaskB,
+                            shaderMaskEnabled,
+                            0, 0, 0  // params handled by SET_GLITCH_PARAMS
+                        );
+                        // Also force glitch params sync
+                        shaderGlitchParamsDirty = true;
+                        printf("  SHADER: Synced GLITCH type=%d to GPU (invert=%d, mask=%d)\n",
+                               shaderType, shaderInvert, shaderMaskEnabled);
                     } else {
                         // For NONE and COLOR_OVERRIDE
                         g_gpu.setSpriteShader(
@@ -1143,6 +1170,27 @@ namespace GpuDriverState {
             shaderGradientMirror = (value != 0); 
             shaderGradientParamsDirty = true;
             printf("  -> shaderGradientMirror = %s\n", shaderGradientMirror ? "true" : "false"); 
+        }
+        // Glitch shader params
+        else if (strcmp(paramName, "shader_glitch_speed") == 0) { 
+            shaderGlitchSpeed = (uint8_t)value; 
+            shaderGlitchParamsDirty = true;
+            printf("  -> shaderGlitchSpeed = %d\n", shaderGlitchSpeed); 
+        }
+        else if (strcmp(paramName, "shader_glitch_intensity") == 0) { 
+            shaderGlitchIntensity = (uint8_t)value; 
+            shaderGlitchParamsDirty = true;
+            printf("  -> shaderGlitchIntensity = %d\n", shaderGlitchIntensity); 
+        }
+        else if (strcmp(paramName, "shader_glitch_chromatic") == 0) { 
+            shaderGlitchChromatic = (uint8_t)value; 
+            shaderGlitchParamsDirty = true;
+            printf("  -> shaderGlitchChromatic = %d\n", shaderGlitchChromatic); 
+        }
+        else if (strcmp(paramName, "shader_glitch_quantity") == 0) { 
+            shaderGlitchQuantity = (uint8_t)value; 
+            shaderGlitchParamsDirty = true;
+            printf("  -> shaderGlitchQuantity = %d\n", shaderGlitchQuantity); 
         }
         else { printf("  -> UNKNOWN PARAM\n"); }
     }

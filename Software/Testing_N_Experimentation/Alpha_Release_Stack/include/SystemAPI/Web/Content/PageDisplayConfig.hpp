@@ -864,7 +864,8 @@ const DisplayConfig = {
     { id: 'none', name: 'None', value: 0 },
     { id: 'color_override', name: 'Color Override', value: 1 },
     { id: 'hue_cycle', name: 'RGB Hue Cycle', value: 2 },
-    { id: 'gradient_cycle', name: 'Gradient Cycle', value: 3 }
+    { id: 'gradient_cycle', name: 'Gradient Cycle', value: 3 },
+    { id: 'glitch', name: 'Glitch', value: 4 }
   ],
   
   // Get shader field value from sceneData
@@ -894,7 +895,11 @@ const DisplayConfig = {
       // Gradient cycle specific
       'gradient_distance': 20,
       'gradient_angle': 0,
-      'gradient_mirror': 0
+      'gradient_mirror': 0,
+      // Glitch shader specific
+      'glitch_speed': 50,
+      'glitch_intensity': 30,
+      'glitch_chromatic': 20
     };
     
     // For colors beyond 7, default to red
@@ -1083,6 +1088,47 @@ const DisplayConfig = {
     }
     html += `</div>`; // close gradient-palette-colors
     html += `</div>`; // close shader-gradient-cycle-params
+    
+    // Glitch shader parameters (only shown when shader type is glitch)
+    html += `<div id="shader-glitch-params" style="display: ${shaderType === 4 ? 'block' : 'none'};">`;
+    
+    // Glitch speed slider
+    const glitchSpeed = this.getShaderFieldValue('glitch_speed');
+    html += `<div class="yaml-field-row" data-field-path="Shader.glitch_speed">`;
+    html += `<label class="yaml-field-label">Glitch Speed</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="range" class="yaml-range" min="0" max="100" step="1" value="${glitchSpeed}" data-path="Shader.glitch_speed" oninput="document.getElementById('val-Shader-glitch_speed').textContent = this.value">`;
+    html += `<span class="yaml-range-value" id="val-Shader-glitch_speed">${glitchSpeed}</span>`;
+    html += `</div></div>`;
+    
+    // Glitch intensity slider
+    const glitchIntensity = this.getShaderFieldValue('glitch_intensity');
+    html += `<div class="yaml-field-row" data-field-path="Shader.glitch_intensity">`;
+    html += `<label class="yaml-field-label">Displacement Intensity</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="range" class="yaml-range" min="0" max="100" step="1" value="${glitchIntensity}" data-path="Shader.glitch_intensity" oninput="document.getElementById('val-Shader-glitch_intensity').textContent = this.value">`;
+    html += `<span class="yaml-range-value" id="val-Shader-glitch_intensity">${glitchIntensity}</span>`;
+    html += `</div></div>`;
+    
+    // Chromatic aberration slider
+    const glitchChromatic = this.getShaderFieldValue('glitch_chromatic');
+    html += `<div class="yaml-field-row" data-field-path="Shader.glitch_chromatic">`;
+    html += `<label class="yaml-field-label">Chromatic Aberration</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="range" class="yaml-range" min="0" max="100" step="1" value="${glitchChromatic}" data-path="Shader.glitch_chromatic" oninput="document.getElementById('val-Shader-glitch_chromatic').textContent = this.value">`;
+    html += `<span class="yaml-range-value" id="val-Shader-glitch_chromatic">${glitchChromatic}</span>`;
+    html += `</div></div>`;
+    
+    // Glitch quantity slider
+    const glitchQuantity = this.getShaderFieldValue('glitch_quantity');
+    html += `<div class="yaml-field-row" data-field-path="Shader.glitch_quantity">`;
+    html += `<label class="yaml-field-label">Glitch Quantity</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="range" class="yaml-range" min="0" max="100" step="1" value="${glitchQuantity}" data-path="Shader.glitch_quantity" oninput="document.getElementById('val-Shader-glitch_quantity').textContent = this.value">`;
+    html += `<span class="yaml-range-value" id="val-Shader-glitch_quantity">${glitchQuantity}</span>`;
+    html += `</div></div>`;
+    
+    html += `</div>`; // close shader-glitch-params
     
     html += `</div></div>`; // close body and section
     return html;
@@ -1741,6 +1787,11 @@ const DisplayConfig = {
           const gradientCycleParams = document.getElementById('shader-gradient-cycle-params');
           if (gradientCycleParams) {
             gradientCycleParams.style.display = (value === 3) ? 'block' : 'none';
+          }
+          // Show/hide glitch params based on shader type
+          const glitchParams = document.getElementById('shader-glitch-params');
+          if (glitchParams) {
+            glitchParams.style.display = (value === 4) ? 'block' : 'none';
           }
         }
         

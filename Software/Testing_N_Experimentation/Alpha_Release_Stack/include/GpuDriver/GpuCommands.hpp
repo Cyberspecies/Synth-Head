@@ -118,6 +118,7 @@ private:
         SET_SPRITE_SHADER = 0x53,  // Set shader config for sprite rendering
         SET_SHADER_PALETTE = 0x54, // Set color palette for shaders (up to 32 colors)
         SET_GRADIENT_PARAMS = 0x55, // Set gradient cycle params: distance, angle
+        SET_GLITCH_PARAMS = 0x56,   // Set glitch shader params: speed, intensity, chromatic
         
         // OLED-specific commands
         OLED_CLEAR = 0x60,
@@ -1237,7 +1238,8 @@ public:
         NONE = 0,           // No shader - render sprite as-is
         COLOR_OVERRIDE = 1, // Replace all non-transparent pixels with a specific color
         HUE_CYCLE = 2,      // Cycle through a palette of colors smoothly
-        GRADIENT_CYCLE = 3  // Gradient colors across canvas that scroll
+        GRADIENT_CYCLE = 3, // Gradient colors across canvas that scroll
+        GLITCH = 4          // Digital glitch effect with chromatic aberration
     };
     
     /**
@@ -1328,6 +1330,22 @@ public:
         payload[3] = (uint8_t)((uint16_t)angle >> 8);   // angle high byte
         payload[4] = mirror ? 1 : 0;                    // mirror flag
         sendCmd(CmdType::SET_GRADIENT_PARAMS, payload, 5);
+    }
+    
+    /**
+     * Set glitch shader parameters
+     * @param speed Speed of glitch changes (0-255, higher = faster)
+     * @param intensity Intensity of position displacement (0-255)
+     * @param chromatic Chromatic aberration intensity (0-255)
+     * @param quantity Quantity/density of glitch bands (0-100)
+     */
+    void setGlitchParams(uint8_t speed, uint8_t intensity, uint8_t chromatic, uint8_t quantity = 50) {
+        uint8_t payload[4];
+        payload[0] = speed;
+        payload[1] = intensity;
+        payload[2] = chromatic;
+        payload[3] = quantity;
+        sendCmd(CmdType::SET_GLITCH_PARAMS, payload, 4);
     }
     
     /**
