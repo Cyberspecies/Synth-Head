@@ -311,6 +311,7 @@ public:
     // Get latest animation params from Core 0
     AnimationParams params;
     bool hasNew = false;
+    (void)hasNew;  // Reserved for future new-frame detection
     if (animBuffer_) {
       hasNew = animBuffer_->swapAndRead(params);
     }

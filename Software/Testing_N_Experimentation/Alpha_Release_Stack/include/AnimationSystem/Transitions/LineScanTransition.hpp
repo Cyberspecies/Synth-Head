@@ -144,7 +144,6 @@ public:
         
         // Determine scan axis size
         int axisSize = isHorizontalScan(direction) ? DISPLAY_W : DISPLAY_H;
-        int crossSize = isHorizontalScan(direction) ? DISPLAY_H : DISPLAY_W;
         
         // Calculate line position (with sub-pixel for smoothness)
         float linePos = progress * static_cast<float>(axisSize);

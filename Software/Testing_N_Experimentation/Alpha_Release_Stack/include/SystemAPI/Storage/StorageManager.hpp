@@ -53,16 +53,16 @@ namespace Paths {
     static const char* EQUATIONS_DIR = "/sdcard/Equations";
     static const char* CACHE_DIR = "/sdcard/Cache";
     
-    // Index files
-    static const char* SPRITE_INDEX = "/sdcard/Sprites/index.json";
-    static const char* ANIMATION_INDEX = "/sdcard/Animations/index.json";
-    static const char* CONFIG_INDEX = "/sdcard/Configs/index.json";
-    static const char* EQUATION_INDEX = "/sdcard/Equations/index.json";
+    // Index files (reserved for future content management)
+    [[maybe_unused]] static const char* SPRITE_INDEX = "/sdcard/Sprites/index.json";
+    [[maybe_unused]] static const char* ANIMATION_INDEX = "/sdcard/Animations/index.json";
+    [[maybe_unused]] static const char* CONFIG_INDEX = "/sdcard/Configs/index.json";
+    [[maybe_unused]] static const char* EQUATION_INDEX = "/sdcard/Equations/index.json";
     
-    // Calibration files
+    // Calibration files (reserved for future calibration system)
     static const char* IMU_CALIBRATION = "/sdcard/Calibration/imu.json";
-    static const char* BME_CALIBRATION = "/sdcard/Calibration/bme.json";
-    static const char* DISPLAY_CALIBRATION = "/sdcard/Calibration/display.json";
+    [[maybe_unused]] static const char* BME_CALIBRATION = "/sdcard/Calibration/bme.json";
+    [[maybe_unused]] static const char* DISPLAY_CALIBRATION = "/sdcard/Calibration/display.json";
 }
 
 // ============================================================

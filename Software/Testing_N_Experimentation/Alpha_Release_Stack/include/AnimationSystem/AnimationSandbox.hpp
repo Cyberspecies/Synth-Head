@@ -974,8 +974,7 @@ struct SDFMorphAnim {
         float px = fabsf(x - cx);
         float py = y - cy + size * 0.5f;
         // Approximate equilateral triangle with linear edges
-        float slope = size * 1.732f;  // sqrt(3)
-        float edge = py + px * 1.732f - size * 1.732f;
+        float edge = py + px * 1.732f - size * 1.732f;  // 1.732 = sqrt(3)
         return fmaxf(edge / 2.0f, -py - size * 0.5f);
     }
     
@@ -1542,10 +1541,11 @@ private:
     
     // Capture shader test pixels - uses white squares
     void captureShaderTest() {
-        float leftX = shaderTest.leftPosX + LEFT_EYE_X;
-        float leftY = shaderTest.leftPosY;
-        float rightX = shaderTest.rightPosX + RIGHT_EYE_X;
-        float rightY = shaderTest.rightPosY;
+        // Shader test uses left/right positions for centered squares
+        (void)shaderTest.leftPosX;  // Used in inline sdfRotatedBox calls below
+        (void)shaderTest.leftPosY;
+        (void)shaderTest.rightPosX;
+        (void)shaderTest.rightPosY;
         float size = shaderTest.squareSize;
         
         // ShaderTest uses white (255, 255, 255) for its rotating squares

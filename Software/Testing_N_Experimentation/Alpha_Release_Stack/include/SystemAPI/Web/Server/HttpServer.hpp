@@ -1017,7 +1017,7 @@ private:
                 cJSON* width = cJSON_GetObjectItem(item, "width");
                 cJSON* height = cJSON_GetObjectItem(item, "height");
                 cJSON* scale = cJSON_GetObjectItem(item, "scale");
-                cJSON* pixelSize = cJSON_GetObjectItem(item, "pixelSize");
+                // cJSON* pixelSize = cJSON_GetObjectItem(item, "pixelSize"); // Reserved for future use
                 
                 if (id && cJSON_IsNumber(id)) sprite.id = id->valueint;
                 if (name && cJSON_IsString(name)) sprite.name = name->valuestring;
@@ -2686,7 +2686,7 @@ private:
         }
         
         cJSON* sceneIdItem = cJSON_GetObjectItem(root, "sceneId");
-        cJSON* animTypeItem = cJSON_GetObjectItem(root, "animType");
+        // cJSON* animTypeItem = cJSON_GetObjectItem(root, \"animType\"); // Reserved for animation type filtering
         cJSON* paramItem = cJSON_GetObjectItem(root, "param");
         cJSON* valueItem = cJSON_GetObjectItem(root, "value");
         
@@ -2702,15 +2702,12 @@ private:
         ESP_LOGI(HTTP_TAG, "API: Update scene param %s = %.2f", paramId, value);
         
         // Update the scene's params if sceneId provided
-        SavedScene* updatedScene = nullptr;
         if (sceneIdItem && cJSON_IsNumber(sceneIdItem)) {
             int sceneId = sceneIdItem->valueint;
             for (auto& scene : savedScenes_) {
                 if (scene.id == sceneId) {
                     scene.params[paramId] = value;
-                    // ALWAYS set updatedScene - don't check scene.active
-                    // We want live updates for any scene being configured
-                    updatedScene = &scene;
+                    // Scene found and updated
                     break;
                 }
             }
@@ -3117,16 +3114,13 @@ private:
         }
         
         // Configure scan - use passive scan which works better in APSTA mode
-        wifi_scan_config_t scan_config = {
-            .ssid = nullptr,
-            .bssid = nullptr,
-            .channel = 0,
-            .show_hidden = false,
-            .scan_type = WIFI_SCAN_TYPE_PASSIVE,
-            .scan_time = {
-                .passive = 200
-            }
-        };
+        wifi_scan_config_t scan_config = {};
+        scan_config.ssid = nullptr;
+        scan_config.bssid = nullptr;
+        scan_config.channel = 0;
+        scan_config.show_hidden = false;
+        scan_config.scan_type = WIFI_SCAN_TYPE_PASSIVE;
+        scan_config.scan_time.passive = 200;
         
         // Start scan (blocking)
         esp_err_t err = esp_wifi_scan_start(&scan_config, true);
@@ -4045,7 +4039,7 @@ private:
     static esp_err_t handleApiSceneActivate(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return sendUnauthorized(req);
         
-        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        (void)req->user_ctx;  // HttpServer* available via user_ctx if needed
         
         char buf[256];
         int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);

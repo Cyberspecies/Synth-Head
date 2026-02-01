@@ -96,18 +96,18 @@ namespace GpuDriverState {
     static bool connected = false;
     static uint32_t gpuUptimeMs = 0;    // GPU uptime from PONG response
     static uint32_t lastPingTime = 0;
-    static uint32_t lastStatsTime = 0;
+    // static uint32_t lastStatsTime = 0;  // Reserved for GPU stats polling
     static constexpr uint32_t PING_INTERVAL_MS = 5000;  // Ping every 5s (reduced to avoid congestion)
-    static constexpr uint32_t STATS_INTERVAL_MS = 10000; // Fetch stats every 10s
+    // static constexpr uint32_t STATS_INTERVAL_MS = 10000; // Reserved for GPU stats polling
     
-    // GPU stats
-    static float gpuFps = 0.0f;
-    static uint32_t gpuFreeHeap = 0;
-    static uint32_t gpuMinHeap = 0;
-    static uint8_t gpuLoad = 0;
-    static uint32_t gpuTotalFrames = 0;
-    static bool gpuHub75Ok = false;
-    static bool gpuOledOk = false;
+    // GPU stats (reserved for future diagnostic display)
+    // static float gpuFps = 0.0f;
+    // static uint32_t gpuFreeHeap = 0;
+    // static uint32_t gpuMinHeap = 0;
+    // static uint8_t gpuLoad = 0;
+    // static uint32_t gpuTotalFrames = 0;
+    // static bool gpuHub75Ok = false;
+    // static bool gpuOledOk = false;
     
     // ====== SPRITE RENDERING STATE (like WifiSpriteUploadTest) ======
     // This allows continuous rendering at ~60fps from the update loop
@@ -152,8 +152,8 @@ namespace GpuDriverState {
         "Unused0", "LeftFin", "Tongue", "Unused3", "RightFin", "ScaleLEDs"
     };
     
-    // Initialize sandbox on first use
-    static bool sandboxInitialized = false;
+    // Initialize sandbox on first use (reserved for future sandbox feature)
+    // static bool sandboxInitialized = false;
     
     // ====== SCENE-BASED ANIMATION STATE ======
     // Animation modes from scene manager
@@ -174,8 +174,8 @@ namespace GpuDriverState {
     static bool eyeMirror = true;
     static int eyeSpriteId = -1;  // -1 = use default circle
     
-    // Sway animation state  
-    static float swayTime = 0.0f;
+    // Sway animation state (legacy - disabled)
+    // static float swayTime = 0.0f;
     static float swayXIntensity = 10.0f;
     static float swayYIntensity = 5.0f;
     static float swayRotRange = 15.0f;
@@ -689,11 +689,11 @@ namespace GpuDriverState {
                 // Get gyro data DIRECTLY from IMU driver for lowest latency
                 int16_t gx = Drivers::ImuDriver::gyroX;
                 int16_t gy = Drivers::ImuDriver::gyroY;
-                float pitch = (float)gx * eyeSensitivity;
-                float roll = (float)gy * eyeSensitivity;
+                (void)gx; (void)gy;  // Used in debug print and future gyro features
                 
                 // DEBUG: Print IMMEDIATELY when gyro is non-zero
                 static int64_t lastMovementTime = 0;
+                (void)lastMovementTime;  // Used in debug prints
                 if (gx != 0 || gy != 0) {
                     int64_t now = esp_timer_get_time();
                     printf("MOVE[%lu]: gyro=(%d,%d) t=%lld\n", renderFrameCount, gx, gy, now/1000);
@@ -1878,6 +1878,21 @@ void CurrentMode::onStart() {
         
         // Apply shader params from scene.params (stored from Advanced editor)
         // These are stored with "shader_" prefix in the params map
+        // IMPORTANT: Reset shader to NONE first to ensure clean slate when switching scenes
+        // This prevents shader from previous scene persisting if new scene has no shader_type
+        GpuDriverState::setSingleParam("shader_type", 0.0f);  // Reset to NONE
+        GpuDriverState::setSingleParam("shader_invert", 0.0f);  // Reset invert
+        printf("  [Shader] Reset to NONE before applying scene params\n");
+        
+        // Debug: Log all shader params in this scene
+        printf("  [Shader] Scene params containing 'shader_': ");
+        for (const auto& kv : scene.params) {
+            if (kv.first.find("shader_") == 0) {
+                printf("%s=%.2f ", kv.first.c_str(), kv.second);
+            }
+        }
+        printf("\n");
+        
         if (scene.params.count("shader_type")) {
             float shaderTypeVal = scene.params.at("shader_type");
             GpuDriverState::setSingleParam("shader_type", shaderTypeVal);
@@ -1972,7 +1987,7 @@ void CurrentMode::onStart() {
         // Only update animation mode if animType is valid and different from current
         // Map animType string to expected SceneAnimMode (use fully qualified name in lambda)
         using SAM = GpuDriverState::SceneAnimMode;
-        SAM expectedMode = SAM::STATIC_IMAGE;  // default
+        [[maybe_unused]] SAM expectedMode = SAM::STATIC_IMAGE;  // For debug prints
         bool mirrorEnabled = false;
         
         if (scene.animType == "static_mirrored") {
