@@ -9,12 +9,16 @@
  * - Sensor data display with pagination
  * - Breadcrumb trail with auto-scroll
  * - NVS persistence for on-time tracking
+ * - Animation preset preview in Standard Mode dashboard
  */
 
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <vector>
+#include <string>
+#include <functional>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
@@ -23,6 +27,9 @@
 #include "driver/gpio.h"
 #include "GpuDriver/GpuCommands.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
+
+// Forward declaration for scene activation
+namespace SystemAPI { namespace Web { struct SavedScene; } }
 
 namespace OledMenu {
 
@@ -192,6 +199,44 @@ public:
     // Get current menu state (for external use)
     MenuState getState() const { return state_; }
     
+    // Scene/preset preview support
+    using SceneActivateCallback = std::function<void(int sceneId)>;
+    void setSceneActivateCallback(SceneActivateCallback cb) { sceneActivateCallback_ = std::move(cb); }
+    void setAvailableScenes(const std::vector<std::pair<int, std::string>>& scenes) { 
+        availableScenes_ = scenes;
+        // Clamp preview index to valid range
+        if (!availableScenes_.empty() && presetPreviewIndex_ >= (int)availableScenes_.size()) {
+            presetPreviewIndex_ = 0;
+        }
+        // Sync to active scene after updating list
+        syncPresetIndexToActive();
+    }
+    void setActiveSceneId(int sceneId) { 
+        activeSceneId_ = sceneId;
+        // If not actively browsing, sync the preview index to the new active scene
+        if (!presetPreviewActive_) {
+            syncPresetIndexToActive();
+        }
+    }
+    int getActiveSceneId() const { return activeSceneId_; }
+    int getSelectedPresetIndex() const { return presetPreviewIndex_; }
+    
+    // Sync presetPreviewIndex_ to point to the active scene (if it exists)
+    void syncPresetIndexToActive() {
+        for (int i = 0; i < (int)availableScenes_.size(); i++) {
+            if (availableScenes_[i].first == activeSceneId_) {
+                presetPreviewIndex_ = i;
+                return;
+            }
+        }
+        // Active scene not found - keep current index but clamp to valid range
+        if (!availableScenes_.empty()) {
+            if (presetPreviewIndex_ >= (int)availableScenes_.size()) {
+                presetPreviewIndex_ = 0;
+            }
+        }
+    }
+    
 private:
     OledMenuSystem() = default;
     
@@ -249,6 +294,25 @@ private:
     // Render state
     uint32_t lastRenderTime_ = 0;
     bool needsRender_ = true;
+    
+    // ========================================================================
+    // STANDARD MODE - ANIMATION PRESET PREVIEW
+    // ========================================================================
+    // In Standard Mode dashboard, user can cycle through saved scenes with UP/DOWN
+    // and press SELECT to activate the highlighted scene.
+    int presetPreviewIndex_ = 0;         // Index into cached scene list
+    bool presetPreviewActive_ = false;   // True when user is browsing presets
+    uint32_t presetPreviewTimeout_ = 0;  // Auto-hide preview after 5 seconds of inactivity
+    static constexpr uint32_t PRESET_PREVIEW_TIMEOUT_MS = 5000;
+    
+    // Scene activation callback (set by main app to route to HttpServer)
+    SceneActivateCallback sceneActivateCallback_ = nullptr;
+    
+    // Cached list of available scenes: (id, name) pairs
+    std::vector<std::pair<int, std::string>> availableScenes_;
+    
+    // Currently active scene ID (for showing indicator)
+    int activeSceneId_ = -1;
     
     // Multi-slot auto-scroll marquee system
     // Each slot tracks a unique text by its screen position (y*256 + x)
@@ -432,7 +496,54 @@ private:
     }
     
     void handlePageViewInput(bool up, bool select, bool down, bool back) {
-        // System Info has 2 pages: Info and Sensors
+        // ====================================================================
+        // STANDARD MODE: Preset Preview Navigation
+        // UP/DOWN cycle through saved scenes, SELECT activates the highlighted scene
+        // ====================================================================
+        if (modeIndex_ == (int)Mode::STANDARD) {
+            if (up || down) {
+                // Cycle through available scenes
+                if (!availableScenes_.empty()) {
+                    if (up) {
+                        presetPreviewIndex_ = (presetPreviewIndex_ - 1 + (int)availableScenes_.size()) % (int)availableScenes_.size();
+                    } else {
+                        presetPreviewIndex_ = (presetPreviewIndex_ + 1) % (int)availableScenes_.size();
+                    }
+                    presetPreviewActive_ = true;
+                    presetPreviewTimeout_ = (uint32_t)(esp_timer_get_time() / 1000) + PRESET_PREVIEW_TIMEOUT_MS;
+                    needsRender_ = true;
+                    printf("OLED_MENU: Preset preview index=%d\n", presetPreviewIndex_);
+                }
+            } else if (select) {
+                // Activate the currently highlighted scene
+                if (presetPreviewActive_ && !availableScenes_.empty() && 
+                    presetPreviewIndex_ >= 0 && presetPreviewIndex_ < (int)availableScenes_.size()) {
+                    int sceneId = availableScenes_[presetPreviewIndex_].first;
+                    printf("OLED_MENU: Activating scene id=%d\n", sceneId);
+                    if (sceneActivateCallback_) {
+                        sceneActivateCallback_(sceneId);
+                    }
+                    // Keep preview active so user can see what's selected
+                    presetPreviewTimeout_ = (uint32_t)(esp_timer_get_time() / 1000) + PRESET_PREVIEW_TIMEOUT_MS;
+                }
+            } else if (back) {
+                // If preview active, dismiss it; otherwise go to mode select
+                if (presetPreviewActive_) {
+                    presetPreviewActive_ = false;
+                    needsRender_ = true;
+                } else {
+                    state_ = MenuState::MODE_SELECT;
+                    hasSavedState_ = false;
+                    resetAllMarqueeSlots();
+                    printf("OLED_MENU: Back to mode select\n");
+                }
+            }
+            return;  // Standard mode handled, don't fall through
+        }
+        
+        // ====================================================================
+        // SYSTEM INFO MODE: Page navigation and sensor selection
+        // ====================================================================
         if (modeIndex_ == (int)Mode::SYSTEM_INFO) {
             if (up && pageIndex_ > 0) {
                 pageIndex_--;
@@ -629,51 +740,110 @@ private:
     // ========================================================================
     
     void renderStandardMode(uint32_t currentTimeMs) {
-        (void)currentTimeMs;
+        // Check for preset preview timeout (revert to showing active scene)
+        uint32_t nowMs = (currentTimeMs > 0) ? currentTimeMs : (uint32_t)(esp_timer_get_time() / 1000);
+        if (presetPreviewActive_ && nowMs > presetPreviewTimeout_) {
+            presetPreviewActive_ = false;
+            // Sync presetPreviewIndex_ back to active scene when exiting preview
+            syncPresetIndexToActive();
+        }
         
-        // OLED has Y=0 at BOTTOM, so layout is inverted:
-        // - Y 96-127 = TOP of display (Dashboard)
-        // - Y 32-95 = MIDDLE (Viewport)
-        // - Y 0-31 = BOTTOM of display (HUB75 Mirror)
+        // OLED layout (128x128) with 180° base rotation applied by GPU:
+        // - Code Y=0-31 → Physical TOP of display (Dashboard)
+        // - Code Y=32-95 → Physical MIDDLE (Viewport)
+        // - Code Y=96-127 → Physical BOTTOM (HUB75 Mirror)
         
-        // === DASHBOARD SECTION (Top 32 pixels: Y 96-127) ===
+        // === DASHBOARD SECTION (Top 32 pixels: code Y 0-31) ===
+        // Always show preset selector - the dashboard IS the preset navigation
+        
         // White header bar at top
-        gpu_->oledFill(0, 116, 128, 12, true);
-        gpu_->oledTextNative(4, 118, "STANDARD", 1, false);
+        gpu_->oledFill(0, 0, 128, 12, true);
         
-        // Show time/status in dashboard area
-        char timeBuf[24];
-        formatOnTime(timeBuf, sizeof(timeBuf), getCurrentOnTime());
-        gpu_->oledTextNative(2, 102, timeBuf, 1, true);
+        if (availableScenes_.empty()) {
+            // No scenes available - show "No Presets"
+            gpu_->oledTextNative(4, 2, "NO PRESETS", 1, false);
+            gpu_->oledTextNative(4, 16, "Add via Web UI", 1, true);
+        } else {
+            // When not actively browsing, ensure we're showing the active scene
+            if (!presetPreviewActive_) {
+                syncPresetIndexToActive();
+            }
+            
+            // Clamp index to valid range
+            if (presetPreviewIndex_ < 0) presetPreviewIndex_ = 0;
+            if (presetPreviewIndex_ >= (int)availableScenes_.size()) {
+                presetPreviewIndex_ = (int)availableScenes_.size() - 1;
+            }
+            
+            // Get the currently displayed scene
+            const auto& scene = availableScenes_[presetPreviewIndex_];
+            int sceneId = scene.first;
+            const std::string& name = scene.second;
+            bool isActive = (sceneId == activeSceneId_);
+            
+            // Header: Show "PRESET" when browsing, or "[ACTIVE]" when showing active scene
+            if (presetPreviewActive_) {
+                gpu_->oledTextNative(4, 2, "SELECT PRESET", 1, false);
+            } else if (isActive) {
+                gpu_->oledTextNative(4, 2, "[ACTIVE PRESET]", 1, false);
+            } else {
+                gpu_->oledTextNative(4, 2, "PRESET", 1, false);
+            }
+            
+            // Show preset name with navigation arrows: "< PresetName >"
+            // Use * markers if this is the active scene: "<* PresetName *>"
+            char presetBuf[48];
+            if (isActive) {
+                snprintf(presetBuf, sizeof(presetBuf), "<* %s *>", name.c_str());
+            } else {
+                snprintf(presetBuf, sizeof(presetBuf), "< %s >", name.c_str());
+            }
+            
+            // Center the preset name on line below header
+            int textLen = strlen(presetBuf);
+            int textX = (128 - textLen * 6) / 2;
+            if (textX < 2) textX = 2;
+            gpu_->oledTextNative(textX, 14, presetBuf, 1, true);
+            
+            // Show index: "1/5" or "[1/5]" if active
+            char indexBuf[32];
+            if (isActive) {
+                snprintf(indexBuf, sizeof(indexBuf), "[%d/%d]", presetPreviewIndex_ + 1, (int)availableScenes_.size());
+            } else {
+                snprintf(indexBuf, sizeof(indexBuf), "%d/%d", presetPreviewIndex_ + 1, (int)availableScenes_.size());
+            }
+            int indexX = (128 - strlen(indexBuf) * 6) / 2;
+            gpu_->oledTextNative(indexX, 24, indexBuf, 1, true);
+        }
         
-        // Optional: Show sensor quick status
+        // === VIEWPORT SECTION (Middle 64 pixels: code Y 32-95) ===
+        // Draw viewport outline/border (rectangle around the viewport area)
+        gpu_->oledLine(0, 32, 127, 32, true);    // Top edge
+        gpu_->oledLine(0, 95, 127, 95, true);    // Bottom edge
+        gpu_->oledLine(0, 32, 0, 95, true);      // Left edge
+        gpu_->oledLine(127, 32, 127, 95, true);  // Right edge
+        
+        // Declare statusBuf here for use in viewport section
         char statusBuf[32];
-        snprintf(statusBuf, sizeof(statusBuf), "%.1fC  %.0f%%", bmeData_.temperature, bmeData_.humidity);
-        gpu_->oledTextNative(64, 102, statusBuf, 1, true);
-        
-        // Separator line below dashboard (at Y=96)
-        gpu_->oledLine(0, 96, 127, 96, true);
-        
-        // === VIEWPORT SECTION (Middle 64 pixels: Y 32-95) ===
-        int viewportY = 84;  // Start from top of viewport, going down
+        int viewportY = 34;  // Start inside the border
         
         // Show device name centered
         int nameLen = strlen(deviceName_);
         int nameX = (128 - nameLen * 6) / 2;
         gpu_->oledTextNative(nameX, viewportY, deviceName_, 1, true);
-        viewportY -= 12;
+        viewportY += 10;
         
         // Show model
         char modelBuf[32];
         snprintf(modelBuf, sizeof(modelBuf), "Model: %s", deviceModel_);
         gpu_->oledTextNative(4, viewportY, modelBuf, 1, true);
-        viewportY -= 11;
+        viewportY += 10;
         
         // IMU quick data
         snprintf(statusBuf, sizeof(statusBuf), "IMU: %.1f %.1f %.1f", 
                  imuData_.accelX, imuData_.accelY, imuData_.accelZ);
         gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
-        viewportY -= 11;
+        viewportY += 10;
         
         // GPS quick data
         if (gpsData_.hasFix) {
@@ -682,7 +852,7 @@ private:
             snprintf(statusBuf, sizeof(statusBuf), "GPS: No Fix");
         }
         gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
-        viewportY -= 11;
+        viewportY += 10;
         
         // Mic level bar visualization (using dB level, scale from -60dB to 0dB)
         gpu_->oledTextNative(4, viewportY, "MIC:", 1, true);
@@ -694,12 +864,10 @@ private:
             gpu_->oledFill(28, viewportY, barWidth, 8, true);
         }
         
-        // Separator line above HUB75 mirror (at Y=32)
-        gpu_->oledLine(0, 32, 127, 32, true);
-        
-        // === HUB75 MIRROR SECTION (Bottom 32 pixels: Y 0-31) ===
+        // === HUB75 MIRROR SECTION (Bottom 32 pixels: code Y 96-127) ===
         // Mirror the HUB75 panel content (128x32) to bottom of OLED at 1:1 scale
-        // scaleMode=0 for 1:1, yOffset=0 to place at bottom (Y 0-31)
+        // Note: oledMirrorHUB75 writes directly to buffer, bypassing orientation transform
+        // With 180° rotation, buffer Y=0-31 = visual bottom, so yOffset=0
         gpu_->oledMirrorHUB75(100, 0, 0);  // threshold 100 for good visibility
     }
     

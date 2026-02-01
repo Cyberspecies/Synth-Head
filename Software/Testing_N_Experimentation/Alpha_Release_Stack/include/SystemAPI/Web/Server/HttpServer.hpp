@@ -371,6 +371,46 @@ public:
     }
     
     /**
+     * @brief Get all saved scenes
+     */
+    const std::vector<SavedScene>& getSavedScenes() const {
+        return savedScenes_;
+    }
+    
+    /**
+     * @brief Activate a scene by ID (programmatically)
+     * Used by OLED menu to activate scenes via button press
+     * @param sceneId The ID of the scene to activate
+     * @return true if scene was found and activated, false otherwise
+     */
+    bool activateSceneById(int sceneId) {
+        // Deactivate all scenes first
+        for (auto& scene : savedScenes_) {
+            scene.active = false;
+        }
+        
+        // Activate the selected scene
+        for (auto& scene : savedScenes_) {
+            if (scene.id == sceneId) {
+                scene.active = true;
+                activeSceneId_ = scene.id;
+                
+                // Notify scene renderer if callback is set
+                if (sceneActivatedCallback_) {
+                    sceneActivatedCallback_(scene);
+                }
+                
+                ESP_LOGI(HTTP_TAG, "Activated scene via OLED: %s (id %d)", scene.name.c_str(), scene.id);
+                saveScenesStorage();
+                return true;
+            }
+        }
+        
+        ESP_LOGW(HTTP_TAG, "Scene id=%d not found", sceneId);
+        return false;
+    }
+    
+    /**
      * @brief Get all saved sprites (for diagnostic/debug purposes)
      */
     const std::vector<SavedSprite>& getSprites() const {
@@ -1185,6 +1225,11 @@ private:
             cJSON_AddNumberToObject(item, "ledB", s.ledB);
             cJSON_AddNumberToObject(item, "ledBrightness", s.ledBrightness);
             
+            // Background color (main scene level)
+            cJSON_AddNumberToObject(item, "bgR", s.bgR);
+            cJSON_AddNumberToObject(item, "bgG", s.bgG);
+            cJSON_AddNumberToObject(item, "bgB", s.bgB);
+            
             // AnimationSystem fields
             cJSON_AddStringToObject(item, "animType", s.animType.c_str());
             cJSON_AddStringToObject(item, "transition", s.transition.c_str());
@@ -1435,6 +1480,17 @@ private:
                 }
                 if ((val = cJSON_GetObjectItem(item, "ledBrightness")) && cJSON_IsNumber(val)) {
                     scene.ledBrightness = (uint8_t)val->valueint;
+                }
+                
+                // Load background color (main scene level)
+                if ((val = cJSON_GetObjectItem(item, "bgR")) && cJSON_IsNumber(val)) {
+                    scene.bgR = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "bgG")) && cJSON_IsNumber(val)) {
+                    scene.bgG = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "bgB")) && cJSON_IsNumber(val)) {
+                    scene.bgB = (uint8_t)val->valueint;
                 }
                 
                 // Load AnimationSystem fields

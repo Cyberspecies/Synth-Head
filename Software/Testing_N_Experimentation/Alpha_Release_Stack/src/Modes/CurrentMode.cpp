@@ -1746,6 +1746,9 @@ void CurrentMode::onStart() {
         printf("  Background: RGB(%d,%d,%d)\n", scene.bgR, scene.bgG, scene.bgB);
         printf("  ========================================\n\n");
         
+        // Update OLED to show this as the active scene
+        OledMenu::OledMenuSystem::instance().setActiveSceneId(scene.id);
+        
         // Set background color
         GpuDriverState::setBackgroundColor(scene.bgR, scene.bgG, scene.bgB);
         
@@ -1757,20 +1760,19 @@ void CurrentMode::onStart() {
             // Apply animation-specific parameters from scene.params
             // Note: params is a map<string, float>
             
-            // Mirror is determined by animation type:
-            // - static_sprite/static_image/static = single sprite, mirrorEnabled = false
-            // - static_mirrored = mirrored, mirrorEnabled = true
-            // - Override with explicit mirror param if present
-            bool mirrorParam = false;
+            // Mirror is determined by:
+            // 1. scene.mirrorSprite field (explicit toggle from web UI)
+            // 2. animation type: static_mirrored = mirrored
+            // 3. Override with explicit mirror param if present
+            bool mirrorParam = scene.mirrorSprite;  // Use the dedicated field first!
             if (scene.animType == "static_mirrored") {
                 mirrorParam = true;
-            } else if (scene.animType == "static_sprite" || scene.animType == "static_image" || scene.animType == "static") {
-                mirrorParam = false;  // Explicit single-sprite mode
             } else if (scene.params.count("mirror")) {
                 mirrorParam = scene.params.at("mirror") > 0.5f;
             }
             GpuDriverState::setMirrorEnabled(mirrorParam);
-            printf("  Mirror mode: %s (animType='%s')\n", mirrorParam ? "YES" : "NO", scene.animType.c_str());
+            printf("  Mirror mode: %s (mirrorSprite=%s, animType='%s')\n", 
+                   mirrorParam ? "YES" : "NO", scene.mirrorSprite ? "YES" : "NO", scene.animType.c_str());
             
             // Gyro eyes parameters - always set defaults if not found
             if (scene.animType == "gyro_eyes") {
@@ -1884,7 +1886,39 @@ void CurrentMode::onStart() {
         GpuDriverState::setSingleParam("shader_invert", 0.0f);  // Reset invert
         printf("  [Shader] Reset to NONE before applying scene params\n");
         
-        // Debug: Log all shader params in this scene
+        // Apply dedicated shader fields from scene struct (fallback if params don't have them)
+        // These are the fields saved/loaded by saveScenesStorage/loadScenesFromStorage
+        if (scene.shaderInvert) {
+            GpuDriverState::setSingleParam("shader_invert", 1.0f);
+            printf("  [Shader] Invert: ON (from scene.shaderInvert)\n");
+        }
+        
+        // Apply shaderColorMode: none=0, solid=1, hue_cycle=2, gradient_cycle=3, glitch=4
+        if (scene.shaderColorMode == "solid") {
+            GpuDriverState::setSingleParam("shader_type", 1.0f);
+            printf("  [Shader] Type: SOLID (from scene.shaderColorMode)\n");
+        } else if (scene.shaderColorMode == "rainbow" || scene.shaderColorMode == "hue_cycle") {
+            GpuDriverState::setSingleParam("shader_type", 2.0f);
+            printf("  [Shader] Type: HUE_CYCLE (from scene.shaderColorMode)\n");
+        } else if (scene.shaderColorMode == "gradient" || scene.shaderColorMode == "gradient_cycle") {
+            GpuDriverState::setSingleParam("shader_type", 3.0f);
+            printf("  [Shader] Type: GRADIENT_CYCLE (from scene.shaderColorMode)\n");
+        } else if (scene.shaderColorMode == "glitch") {
+            GpuDriverState::setSingleParam("shader_type", 4.0f);
+            printf("  [Shader] Type: GLITCH (from scene.shaderColorMode)\n");
+        }
+        
+        // Parse shaderColor hex string to RGB for solid color mode
+        if (!scene.shaderColor.empty() && scene.shaderColor[0] == '#' && scene.shaderColor.length() >= 7) {
+            int r = 0, g = 0, b = 0;
+            sscanf(scene.shaderColor.c_str() + 1, "%02x%02x%02x", &r, &g, &b);
+            GpuDriverState::setSingleParam("shader_override_r", (float)r);
+            GpuDriverState::setSingleParam("shader_override_g", (float)g);
+            GpuDriverState::setSingleParam("shader_override_b", (float)b);
+            printf("  [Shader] Color: %s -> RGB(%d,%d,%d)\n", scene.shaderColor.c_str(), r, g, b);
+        }
+        
+        // Debug: Log all shader params in this scene (overrides from Advanced editor)
         printf("  [Shader] Scene params containing 'shader_': ");
         for (const auto& kv : scene.params) {
             if (kv.first.find("shader_") == 0) {
@@ -1893,10 +1927,11 @@ void CurrentMode::onStart() {
         }
         printf("\n");
         
+        // Override with explicit params if present (from Advanced editor or API)
         if (scene.params.count("shader_type")) {
             float shaderTypeVal = scene.params.at("shader_type");
             GpuDriverState::setSingleParam("shader_type", shaderTypeVal);
-            printf("  Shader Type: %d\n", (int)shaderTypeVal);
+            printf("  Shader Type Override: %d (from params)\n", (int)shaderTypeVal);
         }
         if (scene.params.count("shader_invert")) {
             GpuDriverState::setSingleParam("shader_invert", scene.params.at("shader_invert"));
@@ -2083,8 +2118,40 @@ void CurrentMode::onStart() {
     
     printf("  Web-GPU Callbacks: Registered\n");
     
+    // =====================================================
+    // Wire up OLED Menu System -> HttpServer Scene Activation
+    // This allows the OLED buttons to activate scenes from the preset list
+    // =====================================================
+    {
+        // Set callback: when OLED user selects a preset, activate that scene
+        OledMenu::OledMenuSystem::instance().setSceneActivateCallback([](int sceneId) {
+            printf("OLED_MENU: Scene activation callback - id=%d\n", sceneId);
+            SystemAPI::Web::HttpServer::instance().activateSceneById(sceneId);
+            // Update OLED to show this as the active scene
+            OledMenu::OledMenuSystem::instance().setActiveSceneId(sceneId);
+        });
+        
+        // Build scene list for OLED (id, name pairs)
+        const auto& scenes = httpServer.getSavedScenes();
+        std::vector<std::pair<int, std::string>> sceneList;
+        sceneList.reserve(scenes.size());
+        for (const auto& scene : scenes) {
+            sceneList.emplace_back(scene.id, scene.name);
+        }
+        OledMenu::OledMenuSystem::instance().setAvailableScenes(sceneList);
+        
+        // Set the initial active scene ID
+        OledMenu::OledMenuSystem::instance().setActiveSceneId(SystemAPI::Web::activeSceneId_);
+        
+        printf("  OLED-Scene Callback: Registered (%zu scenes, activeId=%d)\n", 
+               sceneList.size(), SystemAPI::Web::activeSceneId_);
+    }
+    
     // Auto-activate the saved scene from storage (restores last state on boot)
     httpServer.autoActivateSavedScene();
+    
+    // Update OLED active scene ID after auto-activate (in case it changed)
+    OledMenu::OledMenuSystem::instance().setActiveSceneId(SystemAPI::Web::activeSceneId_);
     
     // Print sprite storage summary
     {
