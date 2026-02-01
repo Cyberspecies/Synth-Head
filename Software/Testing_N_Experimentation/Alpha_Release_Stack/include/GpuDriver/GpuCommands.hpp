@@ -116,7 +116,8 @@ private:
         PRESENT = 0x51,
         BLIT_SPRITE_ROT_SCALE_FLIP = 0x52, // Sprite with rotation + scale + flip flags
         SET_SPRITE_SHADER = 0x53,  // Set shader config for sprite rendering
-        SET_SHADER_PALETTE = 0x54, // Set color palette for hue cycle shader
+        SET_SHADER_PALETTE = 0x54, // Set color palette for shaders (up to 32 colors)
+        SET_GRADIENT_PARAMS = 0x55, // Set gradient cycle params: distance, angle
         
         // OLED-specific commands
         OLED_CLEAR = 0x60,
@@ -1235,7 +1236,8 @@ public:
     enum class ShaderType : uint8_t {
         NONE = 0,           // No shader - render sprite as-is
         COLOR_OVERRIDE = 1, // Replace all non-transparent pixels with a specific color
-        HUE_CYCLE = 2       // Cycle through a palette of colors smoothly
+        HUE_CYCLE = 2,      // Cycle through a palette of colors smoothly
+        GRADIENT_CYCLE = 3  // Gradient colors across canvas that scroll
     };
     
     /**
@@ -1294,15 +1296,15 @@ public:
     }
     
     /**
-     * Set color palette for hue cycle shader
+     * Set color palette for shaders (hue cycle, gradient cycle)
      * @param colors Array of RGB colors (3 bytes each: R, G, B)
-     * @param count Number of colors in palette (1-8)
+     * @param count Number of colors in palette (1-32)
      */
     void setShaderPalette(const uint8_t* colors, uint8_t count) {
         if (count < 1) count = 1;
-        if (count > 8) count = 8;
+        if (count > 32) count = 32;
         
-        uint8_t payload[1 + 8 * 3];  // count + up to 8 RGB colors
+        uint8_t payload[1 + 32 * 3];  // count + up to 32 RGB colors
         payload[0] = count;
         for (int i = 0; i < count; i++) {
             payload[1 + i * 3 + 0] = colors[i * 3 + 0];  // R
@@ -1310,6 +1312,20 @@ public:
             payload[1 + i * 3 + 2] = colors[i * 3 + 2];  // B
         }
         sendCmd(CmdType::SET_SHADER_PALETTE, payload, 1 + count * 3);
+    }
+    
+    /**
+     * Set gradient cycle shader parameters
+     * @param distance Pixels between color bands
+     * @param angle Travel direction in degrees (-180 to 180)
+     */
+    void setGradientParams(uint16_t distance, int16_t angle) {
+        uint8_t payload[4];
+        payload[0] = (uint8_t)(distance & 0xFF);        // distance low byte
+        payload[1] = (uint8_t)(distance >> 8);          // distance high byte
+        payload[2] = (uint8_t)(angle & 0xFF);           // angle low byte (signed)
+        payload[3] = (uint8_t)((uint16_t)angle >> 8);   // angle high byte
+        sendCmd(CmdType::SET_GRADIENT_PARAMS, payload, 4);
     }
     
     /**
@@ -1325,6 +1341,26 @@ public:
                            bool maskEnabled = true) {
         // param1 = speed low byte, param2 = speed high byte
         setSpriteShader(ShaderType::HUE_CYCLE, invertFirst, maskR, maskG, maskB, maskEnabled,
+                       (uint8_t)(speedMs & 0xFF), (uint8_t)(speedMs >> 8), 0);
+    }
+    
+    /**
+     * Convenience: Set gradient cycle shader with speed
+     * @param speedMs Time in milliseconds per color band scroll
+     * @param distance Pixels between color bands
+     * @param angle Travel direction in degrees (-180 to 180)
+     * @param invertFirst If true, invert colors before applying shader
+     * @param maskR/G/B Color to make transparent
+     * @param maskEnabled If true, mask color will be transparent
+     */
+    void setGradientCycleShader(uint16_t speedMs, uint16_t distance, int16_t angle,
+                                bool invertFirst = false,
+                                uint8_t maskR = 0, uint8_t maskG = 0, uint8_t maskB = 0,
+                                bool maskEnabled = true) {
+        // First set gradient-specific params
+        setGradientParams(distance, angle);
+        // Then set shader config (param1,param2 = speed)
+        setSpriteShader(ShaderType::GRADIENT_CYCLE, invertFirst, maskR, maskG, maskB, maskEnabled,
                        (uint8_t)(speedMs & 0xFF), (uint8_t)(speedMs >> 8), 0);
     }
     

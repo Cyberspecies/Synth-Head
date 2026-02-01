@@ -4272,9 +4272,17 @@ private:
                                             printf("  [shaderParam] override_color = (%d,%d,%d)\n", 
                                                    rItem->valueint, gItem->valueint, bItem->valueint);
                                         } else if (strncmp(param->string, "hue_color_", 10) == 0) {
-                                            // Handle hue cycle palette colors (hue_color_0, hue_color_1, etc.)
-                                            int colorIdx = param->string[10] - '0';
-                                            if (colorIdx >= 0 && colorIdx < 8) {
+                                            // Handle hue cycle palette colors (hue_color_0 to hue_color_31)
+                                            // Parse index - could be 1 or 2 digits
+                                            int colorIdx = 0;
+                                            const char* idxStr = param->string + 10;
+                                            if (idxStr[0] >= '0' && idxStr[0] <= '9') {
+                                                colorIdx = idxStr[0] - '0';
+                                                if (idxStr[1] >= '0' && idxStr[1] <= '9') {
+                                                    colorIdx = colorIdx * 10 + (idxStr[1] - '0');
+                                                }
+                                            }
+                                            if (colorIdx >= 0 && colorIdx < 32) {
                                                 auto& singleCallback = getSingleParamCallback();
                                                 if (singleCallback) {
                                                     char paramNameR[32], paramNameG[32], paramNameB[32];

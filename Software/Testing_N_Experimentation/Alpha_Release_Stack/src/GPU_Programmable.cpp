@@ -316,7 +316,8 @@ static uint32_t total_frames = 0;          // Total frames rendered since boot
 enum class ShaderType : uint8_t {
   NONE = 0,           // No shader - render sprite as-is
   COLOR_OVERRIDE = 1, // Replace all non-transparent pixels with a specific color
-  HUE_CYCLE = 2       // Cycle through a palette of colors smoothly
+  HUE_CYCLE = 2,      // Cycle through a palette of colors smoothly
+  GRADIENT_CYCLE = 3  // Gradient colors across canvas that scroll
 };
 
 static ShaderType g_shaderType = ShaderType::NONE;
@@ -325,24 +326,38 @@ static bool g_shaderMaskEnabled = true;    // Default: mask is enabled (black is
 static uint8_t g_shaderMaskR = 0;          // Default mask color: black
 static uint8_t g_shaderMaskG = 0;
 static uint8_t g_shaderMaskB = 0;
-static uint8_t g_shaderParam1 = 255;       // For COLOR_OVERRIDE: override R, For HUE_CYCLE: speed low byte
-static uint8_t g_shaderParam2 = 255;       // For COLOR_OVERRIDE: override G, For HUE_CYCLE: speed high byte
+static uint8_t g_shaderParam1 = 255;       // For COLOR_OVERRIDE: override R, For HUE_CYCLE/GRADIENT: speed low byte
+static uint8_t g_shaderParam2 = 255;       // For COLOR_OVERRIDE: override G, For HUE_CYCLE/GRADIENT: speed high byte
 static uint8_t g_shaderParam3 = 255;       // For COLOR_OVERRIDE: override B
 
-// Hue cycle shader palette (up to 8 colors)
-static const uint8_t MAX_PALETTE_COLORS = 8;
+// Hue/Gradient cycle shader palette (up to 32 colors)
+static const uint8_t MAX_PALETTE_COLORS = 32;
 static uint8_t g_huePaletteCount = 5;      // Default: 5 colors
-static uint8_t g_huePalette[MAX_PALETTE_COLORS * 3] = {
-  255, 0, 0,       // Red
-  255, 255, 0,     // Yellow
-  0, 255, 0,       // Green
-  0, 0, 255,       // Blue
-  128, 0, 255,     // Purple
-  255, 0, 0,       // Red (padding)
-  255, 0, 0,       // Red (padding)
-  255, 0, 0        // Red (padding)
-};
+static uint8_t g_huePalette[MAX_PALETTE_COLORS * 3];  // Will be initialized in init
 static uint32_t g_hueCycleStartTime = 0;   // Time when hue cycle started
+
+// Gradient cycle specific params
+static uint16_t g_gradientDistance = 20;   // Pixels between color bands
+static int16_t g_gradientAngle = 0;        // Angle in degrees (-180 to 180)
+
+// Initialize default palette
+static void initDefaultPalette() {
+  // Default 5 colors: Red, Yellow, Green, Blue, Purple
+  uint8_t defaults[] = {
+    255, 0, 0,       // Red
+    255, 255, 0,     // Yellow
+    0, 255, 0,       // Green
+    0, 0, 255,       // Blue
+    128, 0, 255      // Purple
+  };
+  memcpy(g_huePalette, defaults, sizeof(defaults));
+  // Fill rest with red as padding
+  for (int i = 5; i < MAX_PALETTE_COLORS; i++) {
+    g_huePalette[i * 3 + 0] = 255;
+    g_huePalette[i * 3 + 1] = 0;
+    g_huePalette[i * 3 + 2] = 0;
+  }
+}
 
 // Lerp between two uint8_t values
 static inline uint8_t lerpU8(uint8_t a, uint8_t b, float t) {
@@ -381,10 +396,73 @@ static inline void getHueCycleColor(uint8_t& r, uint8_t& g, uint8_t& b) {
   b = lerpU8(g_huePalette[idx1 * 3 + 2], g_huePalette[idx2 * 3 + 2], segmentProgress);
 }
 
+// Get gradient cycle color based on position and time
+// Projects pixel position onto angle direction and calculates color from gradient
+static inline void getGradientCycleColor(int16_t pixelX, int16_t pixelY, uint8_t& r, uint8_t& g, uint8_t& b) {
+  static uint32_t debugCounter = 0;
+  
+  if (g_huePaletteCount == 0) {
+    r = g = b = 255;
+    return;
+  }
+  
+  // Get speed in ms (stored as 16-bit in param1,param2)
+  uint16_t speedMs = g_shaderParam1 | (g_shaderParam2 << 8);
+  if (speedMs == 0) speedMs = 1000;  // Default 1 second
+  
+  // Calculate direction vector from angle
+  float angleRad = (float)g_gradientAngle * 3.14159265f / 180.0f;
+  float dirX = cosf(angleRad);
+  float dirY = sinf(angleRad);
+  
+  // Debug output every ~1 second (assuming ~60fps, ~4096 pixels per frame)
+  if (++debugCounter % 250000 == 0) {
+    ESP_LOGI(TAG, "GRADIENT: angle=%d, dirX=%.3f, dirY=%.3f, dist=%d, colors=%d",
+             g_gradientAngle, dirX, dirY, g_gradientDistance, g_huePaletteCount);
+  }
+  
+  // Project pixel position onto direction vector to get position along gradient
+  float projectedPos = (float)pixelX * dirX + (float)pixelY * dirY;
+  
+  // Time-based offset for scrolling
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+  uint32_t elapsed = now - g_hueCycleStartTime;
+  
+  // Calculate scroll offset in pixels
+  // Speed determines how fast it scrolls - pixels per second = distance / (speedMs/1000)
+  float pixelsPerMs = (float)g_gradientDistance / (float)speedMs;
+  float scrollOffset = (float)elapsed * pixelsPerMs;
+  
+  // Total gradient length in pixels
+  float totalGradientLength = (float)g_gradientDistance * (float)g_huePaletteCount;
+  
+  // Add scroll offset to position and wrap
+  float gradientPos = projectedPos + scrollOffset;
+  
+  // Wrap to total gradient length (handle negatives)
+  gradientPos = fmodf(gradientPos, totalGradientLength);
+  if (gradientPos < 0) gradientPos += totalGradientLength;
+  
+  // Calculate which color segment we're in
+  float segmentFloat = gradientPos / (float)g_gradientDistance;
+  int segmentIndex = (int)segmentFloat;
+  float segmentProgress = segmentFloat - (float)segmentIndex;
+  
+  // Clamp segment index
+  segmentIndex = segmentIndex % g_huePaletteCount;
+  int nextIndex = (segmentIndex + 1) % g_huePaletteCount;
+  
+  // Interpolate between colors
+  r = lerpU8(g_huePalette[segmentIndex * 3 + 0], g_huePalette[nextIndex * 3 + 0], segmentProgress);
+  g = lerpU8(g_huePalette[segmentIndex * 3 + 1], g_huePalette[nextIndex * 3 + 1], segmentProgress);
+  b = lerpU8(g_huePalette[segmentIndex * 3 + 2], g_huePalette[nextIndex * 3 + 2], segmentProgress);
+}
+
 // Apply shader processing to a pixel color
 // Order: 1) Invert, 2) Check mask (return transparent), 3) Apply shader effect
 // Returns true if pixel should be rendered, false if transparent
-static inline bool applyShaderToPixel(uint8_t& r, uint8_t& g, uint8_t& b, uint8_t alpha) {
+// Note: pixelX/Y only used for GRADIENT_CYCLE shader
+static inline bool applyShaderToPixel(uint8_t& r, uint8_t& g, uint8_t& b, uint8_t alpha, int16_t pixelX = 0, int16_t pixelY = 0) {
     // Step 1: Invert colors if enabled
     if (g_shaderInvertColors) {
         r = 255 - r;
@@ -410,6 +488,10 @@ static inline bool applyShaderToPixel(uint8_t& r, uint8_t& g, uint8_t& b, uint8_
         case ShaderType::HUE_CYCLE:
             // Replace color with cycling hue color
             getHueCycleColor(r, g, b);
+            break;
+        case ShaderType::GRADIENT_CYCLE:
+            // Replace color with gradient based on position
+            getGradientCycleColor(pixelX, pixelY, r, g, b);
             break;
         case ShaderType::NONE:
         default:
@@ -1792,7 +1874,8 @@ static void blitSprite(int id, int dx, int dy) {
           uint8_t pb = tb >> 2;
           
           // Apply shader processing (invert, mask, effect)
-          if (applyShaderToPixel(pr, pg, pb, 255)) {
+          // Pass screen coordinates for gradient shader
+          if (applyShaderToPixel(pr, pg, pb, 255, dx + x, dy + y)) {
             setPixelHUB75(dx + x, dy + y, pr, pg, pb);
           }
         }
@@ -1807,7 +1890,8 @@ static void blitSprite(int id, int dx, int dy) {
           uint8_t b = s.data[idx + 2];
           
           // Apply shader processing (invert, mask, effect)
-          if (applyShaderToPixel(r, g, b, 255)) {
+          // Pass screen coordinates for gradient shader
+          if (applyShaderToPixel(r, g, b, 255, dx + x, dy + y)) {
             setPixelHUB75(dx + x, dy + y, r, g, b);
           }
         }
@@ -1919,18 +2003,19 @@ static void blitSpriteF(int id, float dx, float dy) {
           uint8_t pg8 = s.data[sidx + 1];
           uint8_t pb8 = s.data[sidx + 2];
           
+          // Screen position of this sprite pixel (calculate first for gradient shader)
+          float screenX = dx + sx;
+          float screenY = dy + sy;
+          
           // Apply shader processing (invert, mask, effect)
-          if (!applyShaderToPixel(pr8, pg8, pb8, 255)) {
+          // Pass screen coordinates for gradient shader
+          if (!applyShaderToPixel(pr8, pg8, pb8, 255, (int16_t)screenX, (int16_t)screenY)) {
             continue;  // Pixel is transparent after shader processing
           }
           
           float pr = pr8;
           float pg = pg8;
           float pb = pb8;
-          
-          // Screen position of this sprite pixel
-          float screenX = dx + sx;
-          float screenY = dy + sy;
           
           // Integer screen position and fractional offset
           int ix = (int)floorf(screenX);
@@ -1981,7 +2066,8 @@ static void blitSpriteF(int id, float dx, float dy) {
           uint8_t b = s.data[idx + 2];
           
           // Apply shader processing (invert, mask, effect)
-          if (applyShaderToPixel(r, g, b, 255)) {
+          // Pass screen coordinates for gradient shader
+          if (applyShaderToPixel(r, g, b, 255, ix + x, iy + y)) {
             setPixelHUB75(ix + x, iy + y, r, g, b);
           }
         }
@@ -2088,15 +2174,6 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
         uint8_t pg8 = s.data[sidx + 1];
         uint8_t pb8 = s.data[sidx + 2];
         
-        // Apply shader processing (invert, mask, effect)
-        if (!applyShaderToPixel(pr8, pg8, pb8, 255)) {
-          continue;  // Pixel is transparent after shader processing
-        }
-        
-        float pr = pr8;
-        float pg = pg8;
-        float pb = pb8;
-        
         // Position relative to sprite center
         float relX = sx - cx + 0.5f;  // +0.5 for pixel center
         float relY = sy - cy + 0.5f;
@@ -2104,6 +2181,16 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
         // Rotate around center and translate to screen position
         float screenX = relX * cosA - relY * sinA + dx;
         float screenY = relX * sinA + relY * cosA + dy;
+        
+        // Apply shader processing (invert, mask, effect)
+        // Pass screen coordinates for gradient shader
+        if (!applyShaderToPixel(pr8, pg8, pb8, 255, (int16_t)screenX, (int16_t)screenY)) {
+          continue;  // Pixel is transparent after shader processing
+        }
+        
+        float pr = pr8;
+        float pg = pg8;
+        float pb = pb8;
         
         // Integer screen position and fractional offset
         int ix = (int)floorf(screenX);
@@ -2152,7 +2239,8 @@ static void blitSpriteRotated(int id, float dx, float dy, float angleDeg) {
           uint8_t b = s.data[idx + 2];
           
           // Apply shader processing (invert, mask, effect)
-          if (applyShaderToPixel(r, g, b, 255)) {
+          // Pass screen coordinates for gradient shader
+          if (applyShaderToPixel(r, g, b, 255, px, py)) {
             setPixelHUB75(px, py, r, g, b);
           }
         }
@@ -2267,15 +2355,6 @@ static void blitSpriteRotatedScaled(int id, float dx, float dy, float angleDeg, 
         uint8_t pg8 = s.data[sidx + 1];
         uint8_t pb8 = s.data[sidx + 2];
         
-        // Apply shader processing (invert, mask, effect)
-        if (!applyShaderToPixel(pr8, pg8, pb8, 255)) {
-          continue;  // Pixel is transparent after shader processing
-        }
-        
-        float pr = pr8;
-        float pg = pg8;
-        float pb = pb8;
-        
         // Position relative to sprite center
         float relX = (sx - cx + 0.5f) * scale;  // Apply scale
         float relY = (sy - cy + 0.5f) * scale;
@@ -2283,6 +2362,16 @@ static void blitSpriteRotatedScaled(int id, float dx, float dy, float angleDeg, 
         // Rotate around center and translate to screen position
         float screenX = relX * cosA - relY * sinA + dx;
         float screenY = relX * sinA + relY * cosA + dy;
+        
+        // Apply shader processing (invert, mask, effect)
+        // Pass screen coordinates for gradient shader
+        if (!applyShaderToPixel(pr8, pg8, pb8, 255, (int16_t)screenX, (int16_t)screenY)) {
+          continue;  // Pixel is transparent after shader processing
+        }
+        
+        float pr = pr8;
+        float pg = pg8;
+        float pb = pb8;
         
         // Integer screen position and fractional offset
         int ix = (int)floorf(screenX);
@@ -2334,7 +2423,8 @@ static void blitSpriteRotatedScaled(int id, float dx, float dy, float angleDeg, 
           uint8_t b = s.data[idx + 2];
           
           // Apply shader processing (invert, mask, effect)
-          if (applyShaderToPixel(r, g, b, 255)) {
+          // Pass screen coordinates for gradient shader
+          if (applyShaderToPixel(r, g, b, 255, px, py)) {
             setPixelHUB75(px, py, r, g, b);
           }
         }
@@ -2453,15 +2543,6 @@ static void blitSpriteRotatedScaledFlip(int id, float dx, float dy, float angleD
         uint8_t pg8 = s.data[sidx + 1];
         uint8_t pb8 = s.data[sidx + 2];
         
-        // Apply shader processing (invert, mask, effect)
-        if (!applyShaderToPixel(pr8, pg8, pb8, 255)) {
-          continue;  // Pixel is transparent after shader processing
-        }
-        
-        float pr = pr8;
-        float pg = pg8;
-        float pb = pb8;
-        
         // Position relative to sprite center (use original sx/sy for positioning)
         float relX = (sx - cx + 0.5f) * scale;
         float relY = (sy - cy + 0.5f) * scale;
@@ -2469,6 +2550,16 @@ static void blitSpriteRotatedScaledFlip(int id, float dx, float dy, float angleD
         // Rotate around center and translate to screen position
         float screenX = relX * cosA - relY * sinA + dx;
         float screenY = relX * sinA + relY * cosA + dy;
+        
+        // Apply shader processing (invert, mask, effect)
+        // Pass screen coordinates for gradient shader
+        if (!applyShaderToPixel(pr8, pg8, pb8, 255, (int16_t)screenX, (int16_t)screenY)) {
+          continue;  // Pixel is transparent after shader processing
+        }
+        
+        float pr = pr8;
+        float pg = pg8;
+        float pb = pb8;
         
         // Integer screen position and fractional offset
         int ix = (int)floorf(screenX);
@@ -2525,7 +2616,8 @@ static void blitSpriteRotatedScaledFlip(int id, float dx, float dy, float angleD
           uint8_t pb = s.data[idx + 2];
           
           // Apply shader processing (invert, mask, effect)
-          if (applyShaderToPixel(pr, pg, pb, 255)) {
+          // Pass screen coordinates for gradient shader
+          if (applyShaderToPixel(pr, pg, pb, 255, px, py)) {
             setPixelHUB75(px, py, pr, pg, pb);
           }
         }
@@ -2942,7 +3034,8 @@ enum class CmdType : uint8_t {
   PRESENT = 0x51,        // Push framebuffer to display
   BLIT_SPRITE_ROT_SCALE_FLIP = 0x52, // Sprite with rotation+scale+flip: id, x, y, angle, scale, flags (all 8.8 fixed)
   SET_SPRITE_SHADER = 0x53,  // Configure sprite shader: type, flags, maskRGB, param1-3
-  SET_SHADER_PALETTE = 0x54, // Set color palette for hue cycle shader: count, [R,G,B]*N
+  SET_SHADER_PALETTE = 0x54, // Set color palette for shaders: count, [R,G,B]*N (up to 32 colors)
+  SET_GRADIENT_PARAMS = 0x55, // Set gradient cycle params: distLo, distHi, angleLo, angleHi (signed)
   
   // OLED-specific commands (always target OLED buffer)
   OLED_CLEAR = 0x60,
@@ -3642,6 +3735,25 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
           ESP_LOGI(TAG, "SET_SHADER_PALETTE: count=%d, first=(%d,%d,%d)",
                    g_huePaletteCount, g_huePalette[0], g_huePalette[1], g_huePalette[2]);
         }
+      }
+      break;
+    }
+    
+    case CmdType::SET_GRADIENT_PARAMS: {
+      // Payload: [distLo:1][distHi:1][angleLo:1][angleHi:1]
+      if (hdr->length >= 4) {
+        g_gradientDistance = payload[0] | (payload[1] << 8);
+        g_gradientAngle = (int16_t)(payload[2] | (payload[3] << 8));
+        
+        // Clamp angle to -180 to 180
+        if (g_gradientAngle > 180) g_gradientAngle = 180;
+        if (g_gradientAngle < -180) g_gradientAngle = -180;
+        
+        // Ensure distance is at least 1
+        if (g_gradientDistance < 1) g_gradientDistance = 1;
+        
+        ESP_LOGI(TAG, "SET_GRADIENT_PARAMS: distance=%d, angle=%d",
+                 g_gradientDistance, g_gradientAngle);
       }
       break;
     }
@@ -4756,6 +4868,9 @@ extern "C" void app_main() {
   
   // Initialize LUTs
   initLUTs();
+  
+  // Initialize default shader palette
+  initDefaultPalette();
   
   // Initialize GPU state
   memset(&gpu, 0, sizeof(gpu));

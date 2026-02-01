@@ -216,21 +216,30 @@ namespace GpuDriverState {
     static uint8_t shaderOverrideB = 255;    // Override color B
     static bool shaderDirty = true;          // Flag to send shader config to GPU
     
-    // Hue cycle shader specific state
+    // Hue/Gradient cycle shader specific state
     static uint16_t shaderHueCycleSpeed = 1000;  // Speed in ms per color transition
-    static uint8_t shaderHueCycleColorCount = 5; // Number of colors in palette (1-8)
-    static const uint8_t MAX_HUE_COLORS = 8;
+    static uint8_t shaderHueCycleColorCount = 5; // Number of colors in palette (1-32)
+    static const uint8_t MAX_HUE_COLORS = 32;
     static uint8_t shaderHuePalette[MAX_HUE_COLORS * 3] = {
         255, 0, 0,       // Color 1: Red (default)
         255, 255, 0,     // Color 2: Yellow (default)
         0, 255, 0,       // Color 3: Green (default)
         0, 0, 255,       // Color 4: Blue (default)
         128, 0, 255,     // Color 5: Purple (default)
-        255, 0, 0,       // Color 6: Red (padding)
-        255, 0, 0,       // Color 7: Red (padding)
-        255, 0, 0        // Color 8: Red (padding)
+        // Remaining 27 colors default to red
+        255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0,
+        255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0,
+        255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0,
+        255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0,
+        255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0,
+        255, 0, 0, 255, 0, 0
     };
     static bool shaderPaletteDirty = true;   // Flag to send palette to GPU
+    
+    // Gradient cycle shader specific state
+    static uint16_t shaderGradientDistance = 20;  // Pixels between color bands
+    static int16_t shaderGradientAngle = 0;       // Travel angle in degrees (-180 to 180)
+    static bool shaderGradientParamsDirty = true; // Flag to send gradient params to GPU
     
     // ====== COMPLEX TRANSITION ANIMATION ======
     static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
@@ -604,16 +613,23 @@ namespace GpuDriverState {
             // ====== SCENE-BASED ANIMATION RENDERING ======
             else if (currentAnimMode != SceneAnimMode::NONE) {
                 // Sync shader palette to GPU if changed (must be done before shader config)
-                if (shaderPaletteDirty && shaderType == 2) {  // 2 = HUE_CYCLE
+                if (shaderPaletteDirty && (shaderType == 2 || shaderType == 3)) {  // 2 = HUE_CYCLE, 3 = GRADIENT_CYCLE
                     g_gpu.setShaderPalette(shaderHuePalette, shaderHueCycleColorCount);
                     shaderPaletteDirty = false;
                     printf("  SHADER PALETTE: Sent %d colors to GPU\n", shaderHueCycleColorCount);
                 }
                 
+                // Sync gradient params to GPU if changed (before shader config)
+                if (shaderGradientParamsDirty && shaderType == 3) {  // 3 = GRADIENT_CYCLE
+                    g_gpu.setGradientParams(shaderGradientDistance, shaderGradientAngle);
+                    shaderGradientParamsDirty = false;
+                    printf("  GRADIENT PARAMS: distance=%d, angle=%d\n", shaderGradientDistance, shaderGradientAngle);
+                }
+                
                 // Sync shader config to GPU if changed
                 if (shaderDirty) {
-                    if (shaderType == 2) {  // HUE_CYCLE
-                        // For HUE_CYCLE: param1,param2 = speed (16-bit), param3 unused
+                    if (shaderType == 2 || shaderType == 3) {  // HUE_CYCLE or GRADIENT_CYCLE
+                        // For HUE_CYCLE/GRADIENT_CYCLE: param1,param2 = speed (16-bit), param3 unused
                         g_gpu.setSpriteShader(
                             static_cast<GpuCommands::ShaderType>(shaderType),
                             shaderInvert,
@@ -623,8 +639,8 @@ namespace GpuDriverState {
                             (uint8_t)(shaderHueCycleSpeed >> 8),     // speed high byte
                             0  // unused
                         );
-                        printf("  SHADER: Synced HUE_CYCLE to GPU (speed=%d, invert=%d, mask=%d)\n",
-                               shaderHueCycleSpeed, shaderInvert, shaderMaskEnabled);
+                        printf("  SHADER: Synced type=%d to GPU (speed=%d, invert=%d, mask=%d)\n",
+                               shaderType, shaderHueCycleSpeed, shaderInvert, shaderMaskEnabled);
                     } else {
                         // For NONE and COLOR_OVERRIDE
                         g_gpu.setSpriteShader(
@@ -1014,6 +1030,13 @@ namespace GpuDriverState {
         else if (strcmp(paramName, "shader_type") == 0) { 
             shaderType = (uint8_t)value; 
             shaderDirty = true;
+            // When switching to HUE_CYCLE or GRADIENT_CYCLE, ensure palette/params are sent
+            if (shaderType == 2 || shaderType == 3) {
+                shaderPaletteDirty = true;
+            }
+            if (shaderType == 3) {
+                shaderGradientParamsDirty = true;
+            }
             printf("  -> shaderType = %d\n", shaderType); 
         }
         else if (strcmp(paramName, "shader_invert") == 0) { 
@@ -1065,18 +1088,29 @@ namespace GpuDriverState {
         else if (strcmp(paramName, "shader_hue_color_count") == 0) { 
             uint8_t count = (uint8_t)value;
             if (count < 1) count = 1;
-            if (count > 8) count = 8;
+            if (count > 32) count = 32;
             shaderHueCycleColorCount = count; 
             shaderPaletteDirty = true;
             shaderDirty = true;
             printf("  -> shaderHueCycleColorCount = %d\n", shaderHueCycleColorCount); 
         }
-        // Individual palette color components (0-7, each with r/g/b)
+        // Individual palette color components (0-31, each with r/g/b)
         else if (strncmp(paramName, "shader_hue_color_", 17) == 0) {
-            // Parse: shader_hue_color_N_c where N=0-7, c=r/g/b
-            int colorIndex = paramName[17] - '0';
-            if (colorIndex >= 0 && colorIndex < 8 && paramName[18] == '_') {
-                char component = paramName[19];
+            // Parse: shader_hue_color_N_c or shader_hue_color_NN_c where N=0-31, c=r/g/b
+            int colorIndex = 0;
+            int underscorePos = 18;
+            if (paramName[18] >= '0' && paramName[18] <= '9') {
+                // Two-digit color index
+                colorIndex = (paramName[17] - '0') * 10 + (paramName[18] - '0');
+                underscorePos = 19;
+            } else {
+                // Single-digit color index
+                colorIndex = paramName[17] - '0';
+                underscorePos = 18;
+            }
+            
+            if (colorIndex >= 0 && colorIndex < 32 && paramName[underscorePos] == '_') {
+                char component = paramName[underscorePos + 1];
                 int offset = colorIndex * 3;
                 if (component == 'r') {
                     shaderHuePalette[offset + 0] = (uint8_t)value;
@@ -1092,6 +1126,17 @@ namespace GpuDriverState {
                     printf("  -> shaderHuePalette[%d].b = %d\n", colorIndex, (uint8_t)value);
                 }
             }
+        }
+        // Gradient Cycle shader params
+        else if (strcmp(paramName, "shader_gradient_distance") == 0) { 
+            shaderGradientDistance = (uint16_t)value; 
+            shaderGradientParamsDirty = true;
+            printf("  -> shaderGradientDistance = %d\n", shaderGradientDistance); 
+        }
+        else if (strcmp(paramName, "shader_gradient_angle") == 0) { 
+            shaderGradientAngle = (int16_t)value; 
+            shaderGradientParamsDirty = true;
+            printf("  -> shaderGradientAngle = %d\n", shaderGradientAngle); 
         }
         else { printf("  -> UNKNOWN PARAM\n"); }
     }

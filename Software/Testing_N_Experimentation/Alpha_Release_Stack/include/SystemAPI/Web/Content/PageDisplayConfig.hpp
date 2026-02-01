@@ -160,15 +160,22 @@ inline const char PAGE_DISPLAY_CONFIG[] = R"rawliteral(
 
 /* Number Input */
 .yaml-input-number {
-  width: 80px;
-  padding: 10px 12px;
+  width: 90px;
+  padding: 10px 30px 10px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 13px;
   font-family: 'SF Mono', Monaco, monospace;
-  text-align: right;
+  text-align: left;
+  -moz-appearance: textfield;
+}
+
+.yaml-input-number::-webkit-inner-spin-button,
+.yaml-input-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .yaml-input-number:focus {
@@ -856,7 +863,8 @@ const DisplayConfig = {
   shaderTypes: [
     { id: 'none', name: 'None', value: 0 },
     { id: 'color_override', name: 'Color Override', value: 1 },
-    { id: 'hue_cycle', name: 'RGB Hue Cycle', value: 2 }
+    { id: 'hue_cycle', name: 'RGB Hue Cycle', value: 2 },
+    { id: 'gradient_cycle', name: 'Gradient Cycle', value: 3 }
   ],
   
   // Get shader field value from sceneData
@@ -872,7 +880,7 @@ const DisplayConfig = {
       'override_r': 255,
       'override_g': 255,
       'override_b': 255,
-      // Hue cycle defaults
+      // Hue/Gradient cycle defaults
       'hue_speed': 1000,
       'hue_color_count': 5,
       'hue_color_0_r': 255, 'hue_color_0_g': 0,   'hue_color_0_b': 0,    // Red
@@ -882,8 +890,17 @@ const DisplayConfig = {
       'hue_color_4_r': 128, 'hue_color_4_g': 0,   'hue_color_4_b': 255,  // Purple
       'hue_color_5_r': 255, 'hue_color_5_g': 0,   'hue_color_5_b': 128,  // Pink
       'hue_color_6_r': 0,   'hue_color_6_g': 255, 'hue_color_6_b': 255,  // Cyan
-      'hue_color_7_r': 255, 'hue_color_7_g': 128, 'hue_color_7_b': 0     // Orange
+      'hue_color_7_r': 255, 'hue_color_7_g': 128, 'hue_color_7_b': 0,    // Orange
+      // Gradient cycle specific
+      'gradient_distance': 20,
+      'gradient_angle': 0
     };
+    
+    // For colors beyond 7, default to red
+    if (param.startsWith('hue_color_') && shader[param] === undefined && defaults[param] === undefined) {
+      if (param.endsWith('_r')) return 255;
+      return 0;
+    }
     
     if (shader[param] !== undefined) return shader[param];
     return defaults[param] ?? 0;
@@ -979,7 +996,7 @@ const DisplayConfig = {
     html += `<div class="yaml-field-row" data-field-path="Shader.hue_color_count">`;
     html += `<label class="yaml-field-label">Number of Colors</label>`;
     html += `<div class="yaml-field-control">`;
-    html += `<input type="number" class="yaml-input-number" min="1" max="8" step="1" value="${colorCount}" data-path="Shader.hue_color_count" id="hue-color-count-input" onchange="DisplayConfig.updateHuePaletteColors(parseInt(this.value))">`;
+    html += `<input type="number" class="yaml-input-number" min="1" max="32" step="1" value="${colorCount}" data-path="Shader.hue_color_count" id="hue-color-count-input" onchange="DisplayConfig.updateHuePaletteColors(parseInt(this.value))">`;
     html += `</div></div>`;
     
     // Dynamic color pickers container
@@ -999,6 +1016,62 @@ const DisplayConfig = {
     }
     html += `</div>`; // close hue-palette-colors
     html += `</div>`; // close shader-hue-cycle-params
+    
+    // Gradient Cycle parameters (only shown when shader type is gradient_cycle)
+    html += `<div id="shader-gradient-cycle-params" style="display: ${shaderType === 3 ? 'block' : 'none'};">`;
+    
+    // Speed slider (shared with hue cycle concept)
+    const gradSpeed = this.getShaderFieldValue('hue_speed');
+    html += `<div class="yaml-field-row" data-field-path="Shader.hue_speed">`;
+    html += `<label class="yaml-field-label">Scroll Speed (ms)</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="range" class="yaml-range" min="100" max="5000" step="50" value="${gradSpeed}" data-path="Shader.hue_speed" id="gradient-speed-slider" oninput="document.getElementById('val-gradient-speed').textContent = this.value + 'ms'">`;
+    html += `<span class="yaml-range-value" id="val-gradient-speed">${gradSpeed}ms</span>`;
+    html += `</div></div>`;
+    
+    // Distance slider
+    const distance = this.getShaderFieldValue('gradient_distance');
+    html += `<div class="yaml-field-row" data-field-path="Shader.gradient_distance">`;
+    html += `<label class="yaml-field-label">Color Distance (px)</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="range" class="yaml-range" min="5" max="128" step="1" value="${distance}" data-path="Shader.gradient_distance" oninput="document.getElementById('val-Shader-gradient_distance').textContent = this.value + 'px'">`;
+    html += `<span class="yaml-range-value" id="val-Shader-gradient_distance">${distance}px</span>`;
+    html += `</div></div>`;
+    
+    // Angle slider (-180 to 180)
+    const angle = this.getShaderFieldValue('gradient_angle');
+    html += `<div class="yaml-field-row" data-field-path="Shader.gradient_angle">`;
+    html += `<label class="yaml-field-label">Travel Angle (°)</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="range" class="yaml-range" min="-180" max="180" step="1" value="${angle}" data-path="Shader.gradient_angle" oninput="document.getElementById('val-Shader-gradient_angle').textContent = this.value + '°'">`;
+    html += `<span class="yaml-range-value" id="val-Shader-gradient_angle">${angle}°</span>`;
+    html += `</div></div>`;
+    
+    // Color count number input (shared with hue cycle)
+    const gradColorCount = this.getShaderFieldValue('hue_color_count');
+    html += `<div class="yaml-field-row" data-field-path="Shader.hue_color_count">`;
+    html += `<label class="yaml-field-label">Number of Colors</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<input type="number" class="yaml-input-number" min="1" max="32" step="1" value="${gradColorCount}" data-path="Shader.hue_color_count" id="gradient-color-count-input" onchange="DisplayConfig.updateGradientPaletteColors(parseInt(this.value))">`;
+    html += `</div></div>`;
+    
+    // Dynamic color pickers container for gradient
+    html += `<div id="gradient-palette-colors">`;
+    for (let i = 0; i < gradColorCount; i++) {
+      const r = this.getShaderFieldValue('hue_color_' + i + '_r');
+      const g = this.getShaderFieldValue('hue_color_' + i + '_g');
+      const b = this.getShaderFieldValue('hue_color_' + i + '_b');
+      const hex = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+      html += `<div class="yaml-field-row" data-field-path="Shader.hue_color_${i}" id="gradient-color-row-${i}">`;
+      html += `<label class="yaml-field-label">Color ${i + 1}</label>`;
+      html += `<div class="yaml-field-control">`;
+      html += `<div class="yaml-color-container">`;
+      html += `<input type="color" class="yaml-color-picker" value="${hex}" data-path="Shader.hue_color_${i}" data-color-index="${i}">`;
+      html += `<span class="yaml-color-value" id="val-gradient-color_${i}">${hex}</span>`;
+      html += `</div></div></div>`;
+    }
+    html += `</div>`; // close gradient-palette-colors
+    html += `</div>`; // close shader-gradient-cycle-params
     
     html += `</div></div>`; // close body and section
     return html;
@@ -1653,6 +1726,11 @@ const DisplayConfig = {
           if (hueCycleParams) {
             hueCycleParams.style.display = (value === 2) ? 'block' : 'none';
           }
+          // Show/hide gradient cycle params based on shader type
+          const gradientCycleParams = document.getElementById('shader-gradient-cycle-params');
+          if (gradientCycleParams) {
+            gradientCycleParams.style.display = (value === 3) ? 'block' : 'none';
+          }
         }
         
         this.updateField(select.dataset.path, value, type);
@@ -1675,6 +1753,15 @@ const DisplayConfig = {
         }
         const rgb = this.hexToRgb(picker.value);
         this.updateField(picker.dataset.path, rgb, 'color');
+      });
+    });
+    
+    // Range inputs (yaml-range class - for hue/gradient sliders)
+    document.querySelectorAll('.yaml-range').forEach(slider => {
+      slider.addEventListener('change', (e) => {
+        const value = parseFloat(slider.value);
+        console.log('[yaml-range] ' + slider.dataset.path + ' = ' + value);
+        this.updateField(slider.dataset.path, value, 'number');
       });
     });
     
@@ -1847,7 +1934,7 @@ const DisplayConfig = {
   // Update the dynamic hue palette color pickers when count changes
   updateHuePaletteColors: function(count) {
     if (count < 1) count = 1;
-    if (count > 8) count = 8;
+    if (count > 32) count = 32;
     
     const container = document.getElementById('hue-palette-colors');
     if (!container) return;
@@ -1878,6 +1965,54 @@ const DisplayConfig = {
     container.querySelectorAll('.yaml-color-picker').forEach(picker => {
       const pathId = picker.dataset.path.replace(/\./g, '-');
       const valueSpan = document.getElementById('val-' + pathId);
+      
+      picker.addEventListener('input', (e) => {
+        if (valueSpan) {
+          valueSpan.textContent = picker.value.toUpperCase();
+        }
+        const rgb = self.hexToRgb(picker.value);
+        self.updateField(picker.dataset.path, rgb, 'color');
+      });
+    });
+    
+    // Also send the color count update
+    this.updateField('Shader.hue_color_count', count, 'number');
+  },
+  
+  // Update the dynamic gradient palette color pickers when count changes
+  updateGradientPaletteColors: function(count) {
+    if (count < 1) count = 1;
+    if (count > 32) count = 32;
+    
+    const container = document.getElementById('gradient-palette-colors');
+    if (!container) return;
+    
+    // Clear existing
+    container.innerHTML = '';
+    
+    // Build color pickers
+    for (let i = 0; i < count; i++) {
+      const r = this.getShaderFieldValue('hue_color_' + i + '_r');
+      const g = this.getShaderFieldValue('hue_color_' + i + '_g');
+      const b = this.getShaderFieldValue('hue_color_' + i + '_b');
+      const hex = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+      
+      let html = `<div class="yaml-field-row" data-field-path="Shader.hue_color_${i}" id="gradient-color-row-${i}">`;
+      html += `<label class="yaml-field-label">Color ${i + 1}</label>`;
+      html += `<div class="yaml-field-control">`;
+      html += `<div class="yaml-color-container">`;
+      html += `<input type="color" class="yaml-color-picker" value="${hex}" data-path="Shader.hue_color_${i}" data-color-index="${i}">`;
+      html += `<span class="yaml-color-value" id="val-gradient-color_${i}">${hex}</span>`;
+      html += `</div></div></div>`;
+      
+      container.innerHTML += html;
+    }
+    
+    // Re-attach event handlers to new color pickers
+    const self = this;
+    container.querySelectorAll('.yaml-color-picker').forEach(picker => {
+      const pathId = picker.dataset.path.replace(/\./g, '-');
+      const valueSpan = document.getElementById('val-gradient-color_' + picker.dataset.colorIndex);
       
       picker.addEventListener('input', (e) => {
         if (valueSpan) {
