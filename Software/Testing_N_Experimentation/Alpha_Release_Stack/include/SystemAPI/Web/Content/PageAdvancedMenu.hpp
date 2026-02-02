@@ -134,8 +134,8 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
               <div class="submenu-desc">Display sprites on HUB75 panels. Select, position, and activate sprites with custom backgrounds.</div>
               <div class="submenu-stats">
                 <div class="stat-item">
-                  <span class="stat-value" id="scene-sprite-count">--</span>
-                  <span class="stat-label">Sprites</span>
+                  <span class="stat-value" id="scene-count">--</span>
+                  <span class="stat-label">Scenes</span>
                 </div>
                 <div class="stat-item">
                   <span class="stat-value" id="scene-status">Ready</span>
@@ -226,15 +226,15 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
       document.getElementById('storage-free').textContent = '4 MB';
     });
     
-    // Load scene stats (uses sprites count)
-    fetch('/api/sprites')
+    // Load scene stats
+    fetch('/api/scenes')
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.sprites) {
-        document.getElementById('scene-sprite-count').textContent = data.sprites.length;
+      if (data.scenes) {
+        document.getElementById('scene-count').textContent = data.scenes.length;
       }
     }).catch(function() {
-      document.getElementById('scene-sprite-count').textContent = '0';
+      document.getElementById('scene-count').textContent = '0';
     });
     
     // Load LED preset stats

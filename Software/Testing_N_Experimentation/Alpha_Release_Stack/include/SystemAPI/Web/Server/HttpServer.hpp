@@ -2029,6 +2029,8 @@ private:
         solid.brightness = 80;
         solid.speed = 50;
         solid.order = 0;
+        solid.colorCount = 1;
+        solid.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)0, (uint8_t)255));
         savedLedPresets_.push_back(solid);
         
         // Rainbow Cycle
@@ -2040,6 +2042,8 @@ private:
         rainbow.brightness = 100;
         rainbow.speed = 50;
         rainbow.order = 1;
+        rainbow.colorCount = 1;
+        rainbow.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)255, (uint8_t)255));
         savedLedPresets_.push_back(rainbow);
         
         // Breathing Blue
@@ -2051,6 +2055,8 @@ private:
         breathe.brightness = 100;
         breathe.speed = 30;
         breathe.order = 2;
+        breathe.colorCount = 1;
+        breathe.colors.push_back(std::make_tuple((uint8_t)0, (uint8_t)100, (uint8_t)255));
         savedLedPresets_.push_back(breathe);
         
         // Fire Effect
@@ -2062,7 +2068,79 @@ private:
         fire.brightness = 100;
         fire.speed = 70;
         fire.order = 3;
+        fire.colorCount = 1;
+        fire.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)50, (uint8_t)0));
         savedLedPresets_.push_back(fire);
+        
+        // Sunset Gradient - Orange to Purple
+        SavedLedPreset sunset;
+        sunset.id = nextLedPresetId_++;
+        sunset.name = "Sunset Gradient";
+        sunset.animation = "gradient";
+        sunset.r = 255; sunset.g = 100; sunset.b = 0;
+        sunset.brightness = 100;
+        sunset.speed = 50;
+        sunset.order = 4;
+        sunset.colorCount = 4;
+        sunset.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)60, (uint8_t)0));    // Deep orange
+        sunset.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)0, (uint8_t)80));    // Red-pink
+        sunset.colors.push_back(std::make_tuple((uint8_t)180, (uint8_t)0, (uint8_t)180));   // Purple
+        sunset.colors.push_back(std::make_tuple((uint8_t)80, (uint8_t)0, (uint8_t)200));    // Deep violet
+        savedLedPresets_.push_back(sunset);
+        
+        // Ocean Wave - Cyan to Deep Blue
+        SavedLedPreset ocean;
+        ocean.id = nextLedPresetId_++;
+        ocean.name = "Ocean Wave";
+        ocean.animation = "wave";
+        ocean.r = 0; ocean.g = 200; ocean.b = 255;
+        ocean.brightness = 100;
+        ocean.speed = 40;
+        ocean.order = 5;
+        ocean.colorCount = 1;
+        ocean.colors.push_back(std::make_tuple((uint8_t)0, (uint8_t)200, (uint8_t)255));
+        savedLedPresets_.push_back(ocean);
+        
+        // Neon Chase - Hot Pink
+        SavedLedPreset neonChase;
+        neonChase.id = nextLedPresetId_++;
+        neonChase.name = "Neon Chase";
+        neonChase.animation = "chase";
+        neonChase.r = 255; neonChase.g = 0; neonChase.b = 128;
+        neonChase.brightness = 100;
+        neonChase.speed = 80;
+        neonChase.order = 6;
+        neonChase.colorCount = 1;
+        neonChase.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)0, (uint8_t)128));
+        savedLedPresets_.push_back(neonChase);
+        
+        // Cyberpunk - Magenta to Cyan rainbow
+        SavedLedPreset cyber;
+        cyber.id = nextLedPresetId_++;
+        cyber.name = "Cyberpunk";
+        cyber.animation = "rainbow";
+        cyber.r = 255; cyber.g = 0; cyber.b = 255;
+        cyber.brightness = 100;
+        cyber.speed = 60;
+        cyber.order = 7;
+        cyber.colorCount = 3;
+        cyber.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)0, (uint8_t)255));   // Magenta
+        cyber.colors.push_back(std::make_tuple((uint8_t)0, (uint8_t)255, (uint8_t)255));   // Cyan
+        cyber.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)0, (uint8_t)128));   // Hot pink
+        savedLedPresets_.push_back(cyber);
+        
+        // Golden Sparkle
+        SavedLedPreset sparkle;
+        sparkle.id = nextLedPresetId_++;
+        sparkle.name = "Golden Sparkle";
+        sparkle.animation = "sparkle";
+        sparkle.r = 255; sparkle.g = 180; sparkle.b = 0;
+        sparkle.brightness = 100;
+        sparkle.speed = 70;
+        sparkle.order = 8;
+        sparkle.colorCount = 1;
+        sparkle.colors.push_back(std::make_tuple((uint8_t)255, (uint8_t)180, (uint8_t)0));
+        savedLedPresets_.push_back(sparkle);
         
         activeLedPresetId_ = solid.id;  // Set solid pink as default
         saveLedPresetsStorage();
@@ -6640,18 +6718,43 @@ public:
             return ESP_OK;
         }
         
-        ESP_LOGW(HTTP_TAG, "Formatting SD card...");
+        ESP_LOGW(HTTP_TAG, "Formatting SD card (clearing all files)...");
         
-        bool success = sdCard.format();
+        // Use clearAll() which actually deletes files recursively
+        // (format() only formats if mount fails, which doesn't work for already mounted cards)
+        bool success = sdCard.clearAll();
+        
+        // Clear all in-memory data since SD card is wiped
+        if (success) {
+            savedScenes_.clear();
+            savedSprites_.clear();
+            savedEquations_.clear();
+            savedLedPresets_.clear();
+            nextSceneId_ = 1;
+            activeSceneId_ = -1;
+            nextSpriteId_ = 1;
+            nextEquationId_ = 1;
+            nextLedPresetId_ = 1;
+            activeLedPresetId_ = -1;
+            
+            // Also clear SPIFFS files to prevent re-migration
+            if (!spiffs_initialized_) {
+                initSpiffs();
+            }
+            remove(SCENE_INDEX_FILE_SPIFFS);
+            remove(SPRITE_INDEX_FILE_SPIFFS);
+            remove(EQUATION_INDEX_FILE_SPIFFS);
+            SystemAPI::Utils::syncFilesystem();
+        }
         
         cJSON* root = cJSON_CreateObject();
         cJSON_AddBoolToObject(root, "success", success);
         if (success) {
-            cJSON_AddStringToObject(root, "message", "SD card formatted successfully");
+            cJSON_AddStringToObject(root, "message", "SD card cleared successfully. Use Setup to create folders.");
             cJSON_AddNumberToObject(root, "total_mb", sdCard.getTotalBytes() / (1024 * 1024));
             cJSON_AddNumberToObject(root, "free_mb", sdCard.getFreeBytes() / (1024 * 1024));
         } else {
-            cJSON_AddStringToObject(root, "error", "Failed to format SD card");
+            cJSON_AddStringToObject(root, "error", "Failed to clear SD card");
         }
         
         char* json = cJSON_PrintUnformatted(root);
@@ -6735,7 +6838,8 @@ public:
             "/Animations",
             "/Configs",
             "/Cache",
-            "/Calibration"
+            "/Calibration",
+            "/LedPresets"
         };
         
         int foldersCreated = 0;
@@ -6780,6 +6884,22 @@ public:
             ESP_LOGI(HTTP_TAG, "Created empty sprites/index.dat");
         }
         
+        // Empty LED presets index
+        const char* emptyLedPresetsIndex = R"({
+  "nextId": 1,
+  "activeId": -1,
+  "storage": "sdcard",
+  "presets": []
+})";
+        if (sdCard.writeFile("/LedPresets/index.json", emptyLedPresetsIndex, strlen(emptyLedPresetsIndex))) {
+            ESP_LOGI(HTTP_TAG, "Created empty LedPresets/index.json");
+        }
+        
+        // Clear in-memory LED presets
+        savedLedPresets_.clear();
+        nextLedPresetId_ = 1;
+        activeLedPresetId_ = -1;
+        
         SystemAPI::Utils::syncFilesystem();
         
         // Build response
@@ -6822,10 +6942,13 @@ public:
         savedScenes_.clear();
         savedSprites_.clear();
         savedEquations_.clear();
+        savedLedPresets_.clear();
         nextSceneId_ = 1;
         activeSceneId_ = -1;
         nextSpriteId_ = 1;
         nextEquationId_ = 1;
+        nextLedPresetId_ = 1;
+        activeLedPresetId_ = -1;
         
         // Clear SPIFFS data to prevent re-migration
         // First ensure SPIFFS is mounted
@@ -6866,6 +6989,7 @@ public:
         
         // Step 2: Create sprite index with default sprite
         const char* spriteIndex = R"({
+  "version": 1,
   "sprites": [
     {
       "id": 0,
@@ -6880,9 +7004,14 @@ public:
   "nextId": 1
 })";
         
-        if (sdCard.writeFile("/Sprites/index.json", spriteIndex, strlen(spriteIndex))) {
+        // Write to both locations for compatibility
+        if (sdCard.writeFile("/Sprites/index.dat", spriteIndex, strlen(spriteIndex))) {
             filesCreated++;
-            ESP_LOGI(HTTP_TAG, "Created sprite index.json");
+            ESP_LOGI(HTTP_TAG, "Created Sprites/index.dat");
+        }
+        sdCard.createDir("/sprites");
+        if (sdCard.writeFile("/sprites/index.dat", spriteIndex, strlen(spriteIndex))) {
+            ESP_LOGI(HTTP_TAG, "Created sprites/index.dat");
         }
         
         // Step 3: Create default scene YAML with static_mirrored animation (new v2.0 format)
@@ -7007,11 +7136,33 @@ Audio:
         
         SystemAPI::Utils::syncFilesystem();
         
+        // Reload sprites from storage to pick up the new default
+        savedSprites_.clear();
+        nextSpriteId_ = 1;
+        // Don't call loadSpritesFromStorage() - it might recover old files
+        // Instead, manually add the default sprite we just created
+        SavedSprite defaultSprite;
+        defaultSprite.id = 0;
+        defaultSprite.name = "Default Eye";
+        defaultSprite.width = 445;
+        defaultSprite.height = 308;
+        defaultSprite.scale = 100;
+        defaultSprite.uploadedToGpu = false;
+        savedSprites_.push_back(defaultSprite);
+        nextSpriteId_ = 1;
+        
         // Reload scenes from storage to pick up the new default
         savedScenes_.clear();
         nextSceneId_ = 1;
         activeSceneId_ = -1;
         loadScenesFromStorage();
+        
+        // Create LED presets folder and defaults
+        sdCard.createDir("/LedPresets");
+        savedLedPresets_.clear();
+        nextLedPresetId_ = 1;
+        activeLedPresetId_ = -1;
+        createDefaultLedPresets();
         
         // Build response
         cJSON* root = cJSON_CreateObject();
@@ -7066,7 +7217,8 @@ Audio:
             "/Animations",
             "/Configs",
             "/Cache",
-            "/Calibration"
+            "/Calibration",
+            "/LedPresets"
         };
         
         int foldersCreated = 0;
@@ -7086,10 +7238,53 @@ Audio:
         // Sync filesystem
         SystemAPI::Utils::syncFilesystem();
         
+        // Step 3: Create empty index files and clear in-memory data
+        ESP_LOGI(HTTP_TAG, "Creating empty index files...");
+        
+        // Empty scene index
+        const char* emptySceneIndex = R"({
+  "nextId": 1,
+  "activeId": -1,
+  "storage": "sdcard",
+  "scenes": []
+})";
+        sdCard.writeFile("/Scenes/index.json", emptySceneIndex, strlen(emptySceneIndex));
+        
+        // Empty sprite index
+        const char* emptySpriteIndex = R"({
+  "version": 1,
+  "nextId": 1,
+  "sprites": []
+})";
+        sdCard.writeFile("/Sprites/index.json", emptySpriteIndex, strlen(emptySpriteIndex));
+        
+        // Empty LED presets index
+        const char* emptyLedPresetsIndex = R"({
+  "nextId": 1,
+  "activeId": -1,
+  "storage": "sdcard",
+  "presets": []
+})";
+        sdCard.writeFile("/LedPresets/index.json", emptyLedPresetsIndex, strlen(emptyLedPresetsIndex));
+        
+        // Clear in-memory data
+        savedScenes_.clear();
+        savedSprites_.clear();
+        savedEquations_.clear();
+        savedLedPresets_.clear();
+        nextSceneId_ = 1;
+        activeSceneId_ = -1;
+        nextSpriteId_ = 1;
+        nextEquationId_ = 1;
+        nextLedPresetId_ = 1;
+        activeLedPresetId_ = -1;
+        
+        SystemAPI::Utils::syncFilesystem();
+        
         // Build response
         cJSON* root = cJSON_CreateObject();
         cJSON_AddBoolToObject(root, "success", foldersFailed == 0);
-        cJSON_AddStringToObject(root, "message", "SD card setup complete");
+        cJSON_AddStringToObject(root, "message", "SD card setup complete (empty). Use Setup Defaults to add default content.");
         cJSON_AddNumberToObject(root, "folders_created", foldersCreated);
         cJSON_AddNumberToObject(root, "folders_failed", foldersFailed);
         cJSON_AddNumberToObject(root, "total_mb", sdCard.getTotalBytes() / (1024 * 1024));
