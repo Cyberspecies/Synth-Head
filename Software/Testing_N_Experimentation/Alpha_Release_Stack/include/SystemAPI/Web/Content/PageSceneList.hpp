@@ -140,7 +140,6 @@ inline const char* PAGE_SCENE_LIST = R"rawpage(<!DOCTYPE html>
       letter-spacing: 0.5px;
     }
     .tag.display { color: var(--success); background: rgba(0, 204, 102, 0.15); }
-    .tag.leds { color: #ff00ff; background: rgba(255, 0, 255, 0.15); }
     .tag.effects { color: #3b82f6; background: rgba(59, 130, 246, 0.15); }
 
     /* Menu Button */
@@ -389,7 +388,6 @@ inline const char* PAGE_SCENE_LIST = R"rawpage(<!DOCTYPE html>
       var isActive = s.id === activeSceneId;
       var tags = [];
       if (s.displayEnabled) tags.push('<span class="tag display">Display</span>');
-      if (s.ledsEnabled) tags.push('<span class="tag leds">LEDs</span>');
       if (s.effectsOnly) tags.push('<span class="tag effects">Effects</span>');
       if (tags.length === 0) tags.push('<span class="tag" style="opacity:0.5">None</span>');
       

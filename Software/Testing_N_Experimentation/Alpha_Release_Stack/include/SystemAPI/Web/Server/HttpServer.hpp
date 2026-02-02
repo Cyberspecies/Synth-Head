@@ -1325,7 +1325,7 @@ private:
         scene.ledsEnabled = false;
         scene.effectsOnly = false;
         scene.order = 0;
-        scene.animType = "static";  // Use new unified static type
+        scene.animType = "static_mirrored";  // Default to mirrored display
         scene.transition = "none";
         scene.spriteId = 0;
         scene.mirrorSprite = true;  // Default to mirrored (both eyes)
@@ -1571,9 +1571,11 @@ private:
                     if ((val = cJSON_GetObjectItem(sprite, "bgB"))) scene.staticSprite.bgB = val->valueint;
                 }
                 
-                // MIGRATION: Force all animation types to static_sprite
-                // Old types like gyro_eyes, sway, sdf_morph are no longer supported
-                if (scene.animType != "static_sprite" && scene.animType != "static_image") {
+                // MIGRATION: Force unknown animation types to static_sprite
+                // Known types: static_sprite, static_mirrored, static_image
+                if (scene.animType != "static_sprite" && 
+                    scene.animType != "static_mirrored" && 
+                    scene.animType != "static_image") {
                     ESP_LOGW(HTTP_TAG, "Migrating scene '%s' from animType '%s' to 'static_sprite'",
                              scene.name.c_str(), scene.animType.c_str());
                     scene.animType = "static_sprite";
@@ -2268,6 +2270,89 @@ private:
         cJSON_AddItemToObject(display, "params", params);
         
         cJSON_AddItemToObject(config, "Display", display);
+        
+        // Shader section - read from scene.params with shader_ prefix
+        cJSON* shader = cJSON_CreateObject();
+        
+        // Shader type (0=None, 1=ColorOverride, 2=HueCycle, 3=GradientCycle, 4=Glitch)
+        it = scene.params.find("shader_type");
+        cJSON_AddNumberToObject(shader, "type", it != scene.params.end() ? (int)it->second : 0);
+        
+        // Invert
+        it = scene.params.find("shader_invert");
+        cJSON_AddNumberToObject(shader, "invert", it != scene.params.end() ? (int)it->second : 0);
+        
+        // Mask settings
+        it = scene.params.find("shader_mask_enabled");
+        cJSON_AddNumberToObject(shader, "mask_enabled", it != scene.params.end() ? (int)it->second : 1);
+        
+        it = scene.params.find("shader_mask_r");
+        cJSON_AddNumberToObject(shader, "mask_r", it != scene.params.end() ? (int)it->second : 0);
+        it = scene.params.find("shader_mask_g");
+        cJSON_AddNumberToObject(shader, "mask_g", it != scene.params.end() ? (int)it->second : 0);
+        it = scene.params.find("shader_mask_b");
+        cJSON_AddNumberToObject(shader, "mask_b", it != scene.params.end() ? (int)it->second : 0);
+        
+        // Override color
+        it = scene.params.find("shader_override_r");
+        cJSON_AddNumberToObject(shader, "override_r", it != scene.params.end() ? (int)it->second : 255);
+        it = scene.params.find("shader_override_g");
+        cJSON_AddNumberToObject(shader, "override_g", it != scene.params.end() ? (int)it->second : 255);
+        it = scene.params.find("shader_override_b");
+        cJSON_AddNumberToObject(shader, "override_b", it != scene.params.end() ? (int)it->second : 255);
+        
+        // Hue/Gradient cycle settings
+        it = scene.params.find("shader_hue_speed");
+        cJSON_AddNumberToObject(shader, "hue_speed", it != scene.params.end() ? (int)it->second : 1000);
+        
+        it = scene.params.find("shader_hue_color_count");
+        int colorCount = it != scene.params.end() ? (int)it->second : 5;
+        cJSON_AddNumberToObject(shader, "hue_color_count", colorCount);
+        
+        // Hue palette colors (up to 32)
+        for (int i = 0; i < 32; i++) {
+            char paramR[32], paramG[32], paramB[32];
+            snprintf(paramR, sizeof(paramR), "shader_hue_color_%d_r", i);
+            snprintf(paramG, sizeof(paramG), "shader_hue_color_%d_g", i);
+            snprintf(paramB, sizeof(paramB), "shader_hue_color_%d_b", i);
+            
+            auto itR = scene.params.find(paramR);
+            auto itG = scene.params.find(paramG);
+            auto itB = scene.params.find(paramB);
+            
+            // Only add if at least one color component exists
+            if (itR != scene.params.end() || itG != scene.params.end() || itB != scene.params.end()) {
+                char fieldR[24], fieldG[24], fieldB[24];
+                snprintf(fieldR, sizeof(fieldR), "hue_color_%d_r", i);
+                snprintf(fieldG, sizeof(fieldG), "hue_color_%d_g", i);
+                snprintf(fieldB, sizeof(fieldB), "hue_color_%d_b", i);
+                cJSON_AddNumberToObject(shader, fieldR, itR != scene.params.end() ? (int)itR->second : 255);
+                cJSON_AddNumberToObject(shader, fieldG, itG != scene.params.end() ? (int)itG->second : 0);
+                cJSON_AddNumberToObject(shader, fieldB, itB != scene.params.end() ? (int)itB->second : 0);
+            }
+        }
+        
+        // Gradient settings
+        it = scene.params.find("shader_gradient_distance");
+        cJSON_AddNumberToObject(shader, "gradient_distance", it != scene.params.end() ? (int)it->second : 20);
+        
+        it = scene.params.find("shader_gradient_angle");
+        cJSON_AddNumberToObject(shader, "gradient_angle", it != scene.params.end() ? (int)it->second : 0);
+        
+        it = scene.params.find("shader_gradient_mirror");
+        cJSON_AddNumberToObject(shader, "gradient_mirror", it != scene.params.end() ? (int)it->second : 0);
+        
+        // Glitch settings
+        it = scene.params.find("shader_glitch_speed");
+        cJSON_AddNumberToObject(shader, "glitch_speed", it != scene.params.end() ? (int)it->second : 50);
+        
+        it = scene.params.find("shader_glitch_intensity");
+        cJSON_AddNumberToObject(shader, "glitch_intensity", it != scene.params.end() ? (int)it->second : 30);
+        
+        it = scene.params.find("shader_glitch_chromatic");
+        cJSON_AddNumberToObject(shader, "glitch_chromatic", it != scene.params.end() ? (int)it->second : 20);
+        
+        cJSON_AddItemToObject(config, "Shader", shader);
         
         // LEDS section
         cJSON* leds = cJSON_CreateObject();

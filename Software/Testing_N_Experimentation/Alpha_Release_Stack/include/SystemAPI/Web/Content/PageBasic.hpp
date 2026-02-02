@@ -29,10 +29,7 @@ inline const char PAGE_BASIC[] = R"rawliteral(
       transition: all 0.2s; 
     }
     .preset-item:hover { background: var(--bg-secondary); }
-    .preset-item.active-display { background: rgba(0, 204, 102, 0.08); border-color: rgba(0, 204, 102, 0.3); }
-    .preset-item.active-leds { background: rgba(255, 0, 255, 0.08); border-color: rgba(255, 0, 255, 0.3); }
-    .preset-item.active-both { position: relative; background: linear-gradient(135deg, rgba(0, 204, 102, 0.08), rgba(255, 0, 255, 0.08)); border-color: transparent; }
-    .preset-item.active-both::before { content: ''; position: absolute; inset: -2px; border-radius: 12px; padding: 2px; background: linear-gradient(135deg, rgba(0, 204, 102, 0.5), rgba(255, 0, 255, 0.5)); -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+    .preset-item.active { background: rgba(0, 204, 102, 0.08); border-color: rgba(0, 204, 102, 0.3); }
     .preset-name { 
       flex: 1;
       font-weight: 600; 
@@ -55,8 +52,6 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     }
     .indicator.display { color: var(--success); background: rgba(0, 204, 102, 0.15); }
     .indicator.display.off { color: var(--text-muted); background: rgba(128, 128, 128, 0.1); opacity: 0.5; }
-    .indicator.leds { color: #ff00ff; background: rgba(255, 0, 255, 0.15); }
-    .indicator.leds.off { color: var(--text-muted); background: rgba(128, 128, 128, 0.1); opacity: 0.5; }
     .indicator.hidden { display: none; }
     .apply-btn { 
       padding: 8px 16px; 
@@ -84,7 +79,6 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     .legend-item { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
     .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
     .legend-dot.display { background: var(--success); }
-    .legend-dot.leds { background: #ff00ff; }
     @media (max-width: 600px) {
       .preset-item { padding: 12px; flex-wrap: wrap; }
       .preset-name { font-size: 1rem; width: 100%; margin-bottom: 8px; }
@@ -123,11 +117,7 @@ inline const char PAGE_BASIC[] = R"rawliteral(
           <div class="legend">
             <div class="legend-item">
               <div class="legend-dot display"></div>
-              <span>Display Active</span>
-            </div>
-            <div class="legend-item">
-              <div class="legend-dot leds"></div>
-              <span>LEDs Active</span>
+              <span>Active</span>
             </div>
           </div>
           <div class="preset-list" id="preset-list">
@@ -168,10 +158,9 @@ inline const char PAGE_BASIC[] = R"rawliteral(
         console.error('Scene fetch error:', err);
         // Fallback demo data
         scenes = [
-          {id: 1, name: 'Gyro Eyes Default', displayEnabled: true, ledsEnabled: false},
-          {id: 2, name: 'Static Image', displayEnabled: true, ledsEnabled: false},
-          {id: 3, name: 'Purple LEDs', displayEnabled: false, ledsEnabled: true},
-          {id: 4, name: 'Cyberpunk Mode', displayEnabled: true, ledsEnabled: true}
+          {id: 1, name: 'Gyro Eyes Default'},
+          {id: 2, name: 'Static Image'},
+          {id: 3, name: 'Demo Scene'}
         ];
         renderPresets();
       });
@@ -188,34 +177,14 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     
     scenes.forEach(function(scene) {
       var isActive = (scene.id === activeSceneId);
-      var supportsDisplay = scene.displayEnabled !== false;
-      var supportsLeds = scene.ledsEnabled === true;
       
-      // Highlight class based on active state and what it supports
-      var activeClass = '';
-      if (isActive) {
-        if (supportsDisplay && supportsLeds) {
-          activeClass = 'active-both';
-        } else if (supportsDisplay) {
-          activeClass = 'active-display';
-        } else if (supportsLeds) {
-          activeClass = 'active-leds';
-        }
-      }
+      // Highlight class based on active state
+      var activeClass = isActive ? 'active' : '';
       
-      // Build indicator HTML
+      // Build indicator HTML (just show active state)
       var indicatorsHtml = '';
-      
-      // Display indicator
-      if (supportsDisplay) {
-        var dispClass = isActive ? 'indicator display' : 'indicator display off';
-        indicatorsHtml += '<span class="' + dispClass + '">Display</span>';
-      }
-      
-      // LEDs indicator  
-      if (supportsLeds) {
-        var ledClass = isActive ? 'indicator leds' : 'indicator leds off';
-        indicatorsHtml += '<span class="' + ledClass + '">LEDs</span>';
+      if (isActive) {
+        indicatorsHtml = '<span class="indicator display">Active</span>';
       }
       
       // Effects-only indicator

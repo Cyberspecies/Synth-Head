@@ -1742,7 +1742,6 @@ void CurrentMode::onStart() {
         printf("  SCENE ACTIVATED: %s (id=%d)\n", scene.name.c_str(), scene.id);
         printf("  Animation Type: %s\n", scene.animType.c_str());
         printf("  Display Enabled: %s\n", scene.displayEnabled ? "YES" : "NO");
-        printf("  LEDs Enabled: %s\n", scene.ledsEnabled ? "YES" : "NO");
         printf("  Background: RGB(%d,%d,%d)\n", scene.bgR, scene.bgG, scene.bgB);
         printf("  ========================================\n\n");
         
@@ -1989,19 +1988,7 @@ void CurrentMode::onStart() {
             GpuDriverState::setSingleParam("shader_glitch_quantity", scene.params.at("shader_glitch_quantity"));
         }
         
-        // Handle LED control from scene settings
-        if (scene.ledsEnabled) {
-            // Set LED color and brightness from scene
-            GpuDriverState::setLedColor(scene.ledR, scene.ledG, scene.ledB, 
-                                        (uint8_t)(scene.ledBrightness * 255 / 100));
-            GpuDriverState::setLedsEnabled(true);
-            printf("  LEDs: Enabled with color R=%d G=%d B=%d Brightness=%d%%\n",
-                   scene.ledR, scene.ledG, scene.ledB, scene.ledBrightness);
-        } else {
-            // Turn off LEDs
-            GpuDriverState::setLedsEnabled(false);
-            printf("  LEDs: Disabled\n");
-        }
+        // LED control removed - LEDs are now managed independently of scenes
     });
     
     // Callback for live scene parameter updates - updates GpuDriverState when sliders change

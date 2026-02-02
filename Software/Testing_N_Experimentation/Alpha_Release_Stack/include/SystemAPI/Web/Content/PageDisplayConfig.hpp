@@ -614,7 +614,9 @@ const DisplayConfig = {
   populateAnimationDropdown: function() {
     const select = document.getElementById('animation-type-select');
     if (!select) return;
-    const currentValue = select.value || this.sceneData?.Display?.animation_type || 'static_sprite';
+    // ALWAYS prioritize sceneData over current select value
+    const currentValue = this.sceneData?.Display?.animation_type || select.value || 'static_sprite';
+    console.log('[populateAnimationDropdown] currentValue=' + currentValue + ', sceneData.Display.animation_type=' + this.sceneData?.Display?.animation_type);
     select.innerHTML = '';
     this.animationsList.forEach(anim => {
       const opt = document.createElement('option');
@@ -679,7 +681,10 @@ const DisplayConfig = {
       .then(data => {
         if (data.success && data.config) {
           this.sceneData = data.config;
+          console.log('[loadSceneConfig] Loaded animation_type=' + data.config?.Display?.animation_type);
           this.renderConfigForm(data.config);
+          // Re-populate dropdown after form is rendered to ensure correct selection
+          this.populateAnimationDropdown();
         } else {
           console.error('Failed to load config:', data.error);
         }
@@ -715,8 +720,8 @@ const DisplayConfig = {
     
     html += this.renderAnimParamsSection(animType, config.Display);
     
-    // Add remaining sections
-    const otherSections = ['LEDS', 'Audio'];
+    // Add remaining sections (Audio only - LEDS removed)
+    const otherSections = ['Audio'];
     for (const sectionKey of otherSections) {
       if (config[sectionKey]) {
         html += this.renderSection(sectionKey, config[sectionKey]);
@@ -1554,26 +1559,6 @@ const DisplayConfig = {
         dynamic: true,
         fields: {}
       },
-      'LEDS': {
-        icon: '◈',
-        label: 'LED Strips',
-        desc: 'WS2812 LED strip configuration',
-        fields: {
-          enabled: { type: 'toggle', label: 'Enable LEDs' },
-          brightness: { type: 'slider', label: 'Brightness', min: 0, max: 255, unit: '%' },
-          color: { type: 'color', label: 'Global Color' },
-          strips: {
-            type: 'group',
-            label: 'Individual Strips',
-            fields: {
-              left_fin: { type: 'group', label: 'Left Fin' },
-              right_fin: { type: 'group', label: 'Right Fin' },
-              tongue: { type: 'group', label: 'Tongue' },
-              scales: { type: 'group', label: 'Scales' }
-            }
-          }
-        }
-      },
       'Audio': {
         icon: '◉',
         label: 'Audio Reactive',
@@ -1898,10 +1883,7 @@ const DisplayConfig = {
       'Display.position.x': 'animParams.center_x',
       'Display.position.y': 'animParams.center_y',
       'Display.background': 'bgColor',
-      'Global.name': 'name',
-      'LEDS.enabled': 'ledsEnabled',
-      'LEDS.brightness': 'ledBrightness',
-      'LEDS.color': 'ledColor'
+      'Global.name': 'name'
     };
     return mapping[path] || path;
   },
@@ -1933,10 +1915,6 @@ const DisplayConfig = {
       payload.bgR = value.r || 0;
       payload.bgG = value.g || 0;
       payload.bgB = value.b || 0;
-    }
-    // Handle ledColor specially (needs r,g,b object)
-    else if (fieldName === 'ledColor' && typeof value === 'object') {
-      payload.ledColor = { r: value.r || 0, g: value.g || 0, b: value.b || 0 };
     }
     // Handle other fields directly
     else {
