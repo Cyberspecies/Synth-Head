@@ -124,6 +124,10 @@ header { padding: 20px 0; margin-bottom: 20px; border-bottom: 1px solid var(--bo
 .wifi-value { flex: 1; font-weight: 500; font-family: 'SF Mono', Monaco, monospace; }
 .wifi-badge { font-size: 0.7rem; padding: 4px 10px; border-radius: 12px; font-weight: 600; text-transform: uppercase; background: var(--accent-subtle); color: var(--accent); }
 
+/* Global input styling for dark theme */
+input, textarea, select { color: var(--text-primary); background: var(--bg-tertiary); }
+input::placeholder, textarea::placeholder { color: var(--text-muted); }
+
 .form-group { margin-bottom: 20px; }
 .form-group label { display: block; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px; font-weight: 500; }
 .input { width: 100%; padding: 14px 16px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary); font-size: 1rem; transition: all 0.2s; }

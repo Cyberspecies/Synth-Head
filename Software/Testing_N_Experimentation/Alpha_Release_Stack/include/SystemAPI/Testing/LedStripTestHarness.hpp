@@ -114,9 +114,14 @@ private:
     static volatile bool animationRunning_;
     static std::string currentAnimation_;
     static uint8_t animR_, animG_, animB_;
-    static uint8_t animSpeed_;
+    static int8_t animSpeed_;  // Negative speed = reverse direction
     static TaskHandle_t animationTaskHandle_;
     static volatile bool taskExited_;  // Flag to signal task has exited
+    
+    // Multi-color palette for animations (up to 16 colors)
+    static constexpr int MAX_PALETTE_COLORS = 16;
+    static int paletteColorCount_;
+    static uint8_t paletteColors_[MAX_PALETTE_COLORS][3];  // [color_index][r,g,b]
     
     // Auto-start flag - set to false to disable auto-run on boot
     static constexpr bool AUTO_START_LED_TESTS = false;
@@ -378,41 +383,74 @@ public:
     // ============================================================
     
     /**
-     * @brief Start a continuous background animation
-     * @param animation Animation type: "solid", "breathe", "rainbow", "pulse", "chase", "sparkle", "fire", "wave", "gradient"
-     * @param r Red component (0-255)
-     * @param g Green component (0-255)
-     * @param b Blue component (0-255)
-     * @param speed Animation speed (1-100)
+     * @brief Start a continuous background animation with a color palette
+     * @param animation Animation type
+     * @param colors Vector of RGB tuples
+     * @param speed Animation speed (-100 to 100, negative = reverse)
+     * @param brightness Brightness (0-100)
      */
-    static void startAnimation(const std::string& animation, uint8_t r, uint8_t g, uint8_t b, uint8_t speed) {
+    static void startAnimationWithPalette(const std::string& animation, 
+                                          const std::vector<std::tuple<uint8_t, uint8_t, uint8_t>>& colors,
+                                          int8_t speed, uint8_t brightness) {
         // Stop any existing animation
         stopAnimation();
         
         if (!initialized_) init();
         
-        // Store animation state
+        // Store palette colors
+        paletteColorCount_ = std::min((int)colors.size(), MAX_PALETTE_COLORS);
+        if (paletteColorCount_ == 0) {
+            paletteColorCount_ = 1;
+            paletteColors_[0][0] = 255;
+            paletteColors_[0][1] = 255;
+            paletteColors_[0][2] = 255;
+        } else {
+            float brightFactor = brightness / 100.0f;
+            for (int i = 0; i < paletteColorCount_; i++) {
+                paletteColors_[i][0] = (uint8_t)(std::get<0>(colors[i]) * brightFactor);
+                paletteColors_[i][1] = (uint8_t)(std::get<1>(colors[i]) * brightFactor);
+                paletteColors_[i][2] = (uint8_t)(std::get<2>(colors[i]) * brightFactor);
+            }
+        }
+        
+        // Use first color as primary
+        animR_ = paletteColors_[0][0];
+        animG_ = paletteColors_[0][1];
+        animB_ = paletteColors_[0][2];
+        
         currentAnimation_ = animation;
-        animR_ = r;
-        animG_ = g;
-        animB_ = b;
         animSpeed_ = speed;
         
-        ESP_LOGI(LED_TEST_TAG, "Starting animation: %s RGB(%d,%d,%d) speed=%d", 
-                 animation.c_str(), r, g, b, speed);
+        ESP_LOGI(LED_TEST_TAG, "Starting animation: %s with %d colors, speed=%d", 
+                 animation.c_str(), paletteColorCount_, speed);
         
-        // For solid color, just set it directly - no task needed
+        // For solid color, just set it directly
         if (animation == "solid" || animation == "Solid") {
-            animationRunning_ = false;  // No task running
+            animationRunning_ = false;
             taskExited_ = true;
-            setAllColor(r, g, b);
+            setAllColor(animR_, animG_, animB_);
             return;
         }
         
-        // Create animation task for continuous animations
+        // Create animation task
         animationRunning_ = true;
         taskExited_ = false;
         xTaskCreate(animationTaskFunc, "led_anim", 4096, nullptr, 3, &animationTaskHandle_);
+    }
+    
+    /**
+     * @brief Start a continuous background animation (single color version)
+     * @param animation Animation type: "solid", "breathe", "rainbow", "pulse", "chase", "sparkle", "fire", "wave", "gradient"
+     * @param r Red component (0-255)
+     * @param g Green component (0-255)
+     * @param b Blue component (0-255)
+     * @param speed Animation speed (-100 to 100, negative = reverse)
+     */
+    static void startAnimation(const std::string& animation, uint8_t r, uint8_t g, uint8_t b, int8_t speed) {
+        // Create a single-color palette and delegate
+        std::vector<std::tuple<uint8_t, uint8_t, uint8_t>> colors;
+        colors.push_back(std::make_tuple(r, g, b));
+        startAnimationWithPalette(animation, colors, speed, 100);  // brightness already applied
     }
     
     /**
@@ -457,95 +495,140 @@ private:
         (void)param;
         
         uint32_t frame = 0;
+        bool reverse = (animSpeed_ < 0);
+        int absSpeed = reverse ? -animSpeed_ : animSpeed_;
+        if (absSpeed == 0) absSpeed = 1;  // Avoid division by zero
+        
+        // Simple LFSR-based random for sparkle (seeded once)
+        uint32_t randomState = 12345678;
         
         while (animationRunning_) {
             // Calculate delay based on speed (1-100) -> 10ms to 100ms
-            int delayMs = 110 - animSpeed_;  // speed 100 = 10ms, speed 1 = 109ms
+            int delayMs = 110 - absSpeed;  // speed 100 = 10ms, speed 1 = 109ms
             if (delayMs < 10) delayMs = 10;
             
             if (currentAnimation_ == "breathe" || currentAnimation_ == "Breathe") {
-                // Breathing animation - fade in and out
-                float phase = (float)(frame % 200) / 200.0f;
+                // Breathing animation - fade in and out (reverse changes phase direction)
+                int effectiveFrame = reverse ? (10000 - (frame % 10000)) : frame;
+                float phase = (float)(effectiveFrame % 200) / 200.0f;
                 float brightness = (sinf(phase * 2.0f * 3.14159f) + 1.0f) / 2.0f;
                 
-                uint8_t r = (uint8_t)(animR_ * brightness);
-                uint8_t g = (uint8_t)(animG_ * brightness);
-                uint8_t b = (uint8_t)(animB_ * brightness);
+                // Use first palette color
+                uint8_t r = (uint8_t)(paletteColors_[0][0] * brightness);
+                uint8_t g = (uint8_t)(paletteColors_[0][1] * brightness);
+                uint8_t b = (uint8_t)(paletteColors_[0][2] * brightness);
                 
                 setAllColor(r, g, b);
             }
             else if (currentAnimation_ == "rainbow" || currentAnimation_ == "Rainbow") {
-                // Rainbow animation - cycle through hues
-                uint8_t baseHue = (frame * 2) % 256;
+                // Rainbow/palette cycle animation - cycle through palette colors
+                // Direction depends on reverse flag
+                int effectiveFrame = reverse ? (10000 - (frame % 10000)) : frame;
                 
-                for (int i = 0; i < NUM_STRIPS; i++) {
-                    if (LED_STRIPS[i].active) {
-                        for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
-                            uint8_t hue = (baseHue + j * 10) % 256;
-                            uint8_t r, g, b;
-                            hsvToRgb(hue, 255, 255, r, g, b);
-                            setPixel(i, j, r, g, b, 0);
+                if (paletteColorCount_ <= 1) {
+                    // No palette, use classic HSV rainbow
+                    uint8_t baseHue = (effectiveFrame * 2) % 256;
+                    for (int i = 0; i < NUM_STRIPS; i++) {
+                        if (LED_STRIPS[i].active) {
+                            for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
+                                uint8_t hue = (baseHue + j * 10) % 256;
+                                uint8_t r, g, b;
+                                hsvToRgb(hue, 255, 255, r, g, b);
+                                setPixel(i, j, r, g, b, 0);
+                            }
+                        }
+                    }
+                } else {
+                    // Use palette colors - interpolate between them
+                    float shift = (float)(effectiveFrame % 256) / 256.0f * paletteColorCount_;
+                    for (int i = 0; i < NUM_STRIPS; i++) {
+                        if (LED_STRIPS[i].active) {
+                            for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
+                                float pos = fmodf(shift + (float)j / (float)LED_STRIPS[i].ledCount * paletteColorCount_, (float)paletteColorCount_);
+                                int idx1 = (int)pos % paletteColorCount_;
+                                int idx2 = (idx1 + 1) % paletteColorCount_;
+                                float t = pos - floorf(pos);
+                                
+                                uint8_t r = (uint8_t)(paletteColors_[idx1][0] * (1.0f - t) + paletteColors_[idx2][0] * t);
+                                uint8_t g = (uint8_t)(paletteColors_[idx1][1] * (1.0f - t) + paletteColors_[idx2][1] * t);
+                                uint8_t b = (uint8_t)(paletteColors_[idx1][2] * (1.0f - t) + paletteColors_[idx2][2] * t);
+                                setPixel(i, j, r, g, b, 0);
+                            }
                         }
                     }
                 }
                 refreshAllStrips();
             }
             else if (currentAnimation_ == "pulse" || currentAnimation_ == "Pulse") {
-                // Pulse animation - sharp on/off pulse
-                float phase = (float)(frame % 100) / 100.0f;
+                // Pulse animation - sharp on/off pulse (reverse changes nothing meaningful here)
+                int effectiveFrame = reverse ? (10000 - (frame % 10000)) : frame;
+                float phase = (float)(effectiveFrame % 100) / 100.0f;
                 float brightness = (phase < 0.3f) ? 1.0f : 0.0f;
                 
-                uint8_t r = (uint8_t)(animR_ * brightness);
-                uint8_t g = (uint8_t)(animG_ * brightness);
-                uint8_t b = (uint8_t)(animB_ * brightness);
+                // Use first palette color
+                uint8_t r = (uint8_t)(paletteColors_[0][0] * brightness);
+                uint8_t g = (uint8_t)(paletteColors_[0][1] * brightness);
+                uint8_t b = (uint8_t)(paletteColors_[0][2] * brightness);
                 
                 setAllColor(r, g, b);
             }
             else if (currentAnimation_ == "chase" || currentAnimation_ == "Chase") {
-                // Chase animation - moving dot
+                // Chase animation - moving dot (direction depends on reverse)
                 int position = frame % 64;
                 
                 clearAllBuffers();
                 for (int i = 0; i < NUM_STRIPS; i++) {
                     if (LED_STRIPS[i].active) {
-                        int pos = position % LED_STRIPS[i].ledCount;
-                        int trail1 = (pos - 1 + LED_STRIPS[i].ledCount) % LED_STRIPS[i].ledCount;
-                        int trail2 = (pos - 2 + LED_STRIPS[i].ledCount) % LED_STRIPS[i].ledCount;
+                        int pos;
+                        if (reverse) {
+                            pos = (LED_STRIPS[i].ledCount - 1 - (position % LED_STRIPS[i].ledCount));
+                        } else {
+                            pos = position % LED_STRIPS[i].ledCount;
+                        }
+                        int dir = reverse ? 1 : -1;
+                        int trail1 = (pos + dir + LED_STRIPS[i].ledCount) % LED_STRIPS[i].ledCount;
+                        int trail2 = (pos + 2*dir + LED_STRIPS[i].ledCount) % LED_STRIPS[i].ledCount;
                         
-                        setPixel(i, pos, animR_, animG_, animB_, 0);
-                        setPixel(i, trail1, animR_/2, animG_/2, animB_/2, 0);
-                        setPixel(i, trail2, animR_/4, animG_/4, animB_/4, 0);
+                        // Use first palette color
+                        setPixel(i, pos, paletteColors_[0][0], paletteColors_[0][1], paletteColors_[0][2], 0);
+                        setPixel(i, trail1, paletteColors_[0][0]/2, paletteColors_[0][1]/2, paletteColors_[0][2]/2, 0);
+                        setPixel(i, trail2, paletteColors_[0][0]/4, paletteColors_[0][1]/4, paletteColors_[0][2]/4, 0);
                     }
                 }
                 refreshAllStrips();
             }
             else if (currentAnimation_ == "sparkle" || currentAnimation_ == "Sparkle") {
-                // Sparkle animation - random flashes (using frame-based pseudo-random)
+                // Sparkle animation - TRUE random flashes using LFSR
                 clearAllBuffers();
                 for (int i = 0; i < NUM_STRIPS; i++) {
                     if (LED_STRIPS[i].active) {
-                        // Set base dim color
+                        // Set base dim color using first palette color
                         for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
-                            setPixel(i, j, animR_/10, animG_/10, animB_/10, 0);
+                            setPixel(i, j, paletteColors_[0][0]/10, paletteColors_[0][1]/10, paletteColors_[0][2]/10, 0);
                         }
-                        // Pseudo-random sparkles based on frame
+                        // Random sparkles using LFSR
                         int numSparkles = LED_STRIPS[i].ledCount / 3;
+                        if (numSparkles < 1) numSparkles = 1;
                         for (int s = 0; s < numSparkles; s++) {
-                            // Simple pseudo-random using frame, strip index and sparkle index
-                            int randLed = ((frame * 7 + i * 13 + s * 17) % LED_STRIPS[i].ledCount);
-                            setPixel(i, randLed, animR_, animG_, animB_, 0);
+                            // LFSR step for randomness
+                            randomState ^= (randomState << 13);
+                            randomState ^= (randomState >> 17);
+                            randomState ^= (randomState << 5);
+                            int randLed = randomState % LED_STRIPS[i].ledCount;
+                            setPixel(i, randLed, paletteColors_[0][0], paletteColors_[0][1], paletteColors_[0][2], 0);
                         }
                     }
                 }
                 refreshAllStrips();
             }
             else if (currentAnimation_ == "fire" || currentAnimation_ == "Fire") {
-                // Fire animation - flickering red/orange (simplified)
+                // Fire animation - flickering red/orange (reverse slows/changes pattern)
+                float timeScale = reverse ? -0.3f : 0.3f;
                 for (int i = 0; i < NUM_STRIPS; i++) {
                     if (LED_STRIPS[i].active) {
                         for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
                             // Simple flicker using sine wave with offset per LED
-                            float flicker = sinf((float)frame * 0.3f + (float)j * 1.7f + (float)i * 2.3f);
+                            float flicker = sinf((float)frame * timeScale + (float)j * 1.7f + (float)i * 2.3f);
                             flicker = (flicker + 1.0f) / 2.0f;  // Normalize to 0-1
                             flicker = 0.5f + flicker * 0.5f;    // Range 0.5 to 1.0
                             
@@ -559,16 +642,17 @@ private:
                 refreshAllStrips();
             }
             else if (currentAnimation_ == "wave" || currentAnimation_ == "Wave") {
-                // Wave animation - sine wave of brightness
-                float phase = (float)frame / 20.0f;
+                // Wave animation - sine wave of brightness (direction depends on reverse)
+                float phase = reverse ? -(float)frame / 20.0f : (float)frame / 20.0f;
                 
                 for (int i = 0; i < NUM_STRIPS; i++) {
                     if (LED_STRIPS[i].active) {
                         for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
                             float brightness = (sinf(phase + j * 0.5f) + 1.0f) / 2.0f;
-                            uint8_t r = (uint8_t)(animR_ * brightness);
-                            uint8_t g = (uint8_t)(animG_ * brightness);
-                            uint8_t b = (uint8_t)(animB_ * brightness);
+                            // Use first palette color
+                            uint8_t r = (uint8_t)(paletteColors_[0][0] * brightness);
+                            uint8_t g = (uint8_t)(paletteColors_[0][1] * brightness);
+                            uint8_t b = (uint8_t)(paletteColors_[0][2] * brightness);
                             setPixel(i, j, r, g, b, 0);
                         }
                     }
@@ -576,24 +660,35 @@ private:
                 refreshAllStrips();
             }
             else if (currentAnimation_ == "gradient" || currentAnimation_ == "Gradient") {
-                // Gradient animation - fade across strip with shifting
-                int shift = frame % 256;
-                
+                // Gradient - STATIC display of palette colors across LEDs (no animation)
+                // Speed controls nothing for static gradient - it just displays once
                 for (int i = 0; i < NUM_STRIPS; i++) {
                     if (LED_STRIPS[i].active) {
                         for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
-                            float pos = (float)(j + shift) / (float)LED_STRIPS[i].ledCount;
-                            pos = fmodf(pos, 1.0f);
-                            
-                            // Gradient from base color to complementary
-                            uint8_t r = (uint8_t)(animR_ * (1.0f - pos) + (255 - animR_) * pos);
-                            uint8_t g = (uint8_t)(animG_ * (1.0f - pos) + (255 - animG_) * pos);
-                            uint8_t b = (uint8_t)(animB_ * (1.0f - pos) + (255 - animB_) * pos);
-                            setPixel(i, j, r, g, b, 0);
+                            if (paletteColorCount_ <= 1) {
+                                // Single color - just solid color
+                                setPixel(i, j, paletteColors_[0][0], paletteColors_[0][1], paletteColors_[0][2], 0);
+                            } else {
+                                // Multi-color gradient - interpolate across strip
+                                float pos = (float)j / (float)(LED_STRIPS[i].ledCount - 1) * (paletteColorCount_ - 1);
+                                int idx1 = (int)pos;
+                                int idx2 = idx1 + 1;
+                                if (idx2 >= paletteColorCount_) idx2 = paletteColorCount_ - 1;
+                                float t = pos - floorf(pos);
+                                
+                                uint8_t r = (uint8_t)(paletteColors_[idx1][0] * (1.0f - t) + paletteColors_[idx2][0] * t);
+                                uint8_t g = (uint8_t)(paletteColors_[idx1][1] * (1.0f - t) + paletteColors_[idx2][1] * t);
+                                uint8_t b = (uint8_t)(paletteColors_[idx1][2] * (1.0f - t) + paletteColors_[idx2][2] * t);
+                                setPixel(i, j, r, g, b, 0);
+                            }
                         }
                     }
                 }
                 refreshAllStrips();
+                // Gradient is static - just sleep longer between updates (no need to update often)
+                vTaskDelay(pdMS_TO_TICKS(500));
+                frame++;
+                continue;  // Skip the normal delay at end of loop
             }
             
             frame++;
@@ -1401,9 +1496,13 @@ inline std::string LedStripTestHarness::currentAnimation_ = "solid";
 inline uint8_t LedStripTestHarness::animR_ = 255;
 inline uint8_t LedStripTestHarness::animG_ = 255;
 inline uint8_t LedStripTestHarness::animB_ = 255;
-inline uint8_t LedStripTestHarness::animSpeed_ = 50;
+inline int8_t LedStripTestHarness::animSpeed_ = 50;
 inline TaskHandle_t LedStripTestHarness::animationTaskHandle_ = nullptr;
 inline volatile bool LedStripTestHarness::taskExited_ = true;
+
+// Palette static members
+inline int LedStripTestHarness::paletteColorCount_ = 1;
+inline uint8_t LedStripTestHarness::paletteColors_[LedStripTestHarness::MAX_PALETTE_COLORS][3] = {{255, 255, 255}};
 
 } // namespace Testing
 } // namespace SystemAPI

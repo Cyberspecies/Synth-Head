@@ -154,6 +154,7 @@ inline const char* PAGE_LED_PRESET_LIST = R"rawpage(<!DOCTYPE html>
       display: flex;
       align-items: center;
       gap: 8px;
+      color: var(--text-primary);
     }
     .dropdown-item:hover { background: var(--bg-tertiary); }
     .dropdown-item.danger { color: var(--danger); }

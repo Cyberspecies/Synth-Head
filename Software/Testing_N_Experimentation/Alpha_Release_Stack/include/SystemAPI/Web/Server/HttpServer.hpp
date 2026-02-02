@@ -196,11 +196,13 @@ struct SavedLedPreset {
     int id;
     std::string name;
     std::string animation;  // solid, breathe, rainbow, pulse, chase, sparkle, fire, wave, gradient
-    uint8_t r = 255;
+    uint8_t r = 255;        // Primary color (or first color)
     uint8_t g = 255;
     uint8_t b = 255;
     uint8_t brightness = 100;
-    uint8_t speed = 50;
+    int8_t speed = 50;      // Speed can be negative for reverse animations
+    int colorCount = 1;     // Number of colors for multi-color animations
+    std::vector<std::tuple<uint8_t, uint8_t, uint8_t>> colors;  // Array of (r, g, b) colors
     std::map<std::string, int> params;  // Extra animation-specific parameters
     int order = 0;
 };
@@ -1856,6 +1858,20 @@ private:
                 cJSON_AddItemToObject(item, "params", params);
             }
             
+            // Save color count and colors array
+            cJSON_AddNumberToObject(item, "colorCount", p.colorCount);
+            if (!p.colors.empty()) {
+                cJSON* colorsArr = cJSON_CreateArray();
+                for (const auto& c : p.colors) {
+                    cJSON* colorItem = cJSON_CreateObject();
+                    cJSON_AddNumberToObject(colorItem, "r", std::get<0>(c));
+                    cJSON_AddNumberToObject(colorItem, "g", std::get<1>(c));
+                    cJSON_AddNumberToObject(colorItem, "b", std::get<2>(c));
+                    cJSON_AddItemToArray(colorsArr, colorItem);
+                }
+                cJSON_AddItemToObject(item, "colors", colorsArr);
+            }
+            
             cJSON_AddItemToArray(presets, item);
         }
         cJSON_AddItemToObject(root, "presets", presets);
@@ -1957,7 +1973,7 @@ private:
                     preset.brightness = (uint8_t)val->valueint;
                 }
                 if ((val = cJSON_GetObjectItem(item, "speed")) && cJSON_IsNumber(val)) {
-                    preset.speed = (uint8_t)val->valueint;
+                    preset.speed = (int8_t)val->valueint;
                 }
                 if ((val = cJSON_GetObjectItem(item, "order")) && cJSON_IsNumber(val)) {
                     preset.order = val->valueint;
@@ -1971,6 +1987,23 @@ private:
                         if (cJSON_IsNumber(param) && param->string) {
                             preset.params[param->string] = param->valueint;
                         }
+                    }
+                }
+                
+                // Load colorCount and colors array
+                if ((val = cJSON_GetObjectItem(item, "colorCount")) && cJSON_IsNumber(val)) {
+                    preset.colorCount = val->valueint;
+                }
+                cJSON* colorsArr = cJSON_GetObjectItem(item, "colors");
+                if (colorsArr && cJSON_IsArray(colorsArr)) {
+                    cJSON* colorItem = NULL;
+                    cJSON_ArrayForEach(colorItem, colorsArr) {
+                        int cr = 255, cg = 255, cb = 255;
+                        cJSON* cv;
+                        if ((cv = cJSON_GetObjectItem(colorItem, "r")) && cJSON_IsNumber(cv)) cr = cv->valueint;
+                        if ((cv = cJSON_GetObjectItem(colorItem, "g")) && cJSON_IsNumber(cv)) cg = cv->valueint;
+                        if ((cv = cJSON_GetObjectItem(colorItem, "b")) && cJSON_IsNumber(cv)) cb = cv->valueint;
+                        preset.colors.push_back(std::make_tuple((uint8_t)cr, (uint8_t)cg, (uint8_t)cb));
                     }
                 }
                 
@@ -4553,8 +4586,29 @@ private:
         cJSON_AddNumberToObject(presetObj, "b", found->b);
         cJSON_AddNumberToObject(presetObj, "brightness", found->brightness);
         cJSON_AddNumberToObject(presetObj, "speed", found->speed);
+        cJSON_AddNumberToObject(presetObj, "colorCount", found->colorCount);
         cJSON_AddNumberToObject(presetObj, "order", found->order);
         cJSON_AddBoolToObject(presetObj, "active", found->id == activeLedPresetId_);
+        
+        // Add colors array
+        cJSON* colorsArr = cJSON_CreateArray();
+        if (found->colors.size() > 0) {
+            for (const auto& color : found->colors) {
+                cJSON* colorObj = cJSON_CreateObject();
+                cJSON_AddNumberToObject(colorObj, "r", std::get<0>(color));
+                cJSON_AddNumberToObject(colorObj, "g", std::get<1>(color));
+                cJSON_AddNumberToObject(colorObj, "b", std::get<2>(color));
+                cJSON_AddItemToArray(colorsArr, colorObj);
+            }
+        } else {
+            // Fall back to single color
+            cJSON* colorObj = cJSON_CreateObject();
+            cJSON_AddNumberToObject(colorObj, "r", found->r);
+            cJSON_AddNumberToObject(colorObj, "g", found->g);
+            cJSON_AddNumberToObject(colorObj, "b", found->b);
+            cJSON_AddItemToArray(colorsArr, colorObj);
+        }
+        cJSON_AddItemToObject(presetObj, "colors", colorsArr);
         
         if (!found->params.empty()) {
             cJSON* params = cJSON_CreateObject();
@@ -4639,7 +4693,35 @@ private:
             found->brightness = (uint8_t)val->valueint;
         }
         if ((val = cJSON_GetObjectItem(root, "speed")) && cJSON_IsNumber(val)) {
-            found->speed = (uint8_t)val->valueint;
+            found->speed = (int8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "colorCount")) && cJSON_IsNumber(val)) {
+            found->colorCount = val->valueint;
+        }
+        
+        // Update colors array
+        cJSON* colors = cJSON_GetObjectItem(root, "colors");
+        if (colors && cJSON_IsArray(colors)) {
+            found->colors.clear();
+            cJSON* color = NULL;
+            cJSON_ArrayForEach(color, colors) {
+                if (cJSON_IsObject(color)) {
+                    cJSON* cr = cJSON_GetObjectItem(color, "r");
+                    cJSON* cg = cJSON_GetObjectItem(color, "g");
+                    cJSON* cb = cJSON_GetObjectItem(color, "b");
+                    uint8_t r = (cr && cJSON_IsNumber(cr)) ? (uint8_t)cr->valueint : 255;
+                    uint8_t g = (cg && cJSON_IsNumber(cg)) ? (uint8_t)cg->valueint : 255;
+                    uint8_t b = (cb && cJSON_IsNumber(cb)) ? (uint8_t)cb->valueint : 255;
+                    found->colors.push_back(std::make_tuple(r, g, b));
+                }
+            }
+            found->colorCount = (int)found->colors.size();
+            // Update primary color from first color in array
+            if (!found->colors.empty()) {
+                found->r = std::get<0>(found->colors[0]);
+                found->g = std::get<1>(found->colors[0]);
+                found->b = std::get<2>(found->colors[0]);
+            }
         }
         
         // Update params
@@ -4782,7 +4864,7 @@ private:
     static esp_err_t handleApiLedPresetPreview(httpd_req_t* req) {
         if (requiresAuthRedirect(req)) return sendUnauthorized(req);
         
-        char buf[512];
+        char buf[1024];
         int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
         if (ret <= 0) {
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
@@ -4807,20 +4889,43 @@ private:
         } else {
             preview.animation = "solid";
         }
-        if ((val = cJSON_GetObjectItem(root, "r")) && cJSON_IsNumber(val)) {
-            preview.r = (uint8_t)val->valueint;
-        }
-        if ((val = cJSON_GetObjectItem(root, "g")) && cJSON_IsNumber(val)) {
-            preview.g = (uint8_t)val->valueint;
-        }
-        if ((val = cJSON_GetObjectItem(root, "b")) && cJSON_IsNumber(val)) {
-            preview.b = (uint8_t)val->valueint;
-        }
         if ((val = cJSON_GetObjectItem(root, "brightness")) && cJSON_IsNumber(val)) {
             preview.brightness = (uint8_t)val->valueint;
         }
         if ((val = cJSON_GetObjectItem(root, "speed")) && cJSON_IsNumber(val)) {
-            preview.speed = (uint8_t)val->valueint;
+            preview.speed = (int8_t)val->valueint;
+        }
+        
+        // Parse colorCount and colors array
+        if ((val = cJSON_GetObjectItem(root, "colorCount")) && cJSON_IsNumber(val)) {
+            preview.colorCount = val->valueint;
+        }
+        cJSON* colors = cJSON_GetObjectItem(root, "colors");
+        if (colors && cJSON_IsArray(colors)) {
+            cJSON* color = NULL;
+            cJSON_ArrayForEach(color, colors) {
+                int cr = 255, cg = 255, cb = 255;
+                cJSON* cv;
+                if ((cv = cJSON_GetObjectItem(color, "r")) && cJSON_IsNumber(cv)) cr = cv->valueint;
+                if ((cv = cJSON_GetObjectItem(color, "g")) && cJSON_IsNumber(cv)) cg = cv->valueint;
+                if ((cv = cJSON_GetObjectItem(color, "b")) && cJSON_IsNumber(cv)) cb = cv->valueint;
+                preview.colors.push_back(std::make_tuple((uint8_t)cr, (uint8_t)cg, (uint8_t)cb));
+            }
+        }
+        // Fallback: if no colors array, use r,g,b
+        if (preview.colors.empty()) {
+            int r = 255, g = 255, b = 255;
+            if ((val = cJSON_GetObjectItem(root, "r")) && cJSON_IsNumber(val)) r = val->valueint;
+            if ((val = cJSON_GetObjectItem(root, "g")) && cJSON_IsNumber(val)) g = val->valueint;
+            if ((val = cJSON_GetObjectItem(root, "b")) && cJSON_IsNumber(val)) b = val->valueint;
+            preview.colors.push_back(std::make_tuple((uint8_t)r, (uint8_t)g, (uint8_t)b));
+            preview.colorCount = 1;
+        }
+        // Set primary r,g,b from first color
+        if (!preview.colors.empty()) {
+            preview.r = std::get<0>(preview.colors[0]);
+            preview.g = std::get<1>(preview.colors[0]);
+            preview.b = std::get<2>(preview.colors[0]);
         }
         
         cJSON_Delete(root);

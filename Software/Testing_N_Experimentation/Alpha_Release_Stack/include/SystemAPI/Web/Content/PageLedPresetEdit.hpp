@@ -338,7 +338,7 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
       
       <div class="preset-title">
         <input type="text" id="presetName" placeholder="Preset Name">
-        <button class="btn btn-success" onclick="saveAndApply()">&#x25B6; Apply</button>
+        <button class="btn btn-success" onclick="saveAndApply()">&#x25B6; Save &amp; Apply</button>
       </div>
       
       <div class="editor-grid">
@@ -392,26 +392,40 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
           
           <div class="panel">
             <div class="panel-header">
-              <h3><span class="icon">&#x1F308;</span> Color</h3>
+              <h3><span class="icon">&#x1F308;</span> Colors</h3>
             </div>
             <div class="panel-body">
-              <div class="color-section">
-                <div class="color-preview-large" id="colorPreview"></div>
-                <div class="color-sliders">
-                  <div class="color-slider-row">
-                    <span class="color-label r">R</span>
-                    <input type="range" id="sliderR" min="0" max="255" value="255" oninput="updateColor()">
-                    <input type="text" class="color-value" id="valueR" value="255" onchange="updateFromInput('r')">
+              <!-- Color Count (shown for multi-color animations) -->
+              <div class="subsection" id="colorCountSection" style="display:none;">
+                <div class="subsection-title">Number of Colors</div>
+                <div class="param-row">
+                  <span class="param-label">Color Count</span>
+                  <div class="param-control">
+                    <input type="number" id="colorCount" min="1" max="8" value="1" style="width:60px;padding:6px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);" onchange="updateColorCount(parseInt(this.value))">
                   </div>
-                  <div class="color-slider-row">
-                    <span class="color-label g">G</span>
-                    <input type="range" id="sliderG" min="0" max="255" value="100" oninput="updateColor()">
-                    <input type="text" class="color-value" id="valueG" value="100" onchange="updateFromInput('g')">
-                  </div>
-                  <div class="color-slider-row">
-                    <span class="color-label b">B</span>
-                    <input type="range" id="sliderB" min="0" max="255" value="0" oninput="updateColor()">
-                    <input type="text" class="color-value" id="valueB" value="0" onchange="updateFromInput('b')">
+                </div>
+              </div>
+              
+              <!-- Dynamic Color Pickers Container -->
+              <div id="colorPickersContainer">
+                <div class="color-section" id="colorPicker0">
+                  <div class="color-preview-large" id="colorPreview0"></div>
+                  <div class="color-sliders">
+                    <div class="color-slider-row">
+                      <span class="color-label r">R</span>
+                      <input type="range" data-color-idx="0" data-channel="r" min="0" max="255" value="255" oninput="updateColorSlider(0)">
+                      <input type="text" class="color-value" id="valueR0" value="255" onchange="updateFromColorInput(0,'r')">
+                    </div>
+                    <div class="color-slider-row">
+                      <span class="color-label g">G</span>
+                      <input type="range" data-color-idx="0" data-channel="g" min="0" max="255" value="100" oninput="updateColorSlider(0)">
+                      <input type="text" class="color-value" id="valueG0" value="100" onchange="updateFromColorInput(0,'g')">
+                    </div>
+                    <div class="color-slider-row">
+                      <span class="color-label b">B</span>
+                      <input type="range" data-color-idx="0" data-channel="b" min="0" max="255" value="0" oninput="updateColorSlider(0)">
+                      <input type="text" class="color-value" id="valueB0" value="0" onchange="updateFromColorInput(0,'b')">
+                    </div>
                   </div>
                 </div>
               </div>
@@ -433,7 +447,7 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
               <div class="param-row">
                 <span class="param-label">Speed</span>
                 <div class="param-control">
-                  <input type="range" id="speed" min="1" max="100" value="50" oninput="updateParam('speed')">
+                  <input type="range" id="speed" min="-100" max="100" value="50" oninput="updateParam('speed')">
                   <span class="param-value" id="speedVal">50</span>
                 </div>
               </div>
@@ -495,6 +509,8 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
     b: 0,
     brightness: 80,
     speed: 50,
+    colorCount: 1,
+    colors: [{r: 255, g: 100, b: 0}],
     params: {}
   };
   var previewEnabled = true;
@@ -508,10 +524,10 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
     if (presetId) {
       loadPreset(presetId);
     } else {
+      rebuildColorPickers();
       updateUI();
       syncToYaml();
     }
-    updateColor();
   }
 
   function loadPreset(id) {
@@ -534,16 +550,18 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
 
   function updateUI() {
     document.getElementById('presetName').value = currentPreset.name || '';
-    document.getElementById('sliderR').value = currentPreset.r || 255;
-    document.getElementById('sliderG').value = currentPreset.g || 100;
-    document.getElementById('sliderB').value = currentPreset.b || 0;
-    document.getElementById('valueR').value = currentPreset.r || 255;
-    document.getElementById('valueG').value = currentPreset.g || 100;
-    document.getElementById('valueB').value = currentPreset.b || 0;
     document.getElementById('brightness').value = currentPreset.brightness || 80;
     document.getElementById('brightnessVal').textContent = (currentPreset.brightness || 80) + '%';
     document.getElementById('speed').value = currentPreset.speed || 50;
     document.getElementById('speedVal').textContent = currentPreset.speed || 50;
+    
+    // Initialize colors array if needed
+    if (!currentPreset.colors || currentPreset.colors.length === 0) {
+      currentPreset.colors = [{r: currentPreset.r || 255, g: currentPreset.g || 100, b: currentPreset.b || 0}];
+      currentPreset.colorCount = 1;
+    }
+    currentPreset.colorCount = currentPreset.colors.length;
+    document.getElementById('colorCount').value = currentPreset.colorCount;
     
     // Update animation selection
     document.querySelectorAll('.anim-card').forEach(function(c) {
@@ -553,6 +571,8 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
       }
     });
     
+    // Rebuild color pickers with loaded data
+    rebuildColorPickers();
     updateAnimParams();
   }
 
@@ -569,34 +589,108 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
   function updateAnimParams() {
     var showMinBrightness = ['breathe', 'pulse'].includes(currentPreset.animation);
     document.getElementById('minBrightnessRow').style.display = showMinBrightness ? 'flex' : 'none';
+    
+    // Show color count for multi-color animations
+    var multiColorAnims = ['rainbow', 'gradient', 'wave'];
+    var showColorCount = multiColorAnims.includes(currentPreset.animation);
+    document.getElementById('colorCountSection').style.display = showColorCount ? 'block' : 'none';
+    
+    // Reset to 1 color if switching to single-color animation
+    if (!showColorCount && currentPreset.colorCount > 1) {
+      updateColorCount(1);
+    }
   }
 
-  function updateColor() {
-    var r = parseInt(document.getElementById('sliderR').value);
-    var g = parseInt(document.getElementById('sliderG').value);
-    var b = parseInt(document.getElementById('sliderB').value);
+  // Multi-color support
+  function updateColorCount(count) {
+    count = Math.max(1, Math.min(8, count));
+    currentPreset.colorCount = count;
+    document.getElementById('colorCount').value = count;
     
-    currentPreset.r = r;
-    currentPreset.g = g;
-    currentPreset.b = b;
+    // Ensure colors array has the right size
+    while (currentPreset.colors.length < count) {
+      // Add new colors with different hues
+      var hueShift = currentPreset.colors.length * 45;
+      currentPreset.colors.push({r: 255, g: Math.floor(hueShift % 256), b: Math.floor((hueShift * 2) % 256)});
+    }
+    currentPreset.colors = currentPreset.colors.slice(0, count);
     
-    document.getElementById('valueR').value = r;
-    document.getElementById('valueG').value = g;
-    document.getElementById('valueB').value = b;
+    // Rebuild color pickers
+    rebuildColorPickers();
+    syncToYaml();
+    sendPreview();
+  }
+
+  function rebuildColorPickers() {
+    var container = document.getElementById('colorPickersContainer');
+    container.innerHTML = '';
     
-    document.getElementById('colorPreview').style.background = 'rgb(' + r + ',' + g + ',' + b + ')';
+    for (var i = 0; i < currentPreset.colorCount; i++) {
+      var color = currentPreset.colors[i] || {r: 255, g: 255, b: 255};
+      var html = '<div class="color-section" id="colorPicker' + i + '" style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">';
+      if (currentPreset.colorCount > 1) {
+        html += '<div style="margin-bottom:8px;font-size:0.75rem;color:var(--accent);font-weight:600;">COLOR ' + (i+1) + '</div>';
+      }
+      html += '<div style="display:flex;gap:16px;align-items:flex-start;">';
+      html += '<div class="color-preview-large" id="colorPreview' + i + '" style="background:rgb(' + color.r + ',' + color.g + ',' + color.b + ');"></div>';
+      html += '<div class="color-sliders" style="flex:1;">';
+      html += '<div class="color-slider-row"><span class="color-label r">R</span>';
+      html += '<input type="range" data-color-idx="' + i + '" data-channel="r" min="0" max="255" value="' + color.r + '" oninput="updateColorSlider(' + i + ')">';
+      html += '<input type="text" class="color-value" id="valueR' + i + '" value="' + color.r + '" onchange="updateFromColorInput(' + i + ',\'r\')"></div>';
+      html += '<div class="color-slider-row"><span class="color-label g">G</span>';
+      html += '<input type="range" data-color-idx="' + i + '" data-channel="g" min="0" max="255" value="' + color.g + '" oninput="updateColorSlider(' + i + ')">';
+      html += '<input type="text" class="color-value" id="valueG' + i + '" value="' + color.g + '" onchange="updateFromColorInput(' + i + ',\'g\')"></div>';
+      html += '<div class="color-slider-row"><span class="color-label b">B</span>';
+      html += '<input type="range" data-color-idx="' + i + '" data-channel="b" min="0" max="255" value="' + color.b + '" oninput="updateColorSlider(' + i + ')">';
+      html += '<input type="text" class="color-value" id="valueB' + i + '" value="' + color.b + '" onchange="updateFromColorInput(' + i + ',\'b\')"></div>';
+      html += '</div></div></div>';
+      container.innerHTML += html;
+    }
+  }
+
+  function updateColorSlider(colorIdx) {
+    var sliders = document.querySelectorAll('[data-color-idx="' + colorIdx + '"]');
+    var r = 0, g = 0, b = 0;
+    sliders.forEach(function(s) {
+      if (s.dataset.channel === 'r') r = parseInt(s.value);
+      if (s.dataset.channel === 'g') g = parseInt(s.value);
+      if (s.dataset.channel === 'b') b = parseInt(s.value);
+    });
+    
+    currentPreset.colors[colorIdx] = {r: r, g: g, b: b};
+    if (colorIdx === 0) {
+      currentPreset.r = r;
+      currentPreset.g = g;
+      currentPreset.b = b;
+    }
+    
+    document.getElementById('valueR' + colorIdx).value = r;
+    document.getElementById('valueG' + colorIdx).value = g;
+    document.getElementById('valueB' + colorIdx).value = b;
+    document.getElementById('colorPreview' + colorIdx).style.background = 'rgb(' + r + ',' + g + ',' + b + ')';
     
     syncToYaml();
     sendPreview();
   }
 
-  function updateFromInput(channel) {
-    var inputId = 'value' + channel.toUpperCase();
-    var sliderId = 'slider' + channel.toUpperCase();
+  function updateFromColorInput(colorIdx, channel) {
+    var inputId = 'value' + channel.toUpperCase() + colorIdx;
     var val = parseInt(document.getElementById(inputId).value) || 0;
     val = Math.max(0, Math.min(255, val));
-    document.getElementById(sliderId).value = val;
-    updateColor();
+    
+    var slider = document.querySelector('[data-color-idx="' + colorIdx + '"][data-channel="' + channel + '"]');
+    if (slider) slider.value = val;
+    
+    updateColorSlider(colorIdx);
+  }
+
+  // Legacy single-color functions for compatibility
+  function updateColor() {
+    updateColorSlider(0);
+  }
+
+  function updateFromInput(channel) {
+    updateFromColorInput(0, channel);
   }
 
   function updateParam(param) {
@@ -619,12 +713,16 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
   function syncToYaml() {
     var yaml = 'name: "' + (currentPreset.name || 'New Preset') + '"\n';
     yaml += 'animation: ' + currentPreset.animation + '\n';
-    yaml += 'color:\n';
-    yaml += '  r: ' + currentPreset.r + '\n';
-    yaml += '  g: ' + currentPreset.g + '\n';
-    yaml += '  b: ' + currentPreset.b + '\n';
     yaml += 'brightness: ' + currentPreset.brightness + '\n';
     yaml += 'speed: ' + currentPreset.speed + '\n';
+    yaml += 'colorCount: ' + currentPreset.colorCount + '\n';
+    yaml += 'colors:\n';
+    for (var i = 0; i < currentPreset.colors.length; i++) {
+      var c = currentPreset.colors[i];
+      yaml += '  - r: ' + c.r + '\n';
+      yaml += '    g: ' + c.g + '\n';
+      yaml += '    b: ' + c.b + '\n';
+    }
     
     if (Object.keys(currentPreset.params || {}).length > 0) {
       yaml += 'params:\n';
@@ -643,7 +741,7 @@ inline const char* PAGE_LED_PRESET_EDIT = R"rawpage(<!DOCTYPE html>
     
     try {
       // Simple YAML validation (just check for basic structure)
-      if (yaml.includes('animation:') && yaml.includes('color:')) {
+      if (yaml.includes('animation:') && yaml.includes('colors:')) {
         statusEl.innerHTML = '<span>&#x2713;</span> Valid YAML';
         statusEl.className = 'yaml-status valid';
         return true;

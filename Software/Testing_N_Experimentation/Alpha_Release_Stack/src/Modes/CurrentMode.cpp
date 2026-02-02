@@ -2108,24 +2108,28 @@ void CurrentMode::onStart() {
         printf("\n  ========================================\n");
         printf("  LED PRESET ACTIVATED: %s (id=%d)\n", preset.name.c_str(), preset.id);
         printf("  Animation: %s\n", preset.animation.c_str());
-        printf("  Color: RGB(%d,%d,%d)\n", preset.r, preset.g, preset.b);
+        printf("  Color: RGB(%d,%d,%d), ColorCount: %d\n", preset.r, preset.g, preset.b, preset.colorCount);
         printf("  Brightness: %d, Speed: %d\n", preset.brightness, preset.speed);
         printf("  ========================================\n\n");
         
-        // Apply the LED preset using the animation system
-        // Scale RGB by brightness (0-100%)
-        float brightnessFactor = preset.brightness / 100.0f;
-        uint8_t r = (uint8_t)(preset.r * brightnessFactor);
-        uint8_t g = (uint8_t)(preset.g * brightnessFactor);
-        uint8_t b = (uint8_t)(preset.b * brightnessFactor);
+        // Build color palette from preset
+        std::vector<std::tuple<uint8_t, uint8_t, uint8_t>> colors;
         
-        // Start the animation with the preset settings
-        SystemAPI::Testing::LedStripTestHarness::startAnimation(
-            preset.animation, r, g, b, (uint8_t)preset.speed
+        if (preset.colors.size() > 0) {
+            // Use the color array from preset
+            colors = preset.colors;
+        } else {
+            // Fall back to single color
+            colors.push_back(std::make_tuple(preset.r, preset.g, preset.b));
+        }
+        
+        // Start the animation with palette
+        SystemAPI::Testing::LedStripTestHarness::startAnimationWithPalette(
+            preset.animation, colors, (uint8_t)preset.speed, (uint8_t)preset.brightness
         );
         
-        printf("  Applied LED animation: %s RGB(%d,%d,%d) speed=%d\n", 
-               preset.animation.c_str(), r, g, b, preset.speed);
+        printf("  Applied LED animation: %s with %zu colors, speed=%d\n", 
+               preset.animation.c_str(), colors.size(), preset.speed);
     });
     
     printf("  Web-GPU Callbacks: Registered\n");
