@@ -6767,6 +6767,87 @@ public:
     }
     
     /**
+     * @brief Recursively delete all files in a directory (SD card)
+     */
+    static int deleteAllFilesInDir(Utils::FileSystemService& fs, const char* dirPath) {
+        int deleted = 0;
+        std::vector<std::string> filesToDelete;
+        std::vector<std::string> subDirs;
+        
+        fs.listDir(dirPath, [&](const Utils::FileInfo& info) {
+            std::string fullPath = std::string(dirPath) + "/" + info.name;
+            if (info.isDirectory) {
+                // Skip . and .. if present
+                if (strcmp(info.name, ".") != 0 && strcmp(info.name, "..") != 0) {
+                    subDirs.push_back(fullPath);
+                }
+            } else {
+                filesToDelete.push_back(fullPath);
+            }
+            return true;
+        });
+        
+        // Delete all files in this directory
+        for (const auto& file : filesToDelete) {
+            ESP_LOGI(HTTP_TAG, "  Deleting: %s", file.c_str());
+            if (fs.deleteFile(file.c_str())) {
+                deleted++;
+            }
+        }
+        
+        // Recursively delete subdirectories
+        for (const auto& subDir : subDirs) {
+            deleted += deleteAllFilesInDir(fs, subDir.c_str());
+        }
+        
+        return deleted;
+    }
+    
+    /**
+     * @brief Recursively delete all files in a SPIFFS directory
+     */
+    static int deleteAllSpiffsFiles(const char* dirPath) {
+        int deleted = 0;
+        DIR* dir = opendir(dirPath);
+        if (!dir) return 0;
+        
+        std::vector<std::string> filesToDelete;
+        std::vector<std::string> subDirs;
+        struct dirent* entry;
+        
+        while ((entry = readdir(dir)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+            
+            std::string fullPath = std::string(dirPath) + "/" + entry->d_name;
+            struct stat st;
+            if (stat(fullPath.c_str(), &st) == 0) {
+                if (S_ISDIR(st.st_mode)) {
+                    subDirs.push_back(fullPath);
+                } else {
+                    filesToDelete.push_back(fullPath);
+                }
+            }
+        }
+        closedir(dir);
+        
+        // Delete all files
+        for (const auto& file : filesToDelete) {
+            ESP_LOGI(HTTP_TAG, "  Deleting SPIFFS: %s", file.c_str());
+            if (remove(file.c_str()) == 0) {
+                deleted++;
+            }
+        }
+        
+        // Recursively delete subdirectories
+        for (const auto& subDir : subDirs) {
+            deleted += deleteAllSpiffsFiles(subDir.c_str());
+            rmdir(subDir.c_str());  // Remove empty directory
+        }
+        
+        return deleted;
+    }
+    
+    /**
      * @brief Format SD card, create folder structure, and populate with default YAML scenes
      */
     static esp_err_t handleApiSdCardFormatInit(httpd_req_t* req) {
@@ -6780,46 +6861,91 @@ public:
             return ESP_OK;
         }
         
-        ESP_LOGW(HTTP_TAG, "Format & Initialize SD card...");
+        ESP_LOGW(HTTP_TAG, "========================================");
+        ESP_LOGW(HTTP_TAG, "  FULL SD CARD FORMAT & ERASE");
+        ESP_LOGW(HTTP_TAG, "========================================");
         
-        // Step 0: Clear in-memory scene and sprite data
-        ESP_LOGI(HTTP_TAG, "Step 0: Clearing in-memory data...");
+        // Step 0: Clear ALL in-memory data
+        ESP_LOGI(HTTP_TAG, "Step 0: Clearing ALL in-memory data...");
         savedScenes_.clear();
         savedSprites_.clear();
         savedEquations_.clear();
+        savedLedPresets_.clear();
         nextSceneId_ = 1;
         activeSceneId_ = -1;
-        nextSpriteId_ = 1;
+        nextSpriteId_ = 100;  // Start at 100 (0-99 reserved for built-in)
         nextEquationId_ = 1;
+        nextLedPresetId_ = 1;
+        activeLedPresetId_ = -1;
         
-        // Step 0b: Delete SPIFFS files to prevent migration of old data
-        // Try to delete even if spiffs_initialized_ is false (VFS mount may still exist)
-        ESP_LOGI(HTTP_TAG, "Step 0b: Clearing SPIFFS data to prevent re-migration...");
-        // First ensure SPIFFS is mounted
+        // Step 0a: Recursively delete ALL files from SD card directories
+        ESP_LOGI(HTTP_TAG, "Step 0a: WIPING ALL SD CARD FILES...");
+        int totalDeleted = 0;
+        const char* dirsToWipe[] = {
+            "/Sprites", "/sprites",
+            "/Scenes", "/scenes", 
+            "/Equations", "/equations",
+            "/Animations", "/animations",
+            "/Configs", "/configs",
+            "/Cache", "/cache",
+            "/Calibration", "/calibration",
+            "/LedPresets", "/ledpresets"
+        };
+        
+        for (const char* dir : dirsToWipe) {
+            ESP_LOGI(HTTP_TAG, "Wiping directory: %s", dir);
+            int count = deleteAllFilesInDir(sdCard, dir);
+            totalDeleted += count;
+            vTaskDelay(pdMS_TO_TICKS(10));  // Yield to prevent watchdog
+        }
+        ESP_LOGW(HTTP_TAG, "Deleted %d files from SD card", totalDeleted);
+        SystemAPI::Utils::syncFilesystem();
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Step 0b: WIPE ALL SPIFFS DATA
+        ESP_LOGI(HTTP_TAG, "Step 0b: WIPING ALL SPIFFS DATA...");
         if (!spiffs_initialized_) {
             initSpiffs();
         }
-        // Now delete the files
-        if (remove(SCENE_INDEX_FILE_SPIFFS) == 0) {
-            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS scene index: %s", SCENE_INDEX_FILE_SPIFFS);
-        } else {
-            ESP_LOGW(HTTP_TAG, "Could not delete SPIFFS scene index (may not exist)");
-        }
-        if (remove(SPRITE_INDEX_FILE_SPIFFS) == 0) {
-            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS sprite index: %s", SPRITE_INDEX_FILE_SPIFFS);
-        } else {
-            ESP_LOGW(HTTP_TAG, "Could not delete SPIFFS sprite index (may not exist)");
-        }
-        if (remove(EQUATION_INDEX_FILE_SPIFFS) == 0) {
-            ESP_LOGI(HTTP_TAG, "Deleted SPIFFS equation index: %s", EQUATION_INDEX_FILE_SPIFFS);
-        } else {
-            ESP_LOGW(HTTP_TAG, "Could not delete SPIFFS equation index (may not exist)");
-        }
-        // Sync SPIFFS filesystem
-        SystemAPI::Utils::syncFilesystem();
         
-        // Step 1: Format the SD card
-        ESP_LOGI(HTTP_TAG, "Step 1: Formatting SD card...");
+        int spiffsDeleted = 0;
+        const char* spiffsDirs[] = {
+            "/spiffs/Sprites", "/spiffs/sprites",
+            "/spiffs/Scenes", "/spiffs/scenes",
+            "/spiffs/Equations", "/spiffs/equations",
+            "/spiffs/LedPresets", "/spiffs/ledpresets"
+        };
+        
+        for (const char* dir : spiffsDirs) {
+            int count = deleteAllSpiffsFiles(dir);
+            spiffsDeleted += count;
+        }
+        
+        // Also delete root-level index files in SPIFFS
+        const char* spiffsIndexFiles[] = {
+            SCENE_INDEX_FILE_SPIFFS,
+            SPRITE_INDEX_FILE_SPIFFS,
+            EQUATION_INDEX_FILE_SPIFFS,
+            "/spiffs/led_presets.json",
+            "/spiffs/Sprites/index.json",
+            "/spiffs/Sprites/index.dat",
+            "/spiffs/Scenes/index.json",
+            "/spiffs/Scenes/index.dat"
+        };
+        
+        for (const char* file : spiffsIndexFiles) {
+            if (remove(file) == 0) {
+                ESP_LOGI(HTTP_TAG, "Deleted SPIFFS file: %s", file);
+                spiffsDeleted++;
+            }
+        }
+        
+        ESP_LOGW(HTTP_TAG, "Deleted %d files from SPIFFS", spiffsDeleted);
+        SystemAPI::Utils::syncFilesystem();
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Step 1: Format the SD card (full format)
+        ESP_LOGI(HTTP_TAG, "Step 1: Formatting SD card (full format)...");
         bool formatSuccess = sdCard.format();
         if (!formatSuccess) {
             httpd_resp_set_type(req, "application/json");
@@ -6855,8 +6981,18 @@ public:
         SystemAPI::Utils::syncFilesystem();
         vTaskDelay(pdMS_TO_TICKS(200));
         
-        // Step 3: Create empty index files to prevent SPIFFS migration
-        ESP_LOGI(HTTP_TAG, "Step 3: Creating empty index files...");
+        // Also create lowercase versions of directories (some code uses lowercase)
+        ESP_LOGI(HTTP_TAG, "Step 2b: Creating lowercase directory variants...");
+        const char* lowercaseFolders[] = {
+            "/sprites", "/scenes", "/equations", "/animations", "/configs"
+        };
+        for (const char* folder : lowercaseFolders) {
+            sdCard.createDir(folder);
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        
+        // Step 3: Create empty index files in ALL locations to prevent recovery/migration
+        ESP_LOGI(HTTP_TAG, "Step 3: Creating empty index files (blocking recovery)...");
         
         // Empty scene index
         const char* emptySceneIndex = R"({
@@ -6865,24 +7001,21 @@ public:
   "storage": "sdcard",
   "scenes": []
 })";
-        if (sdCard.writeFile("/Scenes/index.json", emptySceneIndex, strlen(emptySceneIndex))) {
-            ESP_LOGI(HTTP_TAG, "Created empty scenes/index.json");
-        }
+        sdCard.writeFile("/Scenes/index.json", emptySceneIndex, strlen(emptySceneIndex));
+        sdCard.writeFile("/scenes/index.json", emptySceneIndex, strlen(emptySceneIndex));
+        ESP_LOGI(HTTP_TAG, "Created scene index files");
         
-        // Empty sprite index
+        // Empty sprite index - create in ALL possible locations
         const char* emptySpriteIndex = R"({
   "version": 1,
-  "nextId": 1,
+  "nextId": 100,
   "sprites": []
 })";
-        if (sdCard.writeFile("/Sprites/index.json", emptySpriteIndex, strlen(emptySpriteIndex))) {
-            ESP_LOGI(HTTP_TAG, "Created empty sprites/index.json");
-        }
-        
-        // Also create the sprites/index.dat for the newer loader
-        if (sdCard.writeFile("/sprites/index.dat", emptySpriteIndex, strlen(emptySpriteIndex))) {
-            ESP_LOGI(HTTP_TAG, "Created empty sprites/index.dat");
-        }
+        sdCard.writeFile("/Sprites/index.json", emptySpriteIndex, strlen(emptySpriteIndex));
+        sdCard.writeFile("/Sprites/index.dat", emptySpriteIndex, strlen(emptySpriteIndex));
+        sdCard.writeFile("/sprites/index.json", emptySpriteIndex, strlen(emptySpriteIndex));
+        sdCard.writeFile("/sprites/index.dat", emptySpriteIndex, strlen(emptySpriteIndex));
+        ESP_LOGI(HTTP_TAG, "Created sprite index files (4 locations)");
         
         // Empty LED presets index
         const char* emptyLedPresetsIndex = R"({
@@ -6891,22 +7024,35 @@ public:
   "storage": "sdcard",
   "presets": []
 })";
-        if (sdCard.writeFile("/LedPresets/index.json", emptyLedPresetsIndex, strlen(emptyLedPresetsIndex))) {
-            ESP_LOGI(HTTP_TAG, "Created empty LedPresets/index.json");
-        }
+        sdCard.writeFile("/LedPresets/index.json", emptyLedPresetsIndex, strlen(emptyLedPresetsIndex));
+        sdCard.writeFile("/ledpresets/index.json", emptyLedPresetsIndex, strlen(emptyLedPresetsIndex));
+        ESP_LOGI(HTTP_TAG, "Created LED preset index files");
         
-        // Clear in-memory LED presets
-        savedLedPresets_.clear();
-        nextLedPresetId_ = 1;
-        activeLedPresetId_ = -1;
+        // Empty equations index
+        const char* emptyEquationsIndex = R"({
+  "nextId": 1,
+  "equations": []
+})";
+        sdCard.writeFile("/Equations/index.json", emptyEquationsIndex, strlen(emptyEquationsIndex));
+        sdCard.writeFile("/equations/index.json", emptyEquationsIndex, strlen(emptyEquationsIndex));
+        ESP_LOGI(HTTP_TAG, "Created equation index files");
         
         SystemAPI::Utils::syncFilesystem();
+        vTaskDelay(pdMS_TO_TICKS(200));
+        
+        ESP_LOGW(HTTP_TAG, "========================================");
+        ESP_LOGW(HTTP_TAG, "  FORMAT COMPLETE - ALL DATA WIPED");
+        ESP_LOGW(HTTP_TAG, "  SD: %d files deleted", totalDeleted);
+        ESP_LOGW(HTTP_TAG, "  SPIFFS: %d files deleted", spiffsDeleted);
+        ESP_LOGW(HTTP_TAG, "========================================");
         
         // Build response
         cJSON* root = cJSON_CreateObject();
         cJSON_AddBoolToObject(root, "success", true);
-        cJSON_AddStringToObject(root, "message", "SD card formatted and initialized (empty). Use Setup Defaults to add default scenes.");
+        cJSON_AddStringToObject(root, "message", "SD card formatted and ALL data wiped. Use Setup Defaults to add default scenes.");
         cJSON_AddNumberToObject(root, "folders_created", foldersCreated);
+        cJSON_AddNumberToObject(root, "files_deleted_sd", totalDeleted);
+        cJSON_AddNumberToObject(root, "files_deleted_spiffs", spiffsDeleted);
         cJSON_AddNumberToObject(root, "total_mb", sdCard.getTotalBytes() / (1024 * 1024));
         cJSON_AddNumberToObject(root, "free_mb", sdCard.getFreeBytes() / (1024 * 1024));
         

@@ -266,9 +266,13 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
     fetch('/api/sdcard/status')
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      document.getElementById('sdcard-status').textContent = data.ready ? 'Ready' : 'Not Ready';
-      if (data.free !== undefined) {
-        document.getElementById('sdcard-free').textContent = formatBytes(data.free);
+      // API returns: initialized, mounted, total_mb, free_mb, used_mb
+      var isReady = data.initialized && data.mounted;
+      document.getElementById('sdcard-status').textContent = isReady ? 'Ready' : 'Not Ready';
+      if (data.free_mb !== undefined) {
+        document.getElementById('sdcard-free').textContent = data.free_mb + ' MB';
+      } else {
+        document.getElementById('sdcard-free').textContent = '--';
       }
     }).catch(function() {
       document.getElementById('sdcard-status').textContent = 'Error';
