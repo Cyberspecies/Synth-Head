@@ -201,6 +201,8 @@ public:
     
     // Scene/preset preview support
     using SceneActivateCallback = std::function<void(int sceneId)>;
+    using LedPresetActivateCallback = std::function<void(int presetId)>;
+    
     void setSceneActivateCallback(SceneActivateCallback cb) { sceneActivateCallback_ = std::move(cb); }
     void setAvailableScenes(const std::vector<std::pair<int, std::string>>& scenes) { 
         availableScenes_ = scenes;
@@ -233,6 +235,38 @@ public:
         if (!availableScenes_.empty()) {
             if (presetPreviewIndex_ >= (int)availableScenes_.size()) {
                 presetPreviewIndex_ = 0;
+            }
+        }
+    }
+    
+    // LED Preset support - similar to scene support
+    void setLedPresetActivateCallback(LedPresetActivateCallback cb) { ledPresetActivateCallback_ = std::move(cb); }
+    void setAvailableLedPresets(const std::vector<std::pair<int, std::string>>& presets) {
+        availableLedPresets_ = presets;
+        if (!availableLedPresets_.empty() && ledPresetPreviewIndex_ >= (int)availableLedPresets_.size()) {
+            ledPresetPreviewIndex_ = 0;
+        }
+        syncLedPresetIndexToActive();
+    }
+    void setActiveLedPresetId(int presetId) {
+        activeLedPresetId_ = presetId;
+        if (!presetPreviewActive_) {
+            syncLedPresetIndexToActive();
+        }
+    }
+    int getActiveLedPresetId() const { return activeLedPresetId_; }
+    
+    // Sync ledPresetPreviewIndex_ to point to the active LED preset
+    void syncLedPresetIndexToActive() {
+        for (int i = 0; i < (int)availableLedPresets_.size(); i++) {
+            if (availableLedPresets_[i].first == activeLedPresetId_) {
+                ledPresetPreviewIndex_ = i;
+                return;
+            }
+        }
+        if (!availableLedPresets_.empty()) {
+            if (ledPresetPreviewIndex_ >= (int)availableLedPresets_.size()) {
+                ledPresetPreviewIndex_ = 0;
             }
         }
     }
@@ -296,10 +330,17 @@ private:
     bool needsRender_ = true;
     
     // ========================================================================
-    // STANDARD MODE - ANIMATION PRESET PREVIEW
+    // STANDARD MODE - DASHBOARD SELECTION
     // ========================================================================
-    // In Standard Mode dashboard, user can cycle through saved scenes with UP/DOWN
-    // and press SELECT to activate the highlighted scene.
+    // Dashboard has two selection modes: Display Scenes and LED Presets
+    // BACK button toggles between them, UP/DOWN navigates, SELECT activates
+    enum class DashboardMode {
+        DISPLAY_SCENES = 0,   // Navigate/activate display scenes
+        LED_PRESETS = 1       // Navigate/activate LED presets
+    };
+    DashboardMode dashboardMode_ = DashboardMode::DISPLAY_SCENES;
+    
+    // Display scene preview state
     int presetPreviewIndex_ = 0;         // Index into cached scene list
     bool presetPreviewActive_ = false;   // True when user is browsing presets
     uint32_t presetPreviewTimeout_ = 0;  // Auto-hide preview after 5 seconds of inactivity
@@ -313,6 +354,12 @@ private:
     
     // Currently active scene ID (for showing indicator)
     int activeSceneId_ = -1;
+    
+    // LED Preset support (similar to display scenes)
+    LedPresetActivateCallback ledPresetActivateCallback_ = nullptr;
+    std::vector<std::pair<int, std::string>> availableLedPresets_;  // (id, name) pairs
+    int activeLedPresetId_ = -1;
+    int ledPresetPreviewIndex_ = 0;      // Index into LED preset list
     
     // Multi-slot auto-scroll marquee system
     // Each slot tracks a unique text by its screen position (y*256 + x)
@@ -497,45 +544,75 @@ private:
     
     void handlePageViewInput(bool up, bool select, bool down, bool back) {
         // ====================================================================
-        // STANDARD MODE: Preset Preview Navigation
-        // UP/DOWN cycle through saved scenes, SELECT activates the highlighted scene
+        // STANDARD MODE: Dashboard Navigation
+        // BACK toggles between Display Scenes and LED Presets
+        // UP/DOWN cycle through items, SELECT activates
+        // (Long-hold BACK for 3s exits to mode select - handled in handleButtons)
         // ====================================================================
         if (modeIndex_ == (int)Mode::STANDARD) {
-            if (up || down) {
-                // Cycle through available scenes
-                if (!availableScenes_.empty()) {
-                    if (up) {
-                        presetPreviewIndex_ = (presetPreviewIndex_ - 1 + (int)availableScenes_.size()) % (int)availableScenes_.size();
-                    } else {
-                        presetPreviewIndex_ = (presetPreviewIndex_ + 1) % (int)availableScenes_.size();
-                    }
-                    presetPreviewActive_ = true;
-                    presetPreviewTimeout_ = (uint32_t)(esp_timer_get_time() / 1000) + PRESET_PREVIEW_TIMEOUT_MS;
-                    needsRender_ = true;
-                    printf("OLED_MENU: Preset preview index=%d\n", presetPreviewIndex_);
-                }
-            } else if (select) {
-                // Activate the currently highlighted scene
-                if (presetPreviewActive_ && !availableScenes_.empty() && 
-                    presetPreviewIndex_ >= 0 && presetPreviewIndex_ < (int)availableScenes_.size()) {
-                    int sceneId = availableScenes_[presetPreviewIndex_].first;
-                    printf("OLED_MENU: Activating scene id=%d\n", sceneId);
-                    if (sceneActivateCallback_) {
-                        sceneActivateCallback_(sceneId);
-                    }
-                    // Keep preview active so user can see what's selected
-                    presetPreviewTimeout_ = (uint32_t)(esp_timer_get_time() / 1000) + PRESET_PREVIEW_TIMEOUT_MS;
-                }
-            } else if (back) {
-                // If preview active, dismiss it; otherwise go to mode select
-                if (presetPreviewActive_) {
-                    presetPreviewActive_ = false;
-                    needsRender_ = true;
+            if (back) {
+                // Toggle between Display Scenes and LED Presets mode
+                if (dashboardMode_ == DashboardMode::DISPLAY_SCENES) {
+                    dashboardMode_ = DashboardMode::LED_PRESETS;
+                    printf("OLED_MENU: Switched to LED Presets mode\n");
                 } else {
-                    state_ = MenuState::MODE_SELECT;
-                    hasSavedState_ = false;
-                    resetAllMarqueeSlots();
-                    printf("OLED_MENU: Back to mode select\n");
+                    dashboardMode_ = DashboardMode::DISPLAY_SCENES;
+                    printf("OLED_MENU: Switched to Display Scenes mode\n");
+                }
+                presetPreviewActive_ = false;  // Reset preview state on switch
+                needsRender_ = true;
+                return;  // Back button handled - toggle only, no exit
+            }
+            
+            if (dashboardMode_ == DashboardMode::DISPLAY_SCENES) {
+                // === Display Scenes Navigation ===
+                if (up || down) {
+                    if (!availableScenes_.empty()) {
+                        if (up) {
+                            presetPreviewIndex_ = (presetPreviewIndex_ - 1 + (int)availableScenes_.size()) % (int)availableScenes_.size();
+                        } else {
+                            presetPreviewIndex_ = (presetPreviewIndex_ + 1) % (int)availableScenes_.size();
+                        }
+                        presetPreviewActive_ = true;
+                        presetPreviewTimeout_ = (uint32_t)(esp_timer_get_time() / 1000) + PRESET_PREVIEW_TIMEOUT_MS;
+                        needsRender_ = true;
+                        printf("OLED_MENU: Scene preview index=%d\n", presetPreviewIndex_);
+                    }
+                } else if (select) {
+                    if (presetPreviewActive_ && !availableScenes_.empty() && 
+                        presetPreviewIndex_ >= 0 && presetPreviewIndex_ < (int)availableScenes_.size()) {
+                        int sceneId = availableScenes_[presetPreviewIndex_].first;
+                        printf("OLED_MENU: Activating scene id=%d\n", sceneId);
+                        if (sceneActivateCallback_) {
+                            sceneActivateCallback_(sceneId);
+                        }
+                        presetPreviewTimeout_ = (uint32_t)(esp_timer_get_time() / 1000) + PRESET_PREVIEW_TIMEOUT_MS;
+                    }
+                }
+            } else {
+                // === LED Presets Navigation ===
+                if (up || down) {
+                    if (!availableLedPresets_.empty()) {
+                        if (up) {
+                            ledPresetPreviewIndex_ = (ledPresetPreviewIndex_ - 1 + (int)availableLedPresets_.size()) % (int)availableLedPresets_.size();
+                        } else {
+                            ledPresetPreviewIndex_ = (ledPresetPreviewIndex_ + 1) % (int)availableLedPresets_.size();
+                        }
+                        presetPreviewActive_ = true;
+                        presetPreviewTimeout_ = (uint32_t)(esp_timer_get_time() / 1000) + PRESET_PREVIEW_TIMEOUT_MS;
+                        needsRender_ = true;
+                        printf("OLED_MENU: LED preset preview index=%d\n", ledPresetPreviewIndex_);
+                    }
+                } else if (select) {
+                    if (presetPreviewActive_ && !availableLedPresets_.empty() && 
+                        ledPresetPreviewIndex_ >= 0 && ledPresetPreviewIndex_ < (int)availableLedPresets_.size()) {
+                        int presetId = availableLedPresets_[ledPresetPreviewIndex_].first;
+                        printf("OLED_MENU: Activating LED preset id=%d\n", presetId);
+                        if (ledPresetActivateCallback_) {
+                            ledPresetActivateCallback_(presetId);
+                        }
+                        presetPreviewTimeout_ = (uint32_t)(esp_timer_get_time() / 1000) + PRESET_PREVIEW_TIMEOUT_MS;
+                    }
                 }
             }
             return;  // Standard mode handled, don't fall through
@@ -740,12 +817,15 @@ private:
     // ========================================================================
     
     void renderStandardMode(uint32_t currentTimeMs) {
-        // Check for preset preview timeout (revert to showing active scene)
+        // Check for preset preview timeout (revert to showing active)
         uint32_t nowMs = (currentTimeMs > 0) ? currentTimeMs : (uint32_t)(esp_timer_get_time() / 1000);
         if (presetPreviewActive_ && nowMs > presetPreviewTimeout_) {
             presetPreviewActive_ = false;
-            // Sync presetPreviewIndex_ back to active scene when exiting preview
-            syncPresetIndexToActive();
+            if (dashboardMode_ == DashboardMode::DISPLAY_SCENES) {
+                syncPresetIndexToActive();
+            } else {
+                syncLedPresetIndexToActive();
+            }
         }
         
         // OLED layout (128x128) with 180° base rotation applied by GPU:
@@ -754,66 +834,111 @@ private:
         // - Code Y=96-127 → Physical BOTTOM (HUB75 Mirror)
         
         // === DASHBOARD SECTION (Top 32 pixels: code Y 0-31) ===
-        // Always show preset selector - the dashboard IS the preset navigation
-        
-        // White header bar at top
+        // White header bar at top - shows which mode we're in
         gpu_->oledFill(0, 0, 128, 12, true);
         
-        if (availableScenes_.empty()) {
-            // No scenes available - show "No Presets"
-            gpu_->oledTextNative(4, 2, "NO PRESETS", 1, false);
-            gpu_->oledTextNative(4, 16, "Add via Web UI", 1, true);
+        if (dashboardMode_ == DashboardMode::DISPLAY_SCENES) {
+            // === Display Scenes Mode ===
+            if (availableScenes_.empty()) {
+                gpu_->oledTextNative(4, 2, "DISPLAY SCENES", 1, false);
+                gpu_->oledTextNative(4, 16, "None - Add via Web", 1, true);
+                gpu_->oledTextNative(4, 24, "[BACK] = LED Mode", 1, true);
+            } else {
+                if (!presetPreviewActive_) {
+                    syncPresetIndexToActive();
+                }
+                
+                if (presetPreviewIndex_ < 0) presetPreviewIndex_ = 0;
+                if (presetPreviewIndex_ >= (int)availableScenes_.size()) {
+                    presetPreviewIndex_ = (int)availableScenes_.size() - 1;
+                }
+                
+                const auto& scene = availableScenes_[presetPreviewIndex_];
+                int sceneId = scene.first;
+                const std::string& name = scene.second;
+                bool isActive = (sceneId == activeSceneId_);
+                
+                // Header shows mode
+                if (presetPreviewActive_) {
+                    gpu_->oledTextNative(4, 2, "SELECT SCENE", 1, false);
+                } else if (isActive) {
+                    gpu_->oledTextNative(4, 2, "[DISPLAY SCENE]", 1, false);
+                } else {
+                    gpu_->oledTextNative(4, 2, "DISPLAY SCENE", 1, false);
+                }
+                
+                char presetBuf[48];
+                if (isActive) {
+                    snprintf(presetBuf, sizeof(presetBuf), "<* %s *>", name.c_str());
+                } else {
+                    snprintf(presetBuf, sizeof(presetBuf), "< %s >", name.c_str());
+                }
+                
+                int textLen = strlen(presetBuf);
+                int textX = (128 - textLen * 6) / 2;
+                if (textX < 2) textX = 2;
+                gpu_->oledTextNative(textX, 14, presetBuf, 1, true);
+                
+                char indexBuf[32];
+                if (isActive) {
+                    snprintf(indexBuf, sizeof(indexBuf), "[%d/%d]", presetPreviewIndex_ + 1, (int)availableScenes_.size());
+                } else {
+                    snprintf(indexBuf, sizeof(indexBuf), "%d/%d", presetPreviewIndex_ + 1, (int)availableScenes_.size());
+                }
+                int indexX = (128 - strlen(indexBuf) * 6) / 2;
+                gpu_->oledTextNative(indexX, 24, indexBuf, 1, true);
+            }
         } else {
-            // When not actively browsing, ensure we're showing the active scene
-            if (!presetPreviewActive_) {
-                syncPresetIndexToActive();
-            }
-            
-            // Clamp index to valid range
-            if (presetPreviewIndex_ < 0) presetPreviewIndex_ = 0;
-            if (presetPreviewIndex_ >= (int)availableScenes_.size()) {
-                presetPreviewIndex_ = (int)availableScenes_.size() - 1;
-            }
-            
-            // Get the currently displayed scene
-            const auto& scene = availableScenes_[presetPreviewIndex_];
-            int sceneId = scene.first;
-            const std::string& name = scene.second;
-            bool isActive = (sceneId == activeSceneId_);
-            
-            // Header: Show "PRESET" when browsing, or "[ACTIVE]" when showing active scene
-            if (presetPreviewActive_) {
-                gpu_->oledTextNative(4, 2, "SELECT PRESET", 1, false);
-            } else if (isActive) {
-                gpu_->oledTextNative(4, 2, "[ACTIVE PRESET]", 1, false);
+            // === LED Presets Mode ===
+            if (availableLedPresets_.empty()) {
+                gpu_->oledTextNative(4, 2, "LED PRESETS", 1, false);
+                gpu_->oledTextNative(4, 16, "None - Add via Web", 1, true);
+                gpu_->oledTextNative(4, 24, "[BACK] = Scene Mode", 1, true);
             } else {
-                gpu_->oledTextNative(4, 2, "PRESET", 1, false);
+                if (!presetPreviewActive_) {
+                    syncLedPresetIndexToActive();
+                }
+                
+                if (ledPresetPreviewIndex_ < 0) ledPresetPreviewIndex_ = 0;
+                if (ledPresetPreviewIndex_ >= (int)availableLedPresets_.size()) {
+                    ledPresetPreviewIndex_ = (int)availableLedPresets_.size() - 1;
+                }
+                
+                const auto& preset = availableLedPresets_[ledPresetPreviewIndex_];
+                int presetId = preset.first;
+                const std::string& name = preset.second;
+                bool isActive = (presetId == activeLedPresetId_);
+                
+                // Header shows mode
+                if (presetPreviewActive_) {
+                    gpu_->oledTextNative(4, 2, "SELECT LED", 1, false);
+                } else if (isActive) {
+                    gpu_->oledTextNative(4, 2, "[LED PRESET]", 1, false);
+                } else {
+                    gpu_->oledTextNative(4, 2, "LED PRESET", 1, false);
+                }
+                
+                char presetBuf[48];
+                if (isActive) {
+                    snprintf(presetBuf, sizeof(presetBuf), "<* %s *>", name.c_str());
+                } else {
+                    snprintf(presetBuf, sizeof(presetBuf), "< %s >", name.c_str());
+                }
+                
+                int textLen = strlen(presetBuf);
+                int textX = (128 - textLen * 6) / 2;
+                if (textX < 2) textX = 2;
+                gpu_->oledTextNative(textX, 14, presetBuf, 1, true);
+                
+                char indexBuf[32];
+                if (isActive) {
+                    snprintf(indexBuf, sizeof(indexBuf), "[%d/%d]", ledPresetPreviewIndex_ + 1, (int)availableLedPresets_.size());
+                } else {
+                    snprintf(indexBuf, sizeof(indexBuf), "%d/%d", ledPresetPreviewIndex_ + 1, (int)availableLedPresets_.size());
+                }
+                int indexX = (128 - strlen(indexBuf) * 6) / 2;
+                gpu_->oledTextNative(indexX, 24, indexBuf, 1, true);
             }
-            
-            // Show preset name with navigation arrows: "< PresetName >"
-            // Use * markers if this is the active scene: "<* PresetName *>"
-            char presetBuf[48];
-            if (isActive) {
-                snprintf(presetBuf, sizeof(presetBuf), "<* %s *>", name.c_str());
-            } else {
-                snprintf(presetBuf, sizeof(presetBuf), "< %s >", name.c_str());
-            }
-            
-            // Center the preset name on line below header
-            int textLen = strlen(presetBuf);
-            int textX = (128 - textLen * 6) / 2;
-            if (textX < 2) textX = 2;
-            gpu_->oledTextNative(textX, 14, presetBuf, 1, true);
-            
-            // Show index: "1/5" or "[1/5]" if active
-            char indexBuf[32];
-            if (isActive) {
-                snprintf(indexBuf, sizeof(indexBuf), "[%d/%d]", presetPreviewIndex_ + 1, (int)availableScenes_.size());
-            } else {
-                snprintf(indexBuf, sizeof(indexBuf), "%d/%d", presetPreviewIndex_ + 1, (int)availableScenes_.size());
-            }
-            int indexX = (128 - strlen(indexBuf) * 6) / 2;
-            gpu_->oledTextNative(indexX, 24, indexBuf, 1, true);
         }
         
         // === VIEWPORT SECTION (Middle 64 pixels: code Y 32-95) ===

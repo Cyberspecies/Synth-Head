@@ -2180,6 +2180,35 @@ void CurrentMode::onStart() {
                sceneList.size(), SystemAPI::Web::activeSceneId_);
     }
     
+    // =====================================================
+    // Wire up OLED Menu System -> HttpServer LED Preset Activation
+    // This allows the OLED buttons to activate LED presets
+    // =====================================================
+    {
+        // Set callback: when OLED user selects a LED preset, activate it
+        OledMenu::OledMenuSystem::instance().setLedPresetActivateCallback([](int presetId) {
+            printf("OLED_MENU: LED preset activation callback - id=%d\n", presetId);
+            SystemAPI::Web::HttpServer::instance().activateLedPresetById(presetId);
+            // Update OLED to show this as the active LED preset
+            OledMenu::OledMenuSystem::instance().setActiveLedPresetId(presetId);
+        });
+        
+        // Build LED preset list for OLED (id, name pairs)
+        const auto& ledPresets = httpServer.getSavedLedPresets();
+        std::vector<std::pair<int, std::string>> ledPresetList;
+        ledPresetList.reserve(ledPresets.size());
+        for (const auto& preset : ledPresets) {
+            ledPresetList.emplace_back(preset.id, preset.name);
+        }
+        OledMenu::OledMenuSystem::instance().setAvailableLedPresets(ledPresetList);
+        
+        // Set the initial active LED preset ID
+        OledMenu::OledMenuSystem::instance().setActiveLedPresetId(SystemAPI::Web::activeLedPresetId_);
+        
+        printf("  OLED-LED Preset Callback: Registered (%zu LED presets, activeId=%d)\n", 
+               ledPresetList.size(), SystemAPI::Web::activeLedPresetId_);
+    }
+    
     // Auto-activate the saved scene from storage (restores last state on boot)
     httpServer.autoActivateSavedScene();
     
