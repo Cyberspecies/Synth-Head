@@ -56,7 +56,7 @@ public:
     static constexpr uart_port_t DEFAULT_UART_PORT = UART_NUM_1;
     static constexpr int DEFAULT_TX_PIN = 12;  // CPU TX -> GPU RX (GPIO 13)
     static constexpr int DEFAULT_RX_PIN = 11;  // CPU RX <- GPU TX (GPIO 12)
-    static constexpr int DEFAULT_BAUD = 10000000;  // 10 Mbps
+    static constexpr int DEFAULT_BAUD = 2000000;  // 2 Mbps (lowered from 10 for stability)
     
     // Display dimensions
     static constexpr int HUB75_WIDTH = 128;
@@ -194,6 +194,24 @@ private:
     
     // Alert tracking
     GpuAlertStats alertStats_;
+    
+    // Cached GPU stats (simple struct to avoid forward declaration issues)
+    // Updated by non-blocking checkForResponses()
+    struct CachedGpuStats {
+        float fps = 0.0f;
+        uint32_t freeHeap = 0;
+        uint32_t minHeap = 0;
+        uint8_t loadPercent = 0;
+        uint32_t totalFrames = 0;
+        uint32_t uptimeMs = 0;
+        bool hub75Ok = false;
+        bool oledOk = false;
+    } cachedStats_;
+    uint32_t cachedUptimeMs_;
+    uint32_t lastStatsUpdateMs_;
+    uint32_t lastPongUpdateMs_;
+    bool statsValid_;
+    bool pongValid_;
     
     // RX state machine for non-blocking alert parsing
     uint8_t rxBuf_[64];
@@ -361,6 +379,9 @@ private:
 public:
     GpuCommands() : port_(DEFAULT_UART_PORT), initialized_(false), 
                     alertStats_{0, 0, 0, false, false, AlertLevel::INFO},
+                    cachedStats_{0, 0, 0, 0, 0, 0, false, false},
+                    cachedUptimeMs_(0), lastStatsUpdateMs_(0), lastPongUpdateMs_(0),
+                    statsValid_(false), pongValid_(false),
                     rxState_(0), rxType_(0), rxLen_(0), rxPos_(0) {
         memset(rxBuf_, 0, sizeof(rxBuf_));
         memset(rxPayload_, 0, sizeof(rxPayload_));
@@ -758,6 +779,111 @@ public:
     }
     
     // ============================================================
+    // Non-Blocking Stats & Ping (Async API)
+    // ============================================================
+    
+    /**
+     * Send a ping request without waiting for response (non-blocking)
+     * Response will be processed by checkForResponses() and stored in cached values.
+     */
+    void pingAsync() {
+        if (!initialized_) return;
+        sendCmd(CmdType::PING, nullptr, 0);
+    }
+    
+    /**
+     * Send a stats request without waiting for response (non-blocking)
+     * Response will be processed by checkForResponses() and stored in cached values.
+     */
+    void requestStatsAsync() {
+        if (!initialized_) return;
+        sendCmd(CmdType::REQUEST_STATS, nullptr, 0);
+    }
+    
+    /**
+     * Flush the UART RX buffer and reset state machine
+     * Use after blocking operations to ensure clean state for async processing
+     */
+    void flushRxBuffer() {
+        if (!initialized_) return;
+        GpuUart::GpuUartLock lock(50);
+        if (!lock.isAcquired()) return;
+        
+        // Read and discard all pending bytes
+        uint8_t discard[128];
+        while (uart_read_bytes(port_, discard, sizeof(discard), 0) > 0) {
+            // Discard bytes
+        }
+        
+        // Reset state machine
+        rxState_ = 0;
+        rxPos_ = 0;
+        rxLen_ = 0;
+        rxType_ = 0;
+        
+        ESP_LOGI("GpuCmd", "RX buffer flushed, state machine reset");
+    }
+    
+    /**
+     * Check for and process any GPU responses (non-blocking)
+     * This is the same as checkForAlerts() - call periodically in update loop.
+     * Processes PONG, STATS_RESPONSE, ALERT, and other messages.
+     */
+    void checkForResponses() {
+        checkForAlerts();  // Uses same RX state machine
+    }
+    
+    /**
+     * Get cached GPU stats (populated by checkForResponses after requestStatsAsync)
+     * @return Reference to cached stats
+     */
+    const CachedGpuStats& getCachedStats() const {
+        return cachedStats_;
+    }
+    
+    /**
+     * Get cached GPU uptime in milliseconds (from last PONG or STATS_RESPONSE)
+     * @return Cached uptime value
+     */
+    uint32_t getCachedUptimeMs() const {
+        return cachedUptimeMs_;
+    }
+    
+    /**
+     * Check if cached stats are valid (received at least once)
+     * @return true if stats have been received
+     */
+    bool hasValidStats() const {
+        return statsValid_;
+    }
+    
+    /**
+     * Check if cached uptime is valid (received at least one PONG or STATS_RESPONSE)
+     * @return true if uptime has been received
+     */
+    bool hasValidUptime() const {
+        return pongValid_;
+    }
+    
+    /**
+     * Get age of cached stats in milliseconds
+     * @return Time since last stats update
+     */
+    uint32_t getStatsAgeMs() const {
+        if (!statsValid_) return UINT32_MAX;
+        return (esp_timer_get_time() / 1000) - lastStatsUpdateMs_;
+    }
+    
+    /**
+     * Get age of cached uptime in milliseconds
+     * @return Time since last PONG/stats update
+     */
+    uint32_t getUptimeAgeMs() const {
+        if (!pongValid_) return UINT32_MAX;
+        return (esp_timer_get_time() / 1000) - lastPongUpdateMs_;
+    }
+    
+    // ============================================================
     // Alert System - GPU to CPU Notifications
     // ============================================================
     
@@ -777,17 +903,32 @@ public:
     void checkForAlerts() {
         if (!initialized_) return;
         
+        // Try to acquire mutex with reasonable timeout
+        GpuUart::GpuUartLock lock(10);  // 10ms timeout
+        if (!lock.isAcquired()) return;  // Skip this cycle, try next time
+        
         // Read available bytes (non-blocking)
         int len = uart_read_bytes(port_, rxBuf_, sizeof(rxBuf_), 0);
         if (len <= 0) return;
+        
+        // Debug: log every time we receive bytes (for troubleshooting)
+        if (len >= 5) {
+            ESP_LOGI("GpuCmd", "RX: %d bytes [0x%02X 0x%02X 0x%02X 0x%02X 0x%02X...] state=%d", 
+                     len, rxBuf_[0], rxBuf_[1], rxBuf_[2], rxBuf_[3], rxBuf_[4], rxState_);
+        } else {
+            ESP_LOGI("GpuCmd", "RX: %d bytes, first=0x%02X, state=%d", len, rxBuf_[0], rxState_);
+        }
         
         // Parse bytes (state machine)
         for (int i = 0; i < len; i++) {
             uint8_t b = rxBuf_[i];
             switch (rxState_) {
-                case 0: if (b == SYNC0) rxState_ = 1; break;
+                case 0: if (b == SYNC0) { rxState_ = 1; } break;
                 case 1: 
-                    if (b == SYNC1) rxState_ = 2; 
+                    if (b == SYNC1) { 
+                        rxState_ = 2;
+                        ESP_LOGD("GpuCmd", "Sync found at byte %d", i);
+                    }
                     else rxState_ = (b == SYNC0) ? 1 : 0; 
                     break;
                 case 2: rxType_ = b; rxState_ = 3; break;
@@ -807,6 +948,7 @@ public:
                     rxPayload_[rxPos_++] = b;
                     if (rxPos_ >= rxLen_) {
                         // Process complete message
+                        ESP_LOGI("GpuCmd", "Complete packet: cmd=0x%02X len=%d", rxType_, rxLen_);
                         processResponse(static_cast<CmdType>(rxType_), rxPayload_, rxLen_);
                         rxState_ = 0;
                     }
@@ -883,7 +1025,56 @@ private:
                 processAlert(payload, len);
                 break;
             case CmdType::PONG:
-                // PONG received (could add callback if needed)
+                // Parse uptime from PONG response (4 bytes little-endian)
+                if (len >= 4) {
+                    cachedUptimeMs_ = payload[0] | (payload[1] << 8) | 
+                                      (payload[2] << 16) | (payload[3] << 24);
+                    lastPongUpdateMs_ = esp_timer_get_time() / 1000;
+                    pongValid_ = true;
+                }
+                break;
+            case CmdType::STATS_RESPONSE:
+                // Parse stats response (same format as blocking requestStats)
+                if (len >= 24) {
+                    // FPS * 100 (little-endian) -> convert back to float
+                    uint32_t fps_x100 = payload[0] | (payload[1] << 8) |
+                                       (payload[2] << 16) | (payload[3] << 24);
+                    cachedStats_.fps = (float)fps_x100 / 100.0f;
+                    
+                    // Free heap (little-endian)
+                    cachedStats_.freeHeap = payload[4] | (payload[5] << 8) |
+                                           (payload[6] << 16) | (payload[7] << 24);
+                    
+                    // Min heap (little-endian)
+                    cachedStats_.minHeap = payload[8] | (payload[9] << 8) |
+                                          (payload[10] << 16) | (payload[11] << 24);
+                    
+                    // GPU load
+                    cachedStats_.loadPercent = payload[12];
+                    
+                    // Total frames (little-endian)
+                    cachedStats_.totalFrames = payload[13] | (payload[14] << 8) |
+                                              (payload[15] << 16) | (payload[16] << 24);
+                    
+                    // Uptime (little-endian)
+                    cachedStats_.uptimeMs = payload[17] | (payload[18] << 8) |
+                                           (payload[19] << 16) | (payload[20] << 24);
+                    
+                    // Hardware status
+                    cachedStats_.hub75Ok = payload[21] != 0;
+                    cachedStats_.oledOk = payload[22] != 0;
+                    
+                    lastStatsUpdateMs_ = esp_timer_get_time() / 1000;
+                    statsValid_ = true;
+                    
+                    // Also update uptime from stats
+                    cachedUptimeMs_ = cachedStats_.uptimeMs;
+                    pongValid_ = true;
+                    
+                    ESP_LOGI("GpuCmd", "STATS received: fps=%.1f heap=%lu load=%d%% uptime=%lums",
+                             cachedStats_.fps, (unsigned long)cachedStats_.freeHeap,
+                             cachedStats_.loadPercent, (unsigned long)cachedStats_.uptimeMs);
+                }
                 break;
             default:
                 // Other responses can be handled here

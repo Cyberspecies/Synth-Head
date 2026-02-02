@@ -109,7 +109,7 @@ constexpr int OLED_HEIGHT = 128;
 constexpr uart_port_t UART_PORT = UART_NUM_1;
 constexpr int UART_RX_PIN = 13;
 constexpr int UART_TX_PIN = 12;
-constexpr int UART_BAUD = 10000000;  // 10 Mbps
+constexpr int UART_BAUD = 921600;  // Lowered for reliability testing
 
 // ============================================================
 // GPU Memory Limits
