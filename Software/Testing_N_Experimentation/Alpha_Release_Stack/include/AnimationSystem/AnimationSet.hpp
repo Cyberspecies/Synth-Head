@@ -532,4 +532,53 @@ private:
     float angle_ = 0.0f;
 };
 
+/**
+ * @brief Reactive eyes animation - IMU-reactive with asymmetric left/right movement
+ * Movement behavior:
+ *   +Y accel: Right sprite moves up, Left sprite moves down
+ *   +Z accel: Right sprite moves forward (right), Left sprite moves backward (left)
+ *   +X accel: Both sprites move down + rotation (Right=clockwise, Left=CCW)
+ */
+class ReactiveEyesAnimationSet : public AnimationSet {
+public:
+    const char* getId() const override { return "reactive_eyes"; }
+    const char* getName() const override { return "Reactive Eyes"; }
+    const char* getDescription() const override {
+        return "IMU-reactive eyes with asymmetric left/right movement";
+    }
+    const char* getCategory() const override { return "Interactive"; }
+    
+    ReactiveEyesAnimationSet() {
+        printf("[ReactiveEyesAnimationSet] Constructor START\n");
+        // Simplified parameters - just basics to test registration
+        parameters_.push_back(ParameterDef::SpriteSelect("sprite", "Sprite", 0));
+        parameters_.push_back(ParameterDef::Slider("reactive_y_sensitivity", "Y Sensitivity", 0.0f, 50.0f, 15.0f));
+        parameters_.push_back(ParameterDef::Slider("reactive_smoothing", "Smoothing", 0.01f, 1.0f, 0.15f));
+        parameters_.push_back(ParameterDef::Color("bg_color", "Background Color", 0, 0, 0));
+        printf("[ReactiveEyesAnimationSet] Constructor END, params=%d\n", (int)parameters_.size());
+    }
+    
+    void update(uint32_t deltaTimeMs) override {
+        // Animation state is managed by CurrentMode.cpp render loop
+        // This class just defines parameters for the web UI
+    }
+    
+    void render(IRenderOutput* output) override {
+        // Rendering is handled by CurrentMode.cpp with actual IMU data
+        // This is just a fallback for preview
+        auto* bgColor = getParameter("bg_color");
+        output->clear(bgColor->colorR, bgColor->colorG, bgColor->colorB);
+        
+        int spriteId = getParameter("sprite")->intValue;
+        float leftX = getParameter("reactive_base_left_x")->floatValue;
+        float leftY = getParameter("reactive_base_left_y")->floatValue;
+        float rightX = getParameter("reactive_base_right_x")->floatValue;
+        float rightY = getParameter("reactive_base_right_y")->floatValue;
+        
+        output->blitSpriteRotated(spriteId, leftX, leftY, 0.0f);
+        output->blitSpriteRotated(spriteId, rightX, rightY, 180.0f);
+        output->present();
+    }
+};
+
 } // namespace AnimationSystem

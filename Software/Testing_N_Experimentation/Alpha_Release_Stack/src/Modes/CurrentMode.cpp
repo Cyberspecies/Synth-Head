@@ -163,7 +163,8 @@ namespace GpuDriverState {
         STATIC_IMAGE,     // Static sprite display (uses mirrorEnabled flag)
         STATIC_MIRRORED,  // Legacy: Static sprite on both panels (mapped to STATIC_IMAGE + mirror)
         SWAY,             // Swaying sprite animation (legacy)
-        SDF_MORPH         // SDF morphing animation (legacy)
+        SDF_MORPH,        // SDF morphing animation (legacy)
+        REACTIVE_EYES     // IMU-reactive eye animation with asymmetric left/right movement
     };
     static SceneAnimMode currentAnimMode = SceneAnimMode::NONE;  // Default to black until scene is activated
     static bool sceneAnimInitialized = false;
@@ -181,6 +182,34 @@ namespace GpuDriverState {
     static float swayRotRange = 15.0f;
     static float swaySpeed = 1.0f;
     static bool swayCosX = false;
+    
+    // Reactive eyes animation state (IMU-based asymmetric movement)
+    // Uses CALIBRATED device-frame GYRO values (not raw IMU, not accelerometer)
+    // Movement behavior (per calibrated gyro axis):
+    //   +Y gyro: Right sprite moves UP, Left sprite moves DOWN
+    //   +Z gyro: Right sprite moves FORWARD (right), Left sprite moves BACKWARD (left)
+    //   +X gyro: Both sprites move DOWN + rotate (Right=clockwise, Left=counter-clockwise)
+    // Base positions: center of each display half (Left=32,16  Right=96,16)
+    static float reactiveYSensitivity = 15.0f;    // Sensitivity for Y-axis (vertical asymmetric)
+    static float reactiveZSensitivity = 10.0f;    // Sensitivity for Z-axis (horizontal asymmetric)
+    static float reactiveXSensitivity = 12.0f;    // Sensitivity for X-axis (vertical + rotation)
+    static float reactiveRotSensitivity = 10.0f;  // Rotation sensitivity for X-axis
+    static float reactiveSmoothing = 0.15f;       // Smoothing factor (0.0-1.0, lower = smoother)
+    static float reactiveLPosXSmooth = 32.0f;     // Smoothed left X position (starts at center)
+    static float reactiveLPosYSmooth = 16.0f;     // Smoothed left Y position (starts at center)
+    static float reactiveLRotSmooth = 0.0f;       // Smoothed left rotation
+    static float reactiveRPosXSmooth = 96.0f;     // Smoothed right X position (starts at center)
+    static float reactiveRPosYSmooth = 16.0f;     // Smoothed right Y position (starts at center)
+    static float reactiveRRotSmooth = 180.0f;     // Smoothed right rotation (180° = facing opposite)
+    static float reactiveBaseLeftX = 32.0f;       // Base center X for left sprite (center of left display: 0-63)
+    static float reactiveBaseLeftY = 16.0f;       // Base center Y for left sprite (center of 32-pixel height)
+    static float reactiveBaseRightX = 96.0f;      // Base center X for right sprite (center of right display: 64-127)
+    static float reactiveBaseRightY = 16.0f;      // Base center Y for right sprite (center of 32-pixel height)
+    static float reactiveScale = 1.0f;            // Scale for both sprites
+    static float reactiveLeftRotOffset = 0.0f;    // Rotation offset for left sprite (added to final rotation)
+    static float reactiveRightRotOffset = 0.0f;   // Rotation offset for right sprite (added to final rotation, base is 180)
+    static bool reactiveLeftFlipX = false;        // Horizontal flip for left sprite
+    static bool reactiveRightFlipX = false;       // Horizontal flip for right sprite
     
     // Static image state (used when mirrorEnabled = false)
     static float staticScale = 1.0f;
@@ -816,6 +845,74 @@ namespace GpuDriverState {
                         }
                         break;
                     
+                    case SceneAnimMode::REACTIVE_EYES: {
+                        // IMU-reactive eye animation with asymmetric left/right movement
+                        // Use CALIBRATED device-frame GYRO data (after IMU calibration applied)
+                        auto& syncState = SystemAPI::SYNC_STATE.state();
+                        float gx = syncState.deviceGyroX / 1000.0f;  // mdps to dps (calibrated gyro)
+                        float gy = syncState.deviceGyroY / 1000.0f;  // mdps to dps (calibrated gyro)
+                        float gz = syncState.deviceGyroZ / 1000.0f;  // mdps to dps (calibrated gyro)
+                        
+                        // Base positions: center of each display half
+                        // Left display: X 0-63, center at (32, 16)
+                        // Right display: X 64-127, center at (96, 16)
+                        
+                        // Movement rules (using calibrated device-frame GYRO values):
+                        // +Y: Right sprite moves UP, Left sprite moves DOWN
+                        // +Z: Right sprite moves FORWARD (right), Left sprite moves BACKWARD (left)
+                        // +X: Both sprites move DOWN + rotation (Right=CW, Left=CCW)
+                        
+                        // Left sprite target (center of left display = 32, 16)
+                        float leftTargetX = reactiveBaseLeftX - gz * reactiveZSensitivity;  // +Z = left moves backward (left)
+                        float leftTargetY = reactiveBaseLeftY + gy * reactiveYSensitivity   // +Y = left moves DOWN (positive Y screen = down)
+                                           + gx * reactiveXSensitivity;                      // +X = both move down
+                        float leftTargetRot = reactiveLeftRotOffset + gx * reactiveRotSensitivity;  // Base offset + gyro rotation
+                        
+                        // Right sprite target (center of right display = 96, 16)
+                        float rightTargetX = reactiveBaseRightX + gz * reactiveZSensitivity; // +Z = right moves forward (right)
+                        float rightTargetY = reactiveBaseRightY - gy * reactiveYSensitivity  // +Y = right moves UP (negative Y screen = up)
+                                            + gx * reactiveXSensitivity;                      // +X = both move down
+                        // Right uses same rotation direction as left (+gx = same direction)
+                        // The 180 base is just the starting orientation, gyro adds same way
+                        float rightTargetRot = (180.0f + reactiveRightRotOffset) + gx * reactiveRotSensitivity;
+                        
+                        // Apply smoothing (exponential moving average)
+                        reactiveLPosXSmooth += (leftTargetX - reactiveLPosXSmooth) * reactiveSmoothing;
+                        reactiveLPosYSmooth += (leftTargetY - reactiveLPosYSmooth) * reactiveSmoothing;
+                        reactiveLRotSmooth += (leftTargetRot - reactiveLRotSmooth) * reactiveSmoothing;
+                        reactiveRPosXSmooth += (rightTargetX - reactiveRPosXSmooth) * reactiveSmoothing;
+                        reactiveRPosYSmooth += (rightTargetY - reactiveRPosYSmooth) * reactiveSmoothing;
+                        reactiveRRotSmooth += (rightTargetRot - reactiveRRotSmooth) * reactiveSmoothing;
+                        
+                        // Clamp positions to reasonable bounds
+                        float lx = fmaxf(0.0f, fminf(63.0f, reactiveLPosXSmooth));
+                        float ly = fmaxf(0.0f, fminf(31.0f, reactiveLPosYSmooth));
+                        float rx = fmaxf(64.0f, fminf(127.0f, reactiveRPosXSmooth));
+                        float ry = fmaxf(0.0f, fminf(31.0f, reactiveRPosYSmooth));
+                        
+                        // Render
+                        g_gpu.hub75Clear(bgR, bgG, bgB);
+                        
+                        if (spriteReady) {
+                            // Draw left and right sprites with reactive positions, rotations, and flips
+                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, lx, ly, reactiveLRotSmooth, reactiveScale, reactiveLeftFlipX);
+                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, rx, ry, reactiveRRotSmooth, reactiveScale, reactiveRightFlipX);
+                        } else {
+                            // Fallback vector eyes
+                            drawDefaultVectorEye(g_gpu, lx, ly, false, reactiveLRotSmooth);
+                            drawDefaultVectorEye(g_gpu, rx, ry, true, reactiveRRotSmooth);
+                        }
+                        
+                        g_gpu.hub75Present();
+                        
+                        // Debug logging every 2 seconds
+                        if (renderFrameCount % 120 == 0) {
+                            printf("REACTIVE_EYES: GYRO(%.2f,%.2f,%.2f) L(%.1f,%.1f,%.1f) R(%.1f,%.1f,%.1f)\n",
+                                   gx, gy, gz, lx, ly, reactiveLRotSmooth, rx, ry, reactiveRRotSmooth);
+                        }
+                        break;
+                    }
+                    
                     case SceneAnimMode::NONE:
                         // No animation - just clear screen
                         g_gpu.hub75Clear(0, 0, 0);
@@ -981,6 +1078,21 @@ namespace GpuDriverState {
         } else if (animType == "static_sprite" || animType == "static_image" || animType == "static") {
             currentAnimMode = SceneAnimMode::STATIC_IMAGE;
             mirrorEnabled = false;  // Single sprite mode
+        } else if (animType == "reactive_eyes") {
+            currentAnimMode = SceneAnimMode::REACTIVE_EYES;
+            mirrorEnabled = true;  // Reactive eyes always uses left/right sprites
+            
+            // Reset smoothed positions to center of each panel
+            // Left panel: X 0-63, center at (32, 16)
+            // Right panel: X 64-127, center at (96, 16)
+            reactiveLPosXSmooth = reactiveBaseLeftX;   // 32.0 = center of left panel
+            reactiveLPosYSmooth = reactiveBaseLeftY;   // 16.0 = center Y
+            reactiveLRotSmooth = reactiveLeftRotOffset;  // Use offset as initial rotation
+            reactiveRPosXSmooth = reactiveBaseRightX;  // 96.0 = center of right panel
+            reactiveRPosYSmooth = reactiveBaseRightY;  // 16.0 = center Y
+            reactiveRRotSmooth = 180.0f + reactiveRightRotOffset;  // 180 base + offset
+            printf("  REACTIVE_EYES: Reset to center positions L(%.0f,%.0f) R(%.0f,%.0f)\n",
+                   reactiveBaseLeftX, reactiveBaseLeftY, reactiveBaseRightX, reactiveBaseRightY);
         } else {
             // Default fallback
             currentAnimMode = SceneAnimMode::STATIC_IMAGE;
@@ -1041,6 +1153,19 @@ namespace GpuDriverState {
         rightPosY = ry;
         rightRotation = rrot;
         rightScale = rscale;
+    }
+    
+    // Reset reactive eyes smoothed values (call after loading params)
+    void resetReactiveEyesSmooth() {
+        reactiveLPosXSmooth = reactiveBaseLeftX;
+        reactiveLPosYSmooth = reactiveBaseLeftY;
+        reactiveLRotSmooth = reactiveLeftRotOffset;
+        reactiveRPosXSmooth = reactiveBaseRightX;
+        reactiveRPosYSmooth = reactiveBaseRightY;
+        reactiveRRotSmooth = 180.0f + reactiveRightRotOffset;
+        printf("[resetReactiveEyesSmooth] L(%.0f,%.0f,rot=%.0f) R(%.0f,%.0f,rot=%.0f)\n",
+               reactiveLPosXSmooth, reactiveLPosYSmooth, reactiveLRotSmooth,
+               reactiveRPosXSmooth, reactiveRPosYSmooth, reactiveRRotSmooth);
     }
     
     // Update a single parameter by name - for live slider updates
@@ -1209,6 +1334,21 @@ namespace GpuDriverState {
             shaderGlitchParamsDirty = true;
             printf("  -> shaderGlitchQuantity = %d\n", shaderGlitchQuantity); 
         }
+        // Reactive eyes params
+        else if (strcmp(paramName, "reactive_y_sensitivity") == 0) { reactiveYSensitivity = value; printf("  -> reactiveYSensitivity = %.2f\n", reactiveYSensitivity); }
+        else if (strcmp(paramName, "reactive_z_sensitivity") == 0) { reactiveZSensitivity = value; printf("  -> reactiveZSensitivity = %.2f\n", reactiveZSensitivity); }
+        else if (strcmp(paramName, "reactive_x_sensitivity") == 0) { reactiveXSensitivity = value; printf("  -> reactiveXSensitivity = %.2f\n", reactiveXSensitivity); }
+        else if (strcmp(paramName, "reactive_rot_sensitivity") == 0) { reactiveRotSensitivity = value; printf("  -> reactiveRotSensitivity = %.2f\n", reactiveRotSensitivity); }
+        else if (strcmp(paramName, "reactive_smoothing") == 0) { reactiveSmoothing = fmaxf(0.01f, fminf(1.0f, value)); printf("  -> reactiveSmoothing = %.2f\n", reactiveSmoothing); }
+        else if (strcmp(paramName, "reactive_scale") == 0) { reactiveScale = value; printf("  -> reactiveScale = %.2f\n", reactiveScale); }
+        else if (strcmp(paramName, "reactive_base_left_x") == 0) { reactiveBaseLeftX = value; printf("  -> reactiveBaseLeftX = %.2f\n", reactiveBaseLeftX); }
+        else if (strcmp(paramName, "reactive_base_left_y") == 0) { reactiveBaseLeftY = value; printf("  -> reactiveBaseLeftY = %.2f\n", reactiveBaseLeftY); }
+        else if (strcmp(paramName, "reactive_left_flip_x") == 0) { reactiveLeftFlipX = (value > 0.5f); printf("  -> reactiveLeftFlipX = %s\n", reactiveLeftFlipX ? "true" : "false"); }
+        else if (strcmp(paramName, "reactive_left_rot_offset") == 0) { reactiveLeftRotOffset = value; printf("  -> reactiveLeftRotOffset = %.2f\n", reactiveLeftRotOffset); }
+        else if (strcmp(paramName, "reactive_base_right_x") == 0) { reactiveBaseRightX = value; printf("  -> reactiveBaseRightX = %.2f\n", reactiveBaseRightX); }
+        else if (strcmp(paramName, "reactive_base_right_y") == 0) { reactiveBaseRightY = value; printf("  -> reactiveBaseRightY = %.2f\n", reactiveBaseRightY); }
+        else if (strcmp(paramName, "reactive_right_flip_x") == 0) { reactiveRightFlipX = (value > 0.5f); printf("  -> reactiveRightFlipX = %s\n", reactiveRightFlipX ? "true" : "false"); }
+        else if (strcmp(paramName, "reactive_right_rot_offset") == 0) { reactiveRightRotOffset = value; printf("  -> reactiveRightRotOffset = %.2f\n", reactiveRightRotOffset); }
         else { printf("  -> UNKNOWN PARAM\n"); }
     }
     
@@ -1857,6 +1997,88 @@ void CurrentMode::onStart() {
                 printf("  Static Mirrored: L(%.0f,%.0f,%.0f,flip=%s) R(%.0f,%.0f,%.0f,flip=%s)\n", 
                        lx, ly, lrot, leftFlip ? "Y" : "N", rx, ry, rrot, rightFlip ? "Y" : "N");
             }
+            // Reactive eyes - apply saved params from scene
+            else if (scene.animType == "reactive_eyes") {
+                printf("  Reactive Eyes: Applying params from scene...\n");
+                
+                // Reset to defaults first
+                GpuDriverState::setSingleParam("reactive_y_sensitivity", 5.0f);
+                GpuDriverState::setSingleParam("reactive_z_sensitivity", 5.0f);
+                GpuDriverState::setSingleParam("reactive_x_sensitivity", 12.0f);
+                GpuDriverState::setSingleParam("reactive_rot_sensitivity", 10.0f);
+                GpuDriverState::setSingleParam("reactive_smoothing", 0.15f);
+                GpuDriverState::setSingleParam("reactive_scale", 1.0f);
+                GpuDriverState::setSingleParam("reactive_base_left_x", 32.0f);
+                GpuDriverState::setSingleParam("reactive_base_left_y", 16.0f);
+                GpuDriverState::setSingleParam("reactive_base_right_x", 96.0f);
+                GpuDriverState::setSingleParam("reactive_base_right_y", 16.0f);
+                GpuDriverState::setSingleParam("reactive_left_flip_x", 0.0f);
+                GpuDriverState::setSingleParam("reactive_right_flip_x", 0.0f);
+                GpuDriverState::setSingleParam("reactive_left_rot_offset", 0.0f);
+                GpuDriverState::setSingleParam("reactive_right_rot_offset", 0.0f);
+                
+                // Apply saved values from scene.params (overrides defaults if present)
+                if (scene.params.count("reactive_y_sensitivity")) {
+                    GpuDriverState::setSingleParam("reactive_y_sensitivity", scene.params.at("reactive_y_sensitivity"));
+                    printf("    reactive_y_sensitivity = %.2f\n", scene.params.at("reactive_y_sensitivity"));
+                }
+                if (scene.params.count("reactive_z_sensitivity")) {
+                    GpuDriverState::setSingleParam("reactive_z_sensitivity", scene.params.at("reactive_z_sensitivity"));
+                    printf("    reactive_z_sensitivity = %.2f\n", scene.params.at("reactive_z_sensitivity"));
+                }
+                if (scene.params.count("reactive_x_sensitivity")) {
+                    GpuDriverState::setSingleParam("reactive_x_sensitivity", scene.params.at("reactive_x_sensitivity"));
+                    printf("    reactive_x_sensitivity = %.2f\n", scene.params.at("reactive_x_sensitivity"));
+                }
+                if (scene.params.count("reactive_rot_sensitivity")) {
+                    GpuDriverState::setSingleParam("reactive_rot_sensitivity", scene.params.at("reactive_rot_sensitivity"));
+                    printf("    reactive_rot_sensitivity = %.2f\n", scene.params.at("reactive_rot_sensitivity"));
+                }
+                if (scene.params.count("reactive_smoothing")) {
+                    GpuDriverState::setSingleParam("reactive_smoothing", scene.params.at("reactive_smoothing"));
+                    printf("    reactive_smoothing = %.2f\n", scene.params.at("reactive_smoothing"));
+                }
+                if (scene.params.count("reactive_scale")) {
+                    GpuDriverState::setSingleParam("reactive_scale", scene.params.at("reactive_scale"));
+                    printf("    reactive_scale = %.2f\n", scene.params.at("reactive_scale"));
+                }
+                if (scene.params.count("reactive_base_left_x")) {
+                    GpuDriverState::setSingleParam("reactive_base_left_x", scene.params.at("reactive_base_left_x"));
+                    printf("    reactive_base_left_x = %.2f\n", scene.params.at("reactive_base_left_x"));
+                }
+                if (scene.params.count("reactive_base_left_y")) {
+                    GpuDriverState::setSingleParam("reactive_base_left_y", scene.params.at("reactive_base_left_y"));
+                    printf("    reactive_base_left_y = %.2f\n", scene.params.at("reactive_base_left_y"));
+                }
+                if (scene.params.count("reactive_base_right_x")) {
+                    GpuDriverState::setSingleParam("reactive_base_right_x", scene.params.at("reactive_base_right_x"));
+                    printf("    reactive_base_right_x = %.2f\n", scene.params.at("reactive_base_right_x"));
+                }
+                if (scene.params.count("reactive_base_right_y")) {
+                    GpuDriverState::setSingleParam("reactive_base_right_y", scene.params.at("reactive_base_right_y"));
+                    printf("    reactive_base_right_y = %.2f\n", scene.params.at("reactive_base_right_y"));
+                }
+                if (scene.params.count("reactive_left_flip_x")) {
+                    GpuDriverState::setSingleParam("reactive_left_flip_x", scene.params.at("reactive_left_flip_x"));
+                    printf("    reactive_left_flip_x = %.2f\n", scene.params.at("reactive_left_flip_x"));
+                }
+                if (scene.params.count("reactive_right_flip_x")) {
+                    GpuDriverState::setSingleParam("reactive_right_flip_x", scene.params.at("reactive_right_flip_x"));
+                    printf("    reactive_right_flip_x = %.2f\n", scene.params.at("reactive_right_flip_x"));
+                }
+                if (scene.params.count("reactive_left_rot_offset")) {
+                    GpuDriverState::setSingleParam("reactive_left_rot_offset", scene.params.at("reactive_left_rot_offset"));
+                    printf("    reactive_left_rot_offset = %.2f\n", scene.params.at("reactive_left_rot_offset"));
+                }
+                if (scene.params.count("reactive_right_rot_offset")) {
+                    GpuDriverState::setSingleParam("reactive_right_rot_offset", scene.params.at("reactive_right_rot_offset"));
+                    printf("    reactive_right_rot_offset = %.2f\n", scene.params.at("reactive_right_rot_offset"));
+                }
+                
+                // Reset smoothed positions/rotations now that offsets are loaded
+                GpuDriverState::resetReactiveEyesSmooth();
+                printf("  Reactive Eyes: Params applied and smoothed positions reset\n");
+            }
             
             // Handle sprite upload if scene uses a sprite
             if (scene.spriteId >= 0) {
@@ -2037,6 +2259,10 @@ void CurrentMode::onStart() {
             expectedMode = SAM::STATIC_IMAGE;
             mirrorEnabled = false;  // Single sprite mode
             printf("  -> Matched '%s': mode=STATIC_IMAGE, mirror=false\n", scene.animType.c_str());
+        } else if (scene.animType == "reactive_eyes") {
+            expectedMode = SAM::REACTIVE_EYES;
+            mirrorEnabled = true;  // Reactive eyes always uses left/right sprites
+            printf("  -> Matched 'reactive_eyes': mode=REACTIVE_EYES, mirror=true\n");
         } else if (scene.animType == "gyro_eyes") {
             expectedMode = SAM::GYRO_EYES;
             printf("  -> Matched 'gyro_eyes'\n");
@@ -2107,6 +2333,74 @@ void CurrentMode::onStart() {
             float speed = scene.params.count("speed") ? scene.params.at("speed") : 1.0f;
             printf("  -> setSwayParams(swayX=%.2f, swayY=%.2f)\n", swayX, swayY);
             GpuDriverState::setSwayParams(swayX, swayY, rotRange, speed, false);
+        }
+        else if (currentMode == SAM::REACTIVE_EYES) {
+            // Reset reactive_eyes params to defaults first, then apply saved values
+            // This ensures no leftover state from previous scenes
+            GpuDriverState::setSingleParam("reactive_y_sensitivity", 5.0f);
+            GpuDriverState::setSingleParam("reactive_z_sensitivity", 5.0f);
+            GpuDriverState::setSingleParam("reactive_x_sensitivity", 12.0f);
+            GpuDriverState::setSingleParam("reactive_rot_sensitivity", 10.0f);
+            GpuDriverState::setSingleParam("reactive_smoothing", 0.15f);
+            GpuDriverState::setSingleParam("reactive_scale", 1.0f);
+            GpuDriverState::setSingleParam("reactive_base_left_x", 32.0f);
+            GpuDriverState::setSingleParam("reactive_base_left_y", 16.0f);
+            GpuDriverState::setSingleParam("reactive_base_right_x", 96.0f);
+            GpuDriverState::setSingleParam("reactive_base_right_y", 16.0f);
+            GpuDriverState::setSingleParam("reactive_left_flip_x", 0.0f);
+            GpuDriverState::setSingleParam("reactive_right_flip_x", 0.0f);
+            GpuDriverState::setSingleParam("reactive_left_rot_offset", 0.0f);
+            GpuDriverState::setSingleParam("reactive_right_rot_offset", 0.0f);
+            printf("  -> Reset reactive_eyes params to defaults\n");
+            
+            // Now apply saved values from scene (overrides defaults if present)
+            if (scene.params.count("reactive_y_sensitivity")) {
+                GpuDriverState::setSingleParam("reactive_y_sensitivity", scene.params.at("reactive_y_sensitivity"));
+            }
+            if (scene.params.count("reactive_z_sensitivity")) {
+                GpuDriverState::setSingleParam("reactive_z_sensitivity", scene.params.at("reactive_z_sensitivity"));
+            }
+            if (scene.params.count("reactive_x_sensitivity")) {
+                GpuDriverState::setSingleParam("reactive_x_sensitivity", scene.params.at("reactive_x_sensitivity"));
+            }
+            if (scene.params.count("reactive_rot_sensitivity")) {
+                GpuDriverState::setSingleParam("reactive_rot_sensitivity", scene.params.at("reactive_rot_sensitivity"));
+            }
+            if (scene.params.count("reactive_smoothing")) {
+                GpuDriverState::setSingleParam("reactive_smoothing", scene.params.at("reactive_smoothing"));
+            }
+            if (scene.params.count("reactive_scale")) {
+                GpuDriverState::setSingleParam("reactive_scale", scene.params.at("reactive_scale"));
+            }
+            if (scene.params.count("reactive_base_left_x")) {
+                GpuDriverState::setSingleParam("reactive_base_left_x", scene.params.at("reactive_base_left_x"));
+            }
+            if (scene.params.count("reactive_base_left_y")) {
+                GpuDriverState::setSingleParam("reactive_base_left_y", scene.params.at("reactive_base_left_y"));
+            }
+            if (scene.params.count("reactive_base_right_x")) {
+                GpuDriverState::setSingleParam("reactive_base_right_x", scene.params.at("reactive_base_right_x"));
+            }
+            if (scene.params.count("reactive_base_right_y")) {
+                GpuDriverState::setSingleParam("reactive_base_right_y", scene.params.at("reactive_base_right_y"));
+            }
+            if (scene.params.count("reactive_left_flip_x")) {
+                GpuDriverState::setSingleParam("reactive_left_flip_x", scene.params.at("reactive_left_flip_x"));
+            }
+            if (scene.params.count("reactive_left_rot_offset")) {
+                GpuDriverState::setSingleParam("reactive_left_rot_offset", scene.params.at("reactive_left_rot_offset"));
+            }
+            if (scene.params.count("reactive_right_flip_x")) {
+                GpuDriverState::setSingleParam("reactive_right_flip_x", scene.params.at("reactive_right_flip_x"));
+            }
+            if (scene.params.count("reactive_right_rot_offset")) {
+                GpuDriverState::setSingleParam("reactive_right_rot_offset", scene.params.at("reactive_right_rot_offset"));
+            }
+            
+            // Reset smoothed positions/rotations now that offsets are loaded
+            GpuDriverState::resetReactiveEyesSmooth();
+            
+            printf("  -> Applied reactive_eyes params from scene\n");
         }
         else {
             printf("  -> Current mode is %d, applying no specific params\n", (int)currentMode);
@@ -2277,7 +2571,8 @@ void CurrentMode::onStart() {
             GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::STATIC_IMAGE ? "STATIC_IMAGE" :
             GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::STATIC_MIRRORED ? "STATIC_MIRRORED" :
             GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::SWAY ? "SWAY" :
-            GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::SDF_MORPH ? "SDF_MORPH" : "NONE",
+            GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::SDF_MORPH ? "SDF_MORPH" :
+            GpuDriverState::getSceneAnimMode() == GpuDriverState::SceneAnimMode::REACTIVE_EYES ? "REACTIVE_EYES" : "NONE",
             GpuDriverState::isSandboxEnabled() ? "YES" : "NO",
             GpuDriverState::isSpriteReady() ? "YES" : "NO",
             GpuDriverState::isConnected() ? "YES" : "NO",

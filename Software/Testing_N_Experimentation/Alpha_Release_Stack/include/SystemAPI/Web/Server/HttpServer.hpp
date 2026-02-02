@@ -1326,9 +1326,11 @@ private:
             cJSON_AddBoolToObject(item, "mirrorSprite", s.mirrorSprite);
             
             // Save params object
+            ESP_LOGI(HTTP_TAG, "[SaveScene] id=%d animType='%s' params.size=%d", s.id, s.animType.c_str(), s.params.size());
             if (!s.params.empty()) {
                 cJSON* params = cJSON_CreateObject();
                 for (const auto& kv : s.params) {
+                    ESP_LOGI(HTTP_TAG, "  [SaveParam] '%s' = %.2f", kv.first.c_str(), kv.second);
                     cJSON_AddNumberToObject(params, kv.first.c_str(), kv.second);
                 }
                 cJSON_AddItemToObject(item, "params", params);
@@ -1603,9 +1605,11 @@ private:
                     cJSON_ArrayForEach(param, params) {
                         if (cJSON_IsNumber(param) && param->string) {
                             scene.params[param->string] = (float)param->valuedouble;
+                            ESP_LOGI(HTTP_TAG, "  [LoadParam] '%s' = %.2f", param->string, (float)param->valuedouble);
                         }
                     }
                 }
+                ESP_LOGI(HTTP_TAG, "[LoadScene] id=%d animType='%s' params.size=%d", scene.id, scene.animType.c_str(), scene.params.size());
                 
                 // Load effects object
                 cJSON* effects = cJSON_GetObjectItem(item, "effects");
@@ -1661,10 +1665,11 @@ private:
                 }
                 
                 // MIGRATION: Force unknown animation types to static_sprite
-                // Known types: static_sprite, static_mirrored, static_image
+                // Known types: static_sprite, static_mirrored, static_image, reactive_eyes
                 if (scene.animType != "static_sprite" && 
                     scene.animType != "static_mirrored" && 
-                    scene.animType != "static_image") {
+                    scene.animType != "static_image" &&
+                    scene.animType != "reactive_eyes") {
                     ESP_LOGW(HTTP_TAG, "Migrating scene '%s' from animType '%s' to 'static_sprite'",
                              scene.name.c_str(), scene.animType.c_str());
                     scene.animType = "static_sprite";
@@ -2635,6 +2640,13 @@ private:
      * @brief Helper: Send scene config as JSON
      */
     static esp_err_t sendSceneConfigJson(httpd_req_t* req, const SavedScene& scene) {
+        ESP_LOGI(HTTP_TAG, "[SceneConfig] id=%d animType='%s' params.size=%d", scene.id, scene.animType.c_str(), scene.params.size());
+        for (const auto& kv : scene.params) {
+            if (kv.first.rfind("reactive_", 0) == 0) {
+                ESP_LOGI(HTTP_TAG, "  [ConfigParam] '%s' = %.2f", kv.first.c_str(), kv.second);
+            }
+        }
+        
         cJSON* root = cJSON_CreateObject();
         cJSON_AddBoolToObject(root, "success", true);
         
@@ -2683,40 +2695,58 @@ private:
         cJSON_AddNumberToObject(bg, "b", scene.bgB);
         cJSON_AddItemToObject(display, "background", bg);
         
-        // Include ALL static animation params (since we unified static_sprite and static_mirrored)
-        // The web UI will show/hide based on the mirror toggle state
+        // Include ALL animation params from the scene
+        // This covers static_sprite, static_mirrored, reactive_eyes, and any other animation type
         cJSON* params = cJSON_CreateObject();
         
         // Always include the mirror param
         cJSON_AddNumberToObject(params, "mirror", mirrorValue ? 1.0f : 0.0f);
         
-        // Single sprite params (for non-mirrored mode)
-        it = scene.params.find("x");
-        cJSON_AddNumberToObject(params, "x", it != scene.params.end() ? it->second : 64.0f);
-        it = scene.params.find("y");
-        cJSON_AddNumberToObject(params, "y", it != scene.params.end() ? it->second : 16.0f);
-        it = scene.params.find("rotation");
-        cJSON_AddNumberToObject(params, "rotation", it != scene.params.end() ? it->second : 0.0f);
-        it = scene.params.find("scale");
-        cJSON_AddNumberToObject(params, "scale", it != scene.params.end() ? it->second : 1.0f);
+        // Add ALL params from the scene (not just hardcoded ones)
+        // This ensures reactive_eyes and other animation types work correctly
+        for (const auto& kv : scene.params) {
+            // Skip shader_ prefixed params (they go in the Shader section)
+            if (kv.first.rfind("shader_", 0) == 0) continue;
+            cJSON_AddNumberToObject(params, kv.first.c_str(), kv.second);
+        }
         
-        // Mirrored params (for mirrored mode)
-        it = scene.params.find("left_x");
-        cJSON_AddNumberToObject(params, "left_x", it != scene.params.end() ? it->second : 32.0f);
-        it = scene.params.find("left_y");
-        cJSON_AddNumberToObject(params, "left_y", it != scene.params.end() ? it->second : 16.0f);
-        it = scene.params.find("left_rotation");
-        cJSON_AddNumberToObject(params, "left_rotation", it != scene.params.end() ? it->second : 0.0f);
-        it = scene.params.find("left_scale");
-        cJSON_AddNumberToObject(params, "left_scale", it != scene.params.end() ? it->second : 1.0f);
-        it = scene.params.find("right_x");
-        cJSON_AddNumberToObject(params, "right_x", it != scene.params.end() ? it->second : 96.0f);
-        it = scene.params.find("right_y");
-        cJSON_AddNumberToObject(params, "right_y", it != scene.params.end() ? it->second : 16.0f);
-        it = scene.params.find("right_rotation");
-        cJSON_AddNumberToObject(params, "right_rotation", it != scene.params.end() ? it->second : 180.0f);
-        it = scene.params.find("right_scale");
-        cJSON_AddNumberToObject(params, "right_scale", it != scene.params.end() ? it->second : 1.0f);
+        // Add default values for static params if not present (backwards compat)
+        if (cJSON_GetObjectItem(params, "x") == NULL) {
+            cJSON_AddNumberToObject(params, "x", 64.0f);
+        }
+        if (cJSON_GetObjectItem(params, "y") == NULL) {
+            cJSON_AddNumberToObject(params, "y", 16.0f);
+        }
+        if (cJSON_GetObjectItem(params, "rotation") == NULL) {
+            cJSON_AddNumberToObject(params, "rotation", 0.0f);
+        }
+        if (cJSON_GetObjectItem(params, "scale") == NULL) {
+            cJSON_AddNumberToObject(params, "scale", 1.0f);
+        }
+        if (cJSON_GetObjectItem(params, "left_x") == NULL) {
+            cJSON_AddNumberToObject(params, "left_x", 32.0f);
+        }
+        if (cJSON_GetObjectItem(params, "left_y") == NULL) {
+            cJSON_AddNumberToObject(params, "left_y", 16.0f);
+        }
+        if (cJSON_GetObjectItem(params, "left_rotation") == NULL) {
+            cJSON_AddNumberToObject(params, "left_rotation", 0.0f);
+        }
+        if (cJSON_GetObjectItem(params, "left_scale") == NULL) {
+            cJSON_AddNumberToObject(params, "left_scale", 1.0f);
+        }
+        if (cJSON_GetObjectItem(params, "right_x") == NULL) {
+            cJSON_AddNumberToObject(params, "right_x", 96.0f);
+        }
+        if (cJSON_GetObjectItem(params, "right_y") == NULL) {
+            cJSON_AddNumberToObject(params, "right_y", 16.0f);
+        }
+        if (cJSON_GetObjectItem(params, "right_rotation") == NULL) {
+            cJSON_AddNumberToObject(params, "right_rotation", 180.0f);
+        }
+        if (cJSON_GetObjectItem(params, "right_scale") == NULL) {
+            cJSON_AddNumberToObject(params, "right_scale", 1.0f);
+        }
         
         cJSON_AddItemToObject(display, "params", params);
         
@@ -3169,7 +3199,15 @@ private:
     static esp_err_t handleApiRegistryAnimations(httpd_req_t* req) {
         ESP_LOGI(HTTP_TAG, "API: Get animation registry");
         
+        // getParameterRegistry() auto-initializes on first access
         auto& paramReg = AnimationSystem::getParameterRegistry();
+        
+        // Debug: List registered animation IDs
+        auto ids = paramReg.getAnimationSetIds();
+        ESP_LOGI(HTTP_TAG, "Registered animations count: %d", (int)ids.size());
+        for (const auto& id : ids) {
+            ESP_LOGI(HTTP_TAG, "  - %s", id.c_str());
+        }
         
         // Build JSON from ParameterRegistry
         std::string json = "{\"animations\":[";
@@ -5112,6 +5150,11 @@ private:
             return ESP_FAIL;
         }
         
+        ESP_LOGI(HTTP_TAG, "[SceneGet] id=%d name='%s' animType='%s' params.size=%d", found->id, found->name.c_str(), found->animType.c_str(), found->params.size());
+        for (const auto& kv : found->params) {
+            ESP_LOGI(HTTP_TAG, "  [GetParam] '%s' = %.2f", kv.first.c_str(), kv.second);
+        }
+        
         cJSON* root = cJSON_CreateObject();
         cJSON* sceneObj = cJSON_CreateObject();
         cJSON_AddNumberToObject(sceneObj, "id", found->id);
@@ -5276,10 +5319,19 @@ private:
         if (id && cJSON_IsNumber(id)) {
             for (auto& scene : savedScenes_) {
                 if (scene.id == id->valueint) {
+                    // Track if animType changed - forces full callback
+                    bool animTypeChanged = false;
+                    
                     // New AnimationSystem fields (flat format from new Scene page)
                     cJSON* item;
                     if ((item = cJSON_GetObjectItem(root, "animType")) && cJSON_IsString(item)) {
-                        scene.animType = item->valuestring;
+                        if (scene.animType != item->valuestring) {
+                            printf("[SceneUpdate] animType CHANGED: '%s' -> '%s'\n", scene.animType.c_str(), item->valuestring);
+                            scene.animType = item->valuestring;
+                            animTypeChanged = true;
+                        } else {
+                            printf("[SceneUpdate] animType unchanged: '%s'\n", scene.animType.c_str());
+                        }
                     }
                     if ((item = cJSON_GetObjectItem(root, "transition")) && cJSON_IsString(item)) {
                         scene.transition = item->valuestring;
@@ -5548,23 +5600,27 @@ private:
                     
                     success = true;
                     
-                    // Only save to storage periodically, not on every slider move
-                    // This prevents SD card writes from blocking the render loop
+                    // Save to storage periodically for slider updates,
+                    // but force immediate save for important changes like animType
                     static uint32_t lastSaveTime = 0;
                     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-                    if (now - lastSaveTime > 2000) {  // Save at most every 2 seconds
+                    if (animTypeChanged || (now - lastSaveTime > 2000)) {
+                        if (animTypeChanged) {
+                            ESP_LOGI(HTTP_TAG, "Forcing immediate save due to animType change");
+                        }
                         saveScenesStorage();
                         lastSaveTime = now;
                     }
                     
-                    // Only call full scene callback if we DIDN'T already handle via single-param
-                    // The single-param callback is more efficient for slider updates
-                    if (!hasAnimParamUpdates) {
+                    // Call full scene callback if:
+                    // 1. animType changed (need to switch animation modes)
+                    // 2. OR no animParams were sent (not a slider update)
+                    if (animTypeChanged || !hasAnimParamUpdates) {
                         auto& callback = getSceneUpdatedCallback();
-                        ESP_LOGI(HTTP_TAG, "Scene %d update complete. Active=%d, Callback=%s", 
-                                 scene.id, scene.active, callback ? "YES" : "NO");
+                        ESP_LOGI(HTTP_TAG, "Scene %d update complete. Active=%d, Callback=%s, animTypeChanged=%d", 
+                                 scene.id, scene.active, callback ? "YES" : "NO", animTypeChanged);
                         if (callback) {
-                            ESP_LOGI(HTTP_TAG, "Calling sceneUpdatedCallback for scene %d", scene.id);
+                            ESP_LOGI(HTTP_TAG, "Calling sceneUpdatedCallback for scene %d (animTypeChanged=%d)", scene.id, animTypeChanged);
                             callback(scene);
                         }
                     } else {

@@ -49,9 +49,21 @@ public:
      * @brief Initialize with built-in animation sets
      */
     void init() {
+        if (initialized_) return;  // Prevent double init
+        
+        printf("[ParameterRegistry] Initializing...\n");
+        
         // Register built-in animation sets
         registerBuiltIn<StaticSpriteAnimationSet>();
+        printf("[ParameterRegistry] Registered: static_sprite\n");
+        
         registerBuiltIn<StaticMirroredAnimationSet>();
+        printf("[ParameterRegistry] Registered: static_mirrored\n");
+        
+        registerBuiltIn<ReactiveEyesAnimationSet>();
+        printf("[ParameterRegistry] Registered: reactive_eyes\n");
+        
+        printf("[ParameterRegistry] Total registered: %d\n", (int)animationSets_.size());
         
         initialized_ = true;
     }
@@ -66,7 +78,16 @@ public:
     template<typename T>
     void registerBuiltIn() {
         auto set = std::make_unique<T>();
+        if (!set) {
+            printf("[ParameterRegistry] ERROR: Failed to create animation set\n");
+            return;
+        }
         const char* id = set->getId();
+        if (!id) {
+            printf("[ParameterRegistry] ERROR: Animation set has null ID\n");
+            return;
+        }
+        printf("[ParameterRegistry] Registering: %s\n", id);
         animationSets_[id] = std::move(set);
     }
     

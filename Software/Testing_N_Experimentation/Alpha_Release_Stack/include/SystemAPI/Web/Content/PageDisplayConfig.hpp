@@ -597,16 +597,19 @@ const DisplayConfig = {
       .then(data => {
         self.animationsList = data.animations || [];
         console.log('[loadAnimations] Loaded:', self.animationsList);
+        
         // Re-populate animation dropdown if it exists
         self.populateAnimationDropdown();
       })
       .catch(err => {
         console.error('Failed to load animations:', err);
-        // Fallback to built-in types
+        // Fallback to built-in types on error
         self.animationsList = [
           { id: 'static_sprite', name: 'Static Sprite' },
-          { id: 'static_mirrored', name: 'Static Mirrored' }
+          { id: 'static_mirrored', name: 'Static Mirrored' },
+          { id: 'reactive_eyes', name: 'Reactive Eyes' }
         ];
+        self.populateAnimationDropdown();
       });
   },
   
@@ -815,6 +818,23 @@ const DisplayConfig = {
       right_rotation: { label: 'Right Rotation', min: 0, max: 360, step: 1, unit: '°', param: 'right_rotation' },
       right_scale: { label: 'Right Scale', min: 0.1, max: 4.0, step: 0.1, param: 'right_scale' },
       right_flip_x: { label: 'Right Flip', min: 0, max: 1, step: 1, param: 'right_flip_x' }
+    },
+    'reactive_eyes': {
+      // IMU-reactive eyes with asymmetric movement
+      reactive_y_sensitivity: { label: 'Y Sensitivity', typed: true, step: 0.1, param: 'reactive_y_sensitivity', desc: '+Y: Right up, Left down' },
+      reactive_z_sensitivity: { label: 'Z Sensitivity', typed: true, step: 0.1, param: 'reactive_z_sensitivity', desc: '+Z: Right forward, Left backward' },
+      reactive_x_sensitivity: { label: 'X Sensitivity', typed: true, step: 0.1, param: 'reactive_x_sensitivity', desc: '+X: Both down' },
+      reactive_rot_sensitivity: { label: 'Rotation Sensitivity', typed: true, step: 0.1, param: 'reactive_rot_sensitivity', desc: 'Both rotate same direction' },
+      reactive_smoothing: { label: 'Smoothing', min: 0.01, max: 1.0, step: 0.01, param: 'reactive_smoothing', desc: 'Lower = smoother' },
+      reactive_base_left_x: { label: 'Left Base X', min: 0, max: 64, step: 1, unit: 'px', param: 'reactive_base_left_x' },
+      reactive_base_left_y: { label: 'Left Base Y', min: 0, max: 32, step: 1, unit: 'px', param: 'reactive_base_left_y' },
+      reactive_left_rot_offset: { label: 'Left Rotation Offset', typed: true, step: 1, unit: '°', param: 'reactive_left_rot_offset', desc: 'Base rotation offset (0 = default)' },
+      reactive_left_flip_x: { label: 'Left Flip', min: 0, max: 1, step: 1, param: 'reactive_left_flip_x' },
+      reactive_base_right_x: { label: 'Right Base X', min: 64, max: 128, step: 1, unit: 'px', param: 'reactive_base_right_x' },
+      reactive_base_right_y: { label: 'Right Base Y', min: 0, max: 32, step: 1, unit: 'px', param: 'reactive_base_right_y' },
+      reactive_right_rot_offset: { label: 'Right Rotation Offset', typed: true, step: 1, unit: '°', param: 'reactive_right_rot_offset', desc: 'Base rotation offset (0 = 180° default)' },
+      reactive_right_flip_x: { label: 'Right Flip', min: 0, max: 1, step: 1, param: 'reactive_right_flip_x' },
+      reactive_scale: { label: 'Scale', min: 0.1, max: 4.0, step: 0.1, param: 'reactive_scale' }
     }
   },
   

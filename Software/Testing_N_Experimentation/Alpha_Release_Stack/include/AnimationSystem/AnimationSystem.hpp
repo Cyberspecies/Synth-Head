@@ -53,9 +53,13 @@ inline AnimationContext& getContext() {
 /**
  * @brief Get the global parameter registry
  * Used for auto-generating settings UI
+ * Auto-initializes on first access (lazy initialization)
  */
 inline ParameterRegistry& getParameterRegistry() {
     static ParameterRegistry instance;
+    if (!instance.isInitialized()) {
+        instance.init();
+    }
     return instance;
 }
 
