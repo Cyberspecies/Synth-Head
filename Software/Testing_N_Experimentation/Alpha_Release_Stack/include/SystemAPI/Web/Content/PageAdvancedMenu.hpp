@@ -144,6 +144,22 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
               </div>
             </a>
             
+            <a href="/advanced/ledpresets" class="submenu-card">
+              <span class="submenu-icon">&#x2299;</span>
+              <div class="submenu-title">LED Presets</div>
+              <div class="submenu-desc">YAML-based LED configuration. Create animations like Breathe, Rainbow, Pulse with color and speed controls.</div>
+              <div class="submenu-stats">
+                <div class="stat-item">
+                  <span class="stat-value" id="led-preset-count">--</span>
+                  <span class="stat-label">Presets</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-value" id="led-status">Ready</span>
+                  <span class="stat-label">Status</span>
+                </div>
+              </div>
+            </a>
+            
             <a href="/advanced/equations" class="submenu-card">
               <span class="submenu-icon">&#x222B;</span>
               <div class="submenu-title">Equation Editor</div>
@@ -219,6 +235,20 @@ inline const char PAGE_ADVANCED_MENU[] = R"rawliteral(
       }
     }).catch(function() {
       document.getElementById('scene-sprite-count').textContent = '0';
+    });
+    
+    // Load LED preset stats
+    fetch('/api/ledpresets')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.presets) {
+        document.getElementById('led-preset-count').textContent = data.presets.length;
+        var active = data.presets.find(function(p) { return p.active; });
+        document.getElementById('led-status').textContent = active ? 'Active' : 'Ready';
+      }
+    }).catch(function() {
+      document.getElementById('led-preset-count').textContent = '0';
+      document.getElementById('led-status').textContent = 'Ready';
     });
     
     // Load equation stats

@@ -52,6 +52,7 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     }
     .indicator.display { color: var(--success); background: rgba(0, 204, 102, 0.15); }
     .indicator.display.off { color: var(--text-muted); background: rgba(128, 128, 128, 0.1); opacity: 0.5; }
+    .indicator.led { color: #f59e0b; background: rgba(245, 158, 11, 0.15); }
     .indicator.hidden { display: none; }
     .apply-btn { 
       padding: 8px 16px; 
@@ -79,6 +80,16 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     .legend-item { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
     .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
     .legend-dot.display { background: var(--success); }
+    .legend-dot.led { background: #f59e0b; }
+    .color-preview {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: 2px solid var(--border);
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+    .section-gap { margin-top: 24px; }
     @media (max-width: 600px) {
       .preset-item { padding: 12px; flex-wrap: wrap; }
       .preset-name { font-size: 1rem; width: 100%; margin-bottom: 8px; }
@@ -111,7 +122,7 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     <section class="tab-content active">
       <div class="card" style="max-width: 100%;">
         <div class="card-header">
-          <h2>Animation Presets</h2>
+          <h2>Display Presets</h2>
         </div>
         <div class="card-body">
           <div class="legend">
@@ -121,6 +132,25 @@ inline const char PAGE_BASIC[] = R"rawliteral(
             </div>
           </div>
           <div class="preset-list" id="preset-list">
+            <div class="preset-item">
+              <span class="preset-name">Loading...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card section-gap" style="max-width: 100%;">
+        <div class="card-header">
+          <h2>LED Presets</h2>
+        </div>
+        <div class="card-body">
+          <div class="legend">
+            <div class="legend-item">
+              <div class="legend-dot led"></div>
+              <span>Active</span>
+            </div>
+          </div>
+          <div class="preset-list" id="led-preset-list">
             <div class="preset-item">
               <span class="preset-name">Loading...</span>
             </div>
@@ -240,7 +270,77 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     }, 3000);
   }
   
+  // ============ LED Presets ============
+  var ledPresets = [];
+  var activeLedPresetId = -1;
+  
+  function fetchLedPresets() {
+    fetch('/api/ledpresets')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        ledPresets = data.presets || [];
+        activeLedPresetId = data.activeId || -1;
+        renderLedPresets();
+      })
+      .catch(function(err) {
+        console.error('LED preset fetch error:', err);
+        ledPresets = [];
+        renderLedPresets();
+      });
+  }
+  
+  function renderLedPresets() {
+    var list = document.getElementById('led-preset-list');
+    list.innerHTML = '';
+    
+    if (ledPresets.length === 0) {
+      list.innerHTML = '<div class="preset-item"><span class="preset-name" style="color:var(--text-muted)">No LED presets configured. Create presets in Advanced tab.</span></div>';
+      return;
+    }
+    
+    ledPresets.forEach(function(preset) {
+      var isActive = (preset.id === activeLedPresetId);
+      var activeClass = isActive ? 'active' : '';
+      
+      var indicatorsHtml = '';
+      if (isActive) {
+        indicatorsHtml = '<span class="indicator led">Active</span>';
+      }
+      
+      var html = '<div class="preset-item ' + activeClass + '" data-id="' + preset.id + '">' +
+        '<span class="preset-name">' + escapeHtml(preset.name) + '</span>' +
+        '<div class="preset-indicators">' + indicatorsHtml + '</div>' +
+        '<button class="apply-btn" onclick="applyLedPreset(' + preset.id + ')">Apply</button>' +
+      '</div>';
+      
+      list.innerHTML += html;
+    });
+  }
+  
+  function applyLedPreset(id) {
+    fetch('/api/ledpreset/activate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: id})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        showToast('LED preset applied', 'success');
+        activeLedPresetId = id;
+        renderLedPresets();
+        setTimeout(fetchLedPresets, 500);
+      } else {
+        showToast('Failed to apply LED preset', 'error');
+      }
+    })
+    .catch(function(err) {
+      showToast('Error: ' + err, 'error');
+    });
+  }
+  
   fetchScenes();
+  fetchLedPresets();
   </script>
 </body>
 </html>

@@ -11,12 +11,15 @@
  *   /advanced          -> Advanced menu (PageAdvancedMenu.hpp)
  *   /advanced/sprites  -> Sprite manager (PageSprite.hpp)
  *   /advanced/scenes   -> Scene manager (PageScenes.hpp)
+ *   /advanced/scenes/edit -> Scene editor (PageSceneEdit.hpp)
+ *   /advanced/ledpresets -> LED preset manager (PageLedPresetList.hpp)
+ *   /advanced/ledpresets/edit -> LED preset editor (PageLedPresetEdit.hpp)
  *   /advanced/equations -> Equation editor (PageEquations.hpp)
  *   /settings          -> Settings page (PageSettings.hpp)
  *   /style.css         -> Shared stylesheet
  * 
  * @author ARCOS
- * @version 2.3
+ * @version 2.4
  *****************************************************************/
 
 #pragma once
@@ -29,6 +32,8 @@
 #include "PageEquations.hpp"
 #include "PageSceneList.hpp"
 #include "PageSceneEdit.hpp"
+#include "PageLedPresetList.hpp"
+#include "PageLedPresetEdit.hpp"
 #include "PageSettings.hpp"
 
 namespace SystemAPI {

@@ -2103,6 +2103,31 @@ void CurrentMode::onStart() {
         GpuDriverState::setSingleParam(paramName, value);
     });
     
+    // LED Preset activation callback - applies LED preset to LED strips
+    httpServer.setLedPresetActivatedCallback([](const SystemAPI::Web::SavedLedPreset& preset) {
+        printf("\n  ========================================\n");
+        printf("  LED PRESET ACTIVATED: %s (id=%d)\n", preset.name.c_str(), preset.id);
+        printf("  Animation: %s\n", preset.animation.c_str());
+        printf("  Color: RGB(%d,%d,%d)\n", preset.r, preset.g, preset.b);
+        printf("  Brightness: %d, Speed: %d\n", preset.brightness, preset.speed);
+        printf("  ========================================\n\n");
+        
+        // Apply the LED preset using the animation system
+        // Scale RGB by brightness (0-100%)
+        float brightnessFactor = preset.brightness / 100.0f;
+        uint8_t r = (uint8_t)(preset.r * brightnessFactor);
+        uint8_t g = (uint8_t)(preset.g * brightnessFactor);
+        uint8_t b = (uint8_t)(preset.b * brightnessFactor);
+        
+        // Start the animation with the preset settings
+        SystemAPI::Testing::LedStripTestHarness::startAnimation(
+            preset.animation, r, g, b, (uint8_t)preset.speed
+        );
+        
+        printf("  Applied LED animation: %s RGB(%d,%d,%d) speed=%d\n", 
+               preset.animation.c_str(), r, g, b, preset.speed);
+    });
+    
     printf("  Web-GPU Callbacks: Registered\n");
     
     // =====================================================

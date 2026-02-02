@@ -191,6 +191,23 @@ inline int nextSceneId_ = 1;
 inline int activeSceneId_ = -1;
 // Note: Scene callbacks moved to HttpServer class instance members
 
+// LED Preset storage (persisted to SD card)
+struct SavedLedPreset {
+    int id;
+    std::string name;
+    std::string animation;  // solid, breathe, rainbow, pulse, chase, sparkle, fire, wave, gradient
+    uint8_t r = 255;
+    uint8_t g = 255;
+    uint8_t b = 255;
+    uint8_t brightness = 100;
+    uint8_t speed = 50;
+    std::map<std::string, int> params;  // Extra animation-specific parameters
+    int order = 0;
+};
+inline std::vector<SavedLedPreset> savedLedPresets_;
+inline int nextLedPresetId_ = 1;
+inline int activeLedPresetId_ = -1;
+
 inline bool spiffs_initialized_ = false;  // Still used for legacy SPIFFS
 inline bool sdcard_storage_ready_ = false;
 
@@ -201,6 +218,8 @@ static const char* EQUATION_DIR = "/sdcard/Equations";
 static const char* EQUATION_INDEX_FILE = "/sdcard/Equations/index.json";
 static const char* SCENE_DIR = "/sdcard/Scenes";
 static const char* SCENE_INDEX_FILE = "/sdcard/Scenes/index.json";
+static const char* LED_PRESET_DIR = "/sdcard/LedPresets";
+static const char* LED_PRESET_INDEX_FILE = "/sdcard/LedPresets/index.json";
 
 // Legacy SPIFFS paths (fallback)
 static const char* SPRITE_DIR_SPIFFS = "/spiffs/Sprites";
@@ -245,6 +264,7 @@ public:
         loadSpritesFromStorage();
         loadEquationsFromStorage();
         loadScenesFromStorage();
+        loadLedPresetsFromStorage();
         
         // Create default scene if none exist (ensures animation list is never empty)
         if (savedScenes_.empty()) {
@@ -442,6 +462,61 @@ public:
     static std::function<void(const SavedScene&)>& getSceneActivatedCallback() {
         return instance().sceneActivatedCallback_;
     }
+    
+    /**
+     * @brief Set LED preset activated callback (called when user activates an LED preset)
+     */
+    void setLedPresetActivatedCallback(std::function<void(const SavedLedPreset&)> callback) {
+        ledPresetActivatedCallback_ = callback;
+        ESP_LOGI(HTTP_TAG, "LED preset activated callback registered: %s", callback ? "YES" : "NO");
+    }
+    
+    /**
+     * @brief Get LED preset activated callback (for API handlers)
+     */
+    static std::function<void(const SavedLedPreset&)>& getLedPresetActivatedCallback() {
+        return instance().ledPresetActivatedCallback_;
+    }
+    
+    /**
+     * @brief Get the active LED preset (if any)
+     */
+    const SavedLedPreset* getActiveLedPreset() const {
+        for (const auto& preset : savedLedPresets_) {
+            if (preset.id == activeLedPresetId_) return &preset;
+        }
+        return nullptr;
+    }
+    
+    /**
+     * @brief Get all saved LED presets
+     */
+    const std::vector<SavedLedPreset>& getSavedLedPresets() const {
+        return savedLedPresets_;
+    }
+    
+    /**
+     * @brief Activate an LED preset by ID (programmatically)
+     * Used by OLED menu to activate LED presets via button press
+     */
+    bool activateLedPresetById(int presetId) {
+        for (auto& preset : savedLedPresets_) {
+            if (preset.id == presetId) {
+                activeLedPresetId_ = presetId;
+                
+                if (ledPresetActivatedCallback_) {
+                    ledPresetActivatedCallback_(preset);
+                }
+                
+                ESP_LOGI(HTTP_TAG, "Activated LED preset: %s (id %d)", preset.name.c_str(), preset.id);
+                saveLedPresetsStorage();
+                return true;
+            }
+        }
+        
+        ESP_LOGW(HTTP_TAG, "LED preset id=%d not found", presetId);
+        return false;
+    }
 
 private:
     HttpServer() = default;
@@ -509,6 +584,18 @@ private:
         registerHandler("/api/scene/display", HTTP_POST, handleApiSceneDisplay);
         registerHandler("/api/scene/clear", HTTP_POST, handleApiSceneClear);
         registerHandler("/api/scenes/reorder", HTTP_POST, handleApiScenesReorder);
+        
+        // LED Preset page routes and API endpoints
+        registerHandler("/advanced/ledpresets", HTTP_GET, handlePageLedPresetList);
+        registerHandler("/advanced/ledpresets/edit", HTTP_GET, handlePageLedPresetEdit);
+        registerHandler("/api/ledpresets", HTTP_GET, handleApiLedPresets);
+        registerHandler("/api/ledpreset/create", HTTP_POST, handleApiLedPresetCreate);
+        registerHandler("/api/ledpreset/get", HTTP_GET, handleApiLedPresetGet);
+        registerHandler("/api/ledpreset/update", HTTP_POST, handleApiLedPresetUpdate);
+        registerHandler("/api/ledpreset/delete", HTTP_POST, handleApiLedPresetDelete);
+        registerHandler("/api/ledpreset/activate", HTTP_POST, handleApiLedPresetActivate);
+        registerHandler("/api/ledpreset/preview", HTTP_POST, handleApiLedPresetPreview);
+        registerHandler("/api/ledpresets/reorder", HTTP_POST, handleApiLedPresetsReorder);
         
         // Equation Editor page and API endpoints
         registerHandler("/advanced/equations", HTTP_GET, handlePageEquations);
@@ -643,10 +730,10 @@ private:
         
         // Create directory structure
         struct stat st;
-        const char* dirs[] = { SPRITE_DIR, EQUATION_DIR, SCENE_DIR };
-        const char* names[] = { "sprites", "equations", "scenes" };
+        const char* dirs[] = { SPRITE_DIR, EQUATION_DIR, SCENE_DIR, LED_PRESET_DIR };
+        const char* names[] = { "sprites", "equations", "scenes", "led-presets" };
         
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             if (stat(dirs[i], &st) != 0) {
                 int ret = mkdir(dirs[i], 0755);
                 if (ret == 0) {
@@ -1717,6 +1804,239 @@ private:
         cJSON_Delete(root);
     }
     
+    // ========== LED Preset Storage Functions ==========
+    
+    /**
+     * @brief Get the LED preset index file path
+     * Uses SD card only (no SPIFFS fallback for LED presets)
+     */
+    static const char* getLedPresetIndexPath() {
+        return LED_PRESET_INDEX_FILE;
+    }
+    
+    /**
+     * @brief Save LED presets to storage (SD card)
+     */
+    static void saveLedPresetsStorage() {
+        if (!sdcard_storage_ready_) {
+            ESP_LOGW(HTTP_TAG, "SD card not ready for LED preset storage");
+            return;
+        }
+        
+        // Create LED presets directory if it doesn't exist
+        struct stat st;
+        if (stat(LED_PRESET_DIR, &st) != 0) {
+            mkdir(LED_PRESET_DIR, 0755);
+        }
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "nextId", nextLedPresetId_);
+        cJSON_AddNumberToObject(root, "activeId", activeLedPresetId_);
+        cJSON_AddStringToObject(root, "storage", "sdcard");
+        
+        cJSON* presets = cJSON_CreateArray();
+        for (const auto& p : savedLedPresets_) {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "id", p.id);
+            cJSON_AddStringToObject(item, "name", p.name.c_str());
+            cJSON_AddStringToObject(item, "animation", p.animation.c_str());
+            cJSON_AddNumberToObject(item, "r", p.r);
+            cJSON_AddNumberToObject(item, "g", p.g);
+            cJSON_AddNumberToObject(item, "b", p.b);
+            cJSON_AddNumberToObject(item, "brightness", p.brightness);
+            cJSON_AddNumberToObject(item, "speed", p.speed);
+            cJSON_AddNumberToObject(item, "order", p.order);
+            
+            // Save params object
+            if (!p.params.empty()) {
+                cJSON* params = cJSON_CreateObject();
+                for (const auto& kv : p.params) {
+                    cJSON_AddNumberToObject(params, kv.first.c_str(), kv.second);
+                }
+                cJSON_AddItemToObject(item, "params", params);
+            }
+            
+            cJSON_AddItemToArray(presets, item);
+        }
+        cJSON_AddItemToObject(root, "presets", presets);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        if (json) {
+            FILE* f = fopen(LED_PRESET_INDEX_FILE, "w");
+            if (f) {
+                fprintf(f, "%s", json);
+                fclose(f);
+                ESP_LOGI(HTTP_TAG, "Saved %d LED presets to SD card", savedLedPresets_.size());
+            } else {
+                ESP_LOGE(HTTP_TAG, "Failed to open LED preset index for writing: %s", LED_PRESET_INDEX_FILE);
+            }
+            free(json);
+        }
+    }
+    
+    /**
+     * @brief Load LED presets from storage (SD card)
+     */
+    static void loadLedPresetsFromStorage() {
+        if (!sdcard_storage_ready_) {
+            ESP_LOGI(HTTP_TAG, "SD card not ready, skipping LED preset load");
+            return;
+        }
+        
+        struct stat st;
+        if (stat(LED_PRESET_INDEX_FILE, &st) != 0) {
+            ESP_LOGI(HTTP_TAG, "No LED preset index found, creating defaults");
+            createDefaultLedPresets();
+            return;
+        }
+        
+        FILE* f = fopen(LED_PRESET_INDEX_FILE, "r");
+        if (!f) {
+            ESP_LOGE(HTTP_TAG, "Failed to open LED preset index for reading");
+            return;
+        }
+        
+        char* buf = (char*)malloc(st.st_size + 1);
+        if (!buf) {
+            fclose(f);
+            return;
+        }
+        
+        size_t bytesRead = fread(buf, 1, st.st_size, f);
+        buf[bytesRead] = '\0';
+        fclose(f);
+        
+        cJSON* root = cJSON_Parse(buf);
+        free(buf);
+        
+        if (!root) {
+            ESP_LOGE(HTTP_TAG, "Failed to parse LED preset index JSON");
+            return;
+        }
+        
+        cJSON* nextId = cJSON_GetObjectItem(root, "nextId");
+        if (nextId && cJSON_IsNumber(nextId)) {
+            nextLedPresetId_ = nextId->valueint;
+        }
+        
+        cJSON* activeId = cJSON_GetObjectItem(root, "activeId");
+        if (activeId && cJSON_IsNumber(activeId)) {
+            activeLedPresetId_ = activeId->valueint;
+        }
+        
+        cJSON* presets = cJSON_GetObjectItem(root, "presets");
+        if (presets && cJSON_IsArray(presets)) {
+            savedLedPresets_.clear();
+            
+            cJSON* item = NULL;
+            cJSON_ArrayForEach(item, presets) {
+                SavedLedPreset preset;
+                
+                cJSON* val;
+                if ((val = cJSON_GetObjectItem(item, "id")) && cJSON_IsNumber(val)) {
+                    preset.id = val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "name")) && cJSON_IsString(val)) {
+                    preset.name = val->valuestring;
+                }
+                if ((val = cJSON_GetObjectItem(item, "animation")) && cJSON_IsString(val)) {
+                    preset.animation = val->valuestring;
+                }
+                if ((val = cJSON_GetObjectItem(item, "r")) && cJSON_IsNumber(val)) {
+                    preset.r = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "g")) && cJSON_IsNumber(val)) {
+                    preset.g = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "b")) && cJSON_IsNumber(val)) {
+                    preset.b = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "brightness")) && cJSON_IsNumber(val)) {
+                    preset.brightness = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "speed")) && cJSON_IsNumber(val)) {
+                    preset.speed = (uint8_t)val->valueint;
+                }
+                if ((val = cJSON_GetObjectItem(item, "order")) && cJSON_IsNumber(val)) {
+                    preset.order = val->valueint;
+                }
+                
+                // Load params object
+                cJSON* params = cJSON_GetObjectItem(item, "params");
+                if (params && cJSON_IsObject(params)) {
+                    cJSON* param = NULL;
+                    cJSON_ArrayForEach(param, params) {
+                        if (cJSON_IsNumber(param) && param->string) {
+                            preset.params[param->string] = param->valueint;
+                        }
+                    }
+                }
+                
+                savedLedPresets_.push_back(preset);
+            }
+            
+            ESP_LOGI(HTTP_TAG, "Loaded %d LED presets from SD card", savedLedPresets_.size());
+        }
+        
+        cJSON_Delete(root);
+    }
+    
+    /**
+     * @brief Create default LED presets if none exist
+     */
+    static void createDefaultLedPresets() {
+        // Solid Pink - default active
+        SavedLedPreset solid;
+        solid.id = nextLedPresetId_++;
+        solid.name = "Solid Pink";
+        solid.animation = "solid";
+        solid.r = 255; solid.g = 0; solid.b = 255;
+        solid.brightness = 80;
+        solid.speed = 50;
+        solid.order = 0;
+        savedLedPresets_.push_back(solid);
+        
+        // Rainbow Cycle
+        SavedLedPreset rainbow;
+        rainbow.id = nextLedPresetId_++;
+        rainbow.name = "Rainbow Cycle";
+        rainbow.animation = "rainbow";
+        rainbow.r = 255; rainbow.g = 255; rainbow.b = 255;
+        rainbow.brightness = 100;
+        rainbow.speed = 50;
+        rainbow.order = 1;
+        savedLedPresets_.push_back(rainbow);
+        
+        // Breathing Blue
+        SavedLedPreset breathe;
+        breathe.id = nextLedPresetId_++;
+        breathe.name = "Breathing Blue";
+        breathe.animation = "breathe";
+        breathe.r = 0; breathe.g = 100; breathe.b = 255;
+        breathe.brightness = 100;
+        breathe.speed = 30;
+        breathe.order = 2;
+        savedLedPresets_.push_back(breathe);
+        
+        // Fire Effect
+        SavedLedPreset fire;
+        fire.id = nextLedPresetId_++;
+        fire.name = "Fire Effect";
+        fire.animation = "fire";
+        fire.r = 255; fire.g = 50; fire.b = 0;
+        fire.brightness = 100;
+        fire.speed = 70;
+        fire.order = 3;
+        savedLedPresets_.push_back(fire);
+        
+        activeLedPresetId_ = solid.id;  // Set solid pink as default
+        saveLedPresetsStorage();
+        
+        ESP_LOGI(HTTP_TAG, "Created %d default LED presets", savedLedPresets_.size());
+    }
+    
     // ========== Authentication Helpers ==========
     
     /**
@@ -2094,6 +2414,26 @@ private:
         httpd_resp_set_type(req, "text/html");
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
         httpd_resp_send(req, Content::PAGE_SCENE_EDIT, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    static esp_err_t handlePageLedPresetList(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return redirectToLogin(req);
+        
+        ESP_LOGI(HTTP_TAG, "Serving LED Preset List page");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_send(req, Content::PAGE_LED_PRESET_LIST, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    static esp_err_t handlePageLedPresetEdit(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return redirectToLogin(req);
+        
+        ESP_LOGI(HTTP_TAG, "Serving LED Preset Edit page");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_send(req, Content::PAGE_LED_PRESET_EDIT, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     
@@ -4058,6 +4398,494 @@ private:
             success = true;
             saveScenesStorage();
             ESP_LOGI(HTTP_TAG, "Reordered %d scenes", (int)savedScenes_.size());
+        }
+        
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, success ? "{\"success\":true}" : "{\"success\":false}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    // ========== LED Preset API Handlers ==========
+    
+    /**
+     * @brief Get all LED presets
+     */
+    static esp_err_t handleApiLedPresets(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        ESP_LOGI(HTTP_TAG, "handleApiLedPresets: Returning %d presets, activeId=%d",
+                 (int)savedLedPresets_.size(), activeLedPresetId_);
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON* presets = cJSON_CreateArray();
+        
+        for (const auto& preset : savedLedPresets_) {
+            cJSON* item = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item, "id", preset.id);
+            cJSON_AddStringToObject(item, "name", preset.name.c_str());
+            cJSON_AddStringToObject(item, "animation", preset.animation.c_str());
+            cJSON_AddNumberToObject(item, "r", preset.r);
+            cJSON_AddNumberToObject(item, "g", preset.g);
+            cJSON_AddNumberToObject(item, "b", preset.b);
+            cJSON_AddNumberToObject(item, "brightness", preset.brightness);
+            cJSON_AddNumberToObject(item, "speed", preset.speed);
+            cJSON_AddNumberToObject(item, "order", preset.order);
+            cJSON_AddBoolToObject(item, "active", preset.id == activeLedPresetId_);
+            
+            // Add params
+            if (!preset.params.empty()) {
+                cJSON* params = cJSON_CreateObject();
+                for (const auto& kv : preset.params) {
+                    cJSON_AddNumberToObject(params, kv.first.c_str(), kv.second);
+                }
+                cJSON_AddItemToObject(item, "params", params);
+            }
+            
+            cJSON_AddItemToArray(presets, item);
+        }
+        
+        cJSON_AddItemToObject(root, "presets", presets);
+        cJSON_AddNumberToObject(root, "activeId", activeLedPresetId_);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Create a new LED preset
+     */
+    static esp_err_t handleApiLedPresetCreate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[512];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* name = cJSON_GetObjectItem(root, "name");
+        
+        SavedLedPreset preset;
+        preset.id = nextLedPresetId_++;
+        preset.name = (name && cJSON_IsString(name)) ? name->valuestring : "New LED Preset";
+        preset.animation = "solid";
+        preset.r = 255; preset.g = 0; preset.b = 255;
+        preset.brightness = 100;
+        preset.speed = 50;
+        preset.order = (int)savedLedPresets_.size();
+        
+        savedLedPresets_.push_back(preset);
+        saveLedPresetsStorage();
+        
+        ESP_LOGI(HTTP_TAG, "Created LED preset: id=%d name=%s", preset.id, preset.name.c_str());
+        
+        cJSON* resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "success", true);
+        cJSON_AddNumberToObject(resp, "id", preset.id);
+        
+        char* json = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Get a single LED preset by ID
+     */
+    static esp_err_t handleApiLedPresetGet(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char query[64] = {0};
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing id parameter");
+            return ESP_FAIL;
+        }
+        
+        char id_str[16] = {0};
+        if (httpd_query_key_value(query, "id", id_str, sizeof(id_str)) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing id parameter");
+            return ESP_FAIL;
+        }
+        
+        int presetId = atoi(id_str);
+        SavedLedPreset* found = nullptr;
+        
+        for (auto& preset : savedLedPresets_) {
+            if (preset.id == presetId) {
+                found = &preset;
+                break;
+            }
+        }
+        
+        if (!found) {
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "LED preset not found");
+            return ESP_FAIL;
+        }
+        
+        cJSON* root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", true);
+        
+        cJSON* presetObj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(presetObj, "id", found->id);
+        cJSON_AddStringToObject(presetObj, "name", found->name.c_str());
+        cJSON_AddStringToObject(presetObj, "animation", found->animation.c_str());
+        cJSON_AddNumberToObject(presetObj, "r", found->r);
+        cJSON_AddNumberToObject(presetObj, "g", found->g);
+        cJSON_AddNumberToObject(presetObj, "b", found->b);
+        cJSON_AddNumberToObject(presetObj, "brightness", found->brightness);
+        cJSON_AddNumberToObject(presetObj, "speed", found->speed);
+        cJSON_AddNumberToObject(presetObj, "order", found->order);
+        cJSON_AddBoolToObject(presetObj, "active", found->id == activeLedPresetId_);
+        
+        if (!found->params.empty()) {
+            cJSON* params = cJSON_CreateObject();
+            for (const auto& kv : found->params) {
+                cJSON_AddNumberToObject(params, kv.first.c_str(), kv.second);
+            }
+            cJSON_AddItemToObject(presetObj, "params", params);
+        }
+        
+        cJSON_AddItemToObject(root, "preset", presetObj);
+        
+        char* json = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+        free(json);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Update an existing LED preset
+     */
+    static esp_err_t handleApiLedPresetUpdate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[1024];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* idField = cJSON_GetObjectItem(root, "id");
+        if (!idField || !cJSON_IsNumber(idField)) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing id");
+            return ESP_FAIL;
+        }
+        
+        int presetId = idField->valueint;
+        SavedLedPreset* found = nullptr;
+        
+        for (auto& preset : savedLedPresets_) {
+            if (preset.id == presetId) {
+                found = &preset;
+                break;
+            }
+        }
+        
+        if (!found) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "LED preset not found");
+            return ESP_FAIL;
+        }
+        
+        // Update fields
+        cJSON* val;
+        if ((val = cJSON_GetObjectItem(root, "name")) && cJSON_IsString(val)) {
+            found->name = val->valuestring;
+        }
+        if ((val = cJSON_GetObjectItem(root, "animation")) && cJSON_IsString(val)) {
+            found->animation = val->valuestring;
+        }
+        if ((val = cJSON_GetObjectItem(root, "r")) && cJSON_IsNumber(val)) {
+            found->r = (uint8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "g")) && cJSON_IsNumber(val)) {
+            found->g = (uint8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "b")) && cJSON_IsNumber(val)) {
+            found->b = (uint8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "brightness")) && cJSON_IsNumber(val)) {
+            found->brightness = (uint8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "speed")) && cJSON_IsNumber(val)) {
+            found->speed = (uint8_t)val->valueint;
+        }
+        
+        // Update params
+        cJSON* params = cJSON_GetObjectItem(root, "params");
+        if (params && cJSON_IsObject(params)) {
+            found->params.clear();
+            cJSON* param = NULL;
+            cJSON_ArrayForEach(param, params) {
+                if (cJSON_IsNumber(param) && param->string) {
+                    found->params[param->string] = param->valueint;
+                }
+            }
+        }
+        
+        saveLedPresetsStorage();
+        ESP_LOGI(HTTP_TAG, "Updated LED preset: id=%d name=%s", found->id, found->name.c_str());
+        
+        cJSON_Delete(root);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Delete an LED preset
+     */
+    static esp_err_t handleApiLedPresetDelete(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[128];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* idField = cJSON_GetObjectItem(root, "id");
+        if (!idField || !cJSON_IsNumber(idField)) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing id");
+            return ESP_FAIL;
+        }
+        
+        int presetId = idField->valueint;
+        cJSON_Delete(root);
+        
+        auto it = std::remove_if(savedLedPresets_.begin(), savedLedPresets_.end(),
+            [presetId](const SavedLedPreset& p) { return p.id == presetId; });
+        
+        if (it == savedLedPresets_.end()) {
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "LED preset not found");
+            return ESP_FAIL;
+        }
+        
+        savedLedPresets_.erase(it, savedLedPresets_.end());
+        
+        // If we deleted the active preset, clear the active ID
+        if (activeLedPresetId_ == presetId) {
+            activeLedPresetId_ = -1;
+        }
+        
+        saveLedPresetsStorage();
+        ESP_LOGI(HTTP_TAG, "Deleted LED preset: id=%d", presetId);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Activate an LED preset
+     */
+    static esp_err_t handleApiLedPresetActivate(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[128];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* idField = cJSON_GetObjectItem(root, "id");
+        if (!idField || !cJSON_IsNumber(idField)) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing id");
+            return ESP_FAIL;
+        }
+        
+        int presetId = idField->valueint;
+        cJSON_Delete(root);
+        
+        SavedLedPreset* found = nullptr;
+        for (auto& preset : savedLedPresets_) {
+            if (preset.id == presetId) {
+                found = &preset;
+                break;
+            }
+        }
+        
+        if (!found) {
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "LED preset not found");
+            return ESP_FAIL;
+        }
+        
+        activeLedPresetId_ = presetId;
+        saveLedPresetsStorage();
+        
+        ESP_LOGI(HTTP_TAG, "Activated LED preset: id=%d name=%s anim=%s", 
+                 found->id, found->name.c_str(), found->animation.c_str());
+        
+        // Invoke the LED preset callback if registered
+        auto& callback = getLedPresetActivatedCallback();
+        if (callback) {
+            callback(*found);
+        }
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Preview an LED preset without saving
+     */
+    static esp_err_t handleApiLedPresetPreview(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[512];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        // Build a temporary preset from the request
+        SavedLedPreset preview;
+        preview.id = -1;  // Temporary
+        preview.name = "Preview";
+        
+        cJSON* val;
+        if ((val = cJSON_GetObjectItem(root, "animation")) && cJSON_IsString(val)) {
+            preview.animation = val->valuestring;
+        } else {
+            preview.animation = "solid";
+        }
+        if ((val = cJSON_GetObjectItem(root, "r")) && cJSON_IsNumber(val)) {
+            preview.r = (uint8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "g")) && cJSON_IsNumber(val)) {
+            preview.g = (uint8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "b")) && cJSON_IsNumber(val)) {
+            preview.b = (uint8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "brightness")) && cJSON_IsNumber(val)) {
+            preview.brightness = (uint8_t)val->valueint;
+        }
+        if ((val = cJSON_GetObjectItem(root, "speed")) && cJSON_IsNumber(val)) {
+            preview.speed = (uint8_t)val->valueint;
+        }
+        
+        cJSON_Delete(root);
+        
+        ESP_LOGI(HTTP_TAG, "Previewing LED preset: anim=%s r=%d g=%d b=%d", 
+                 preview.animation.c_str(), preview.r, preview.g, preview.b);
+        
+        // Invoke the LED preset callback for preview
+        auto& callback = getLedPresetActivatedCallback();
+        if (callback) {
+            callback(preview);
+        }
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"success\":true}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /**
+     * @brief Reorder LED presets
+     */
+    static esp_err_t handleApiLedPresetsReorder(httpd_req_t* req) {
+        if (requiresAuthRedirect(req)) return sendUnauthorized(req);
+        
+        char buf[1024];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No body");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+        
+        cJSON* root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+        
+        cJSON* order = cJSON_GetObjectItem(root, "order");
+        bool success = false;
+        
+        if (order && cJSON_IsArray(order)) {
+            int newOrder = 0;
+            cJSON* item;
+            cJSON_ArrayForEach(item, order) {
+                if (cJSON_IsNumber(item)) {
+                    int presetId = item->valueint;
+                    for (auto& preset : savedLedPresets_) {
+                        if (preset.id == presetId) {
+                            preset.order = newOrder++;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Sort by order
+            std::sort(savedLedPresets_.begin(), savedLedPresets_.end(),
+                [](const SavedLedPreset& a, const SavedLedPreset& b) {
+                    return a.order < b.order;
+                });
+            
+            success = true;
+            saveLedPresetsStorage();
+            ESP_LOGI(HTTP_TAG, "Reordered %d LED presets", (int)savedLedPresets_.size());
         }
         
         cJSON_Delete(root);
@@ -6890,6 +7718,7 @@ Audio:
     std::function<void(const char*, float)> singleParamCallback_;
     std::function<void(const StaticSpriteSceneConfig&)> spriteDisplayCallback_;
     std::function<void()> displayClearCallback_;
+    std::function<void(const SavedLedPreset&)> ledPresetActivatedCallback_;
     
 public:
     /**

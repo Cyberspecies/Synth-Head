@@ -42,6 +42,7 @@
 #include <cstring>
 #include <vector>
 #include <functional>
+#include <cmath>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -108,6 +109,14 @@ private:
     static bool initialized_;
     static bool testRunning_;
     static uint8_t currentBrightness_;
+    
+    // Animation state
+    static volatile bool animationRunning_;
+    static std::string currentAnimation_;
+    static uint8_t animR_, animG_, animB_;
+    static uint8_t animSpeed_;
+    static TaskHandle_t animationTaskHandle_;
+    static volatile bool taskExited_;  // Flag to signal task has exited
     
     // Auto-start flag - set to false to disable auto-run on boot
     static constexpr bool AUTO_START_LED_TESTS = false;
@@ -363,6 +372,244 @@ public:
         }
         refreshAllStrips();
     }
+    
+    // ============================================================
+    // CONTINUOUS ANIMATION SYSTEM
+    // ============================================================
+    
+    /**
+     * @brief Start a continuous background animation
+     * @param animation Animation type: "solid", "breathe", "rainbow", "pulse", "chase", "sparkle", "fire", "wave", "gradient"
+     * @param r Red component (0-255)
+     * @param g Green component (0-255)
+     * @param b Blue component (0-255)
+     * @param speed Animation speed (1-100)
+     */
+    static void startAnimation(const std::string& animation, uint8_t r, uint8_t g, uint8_t b, uint8_t speed) {
+        // Stop any existing animation
+        stopAnimation();
+        
+        if (!initialized_) init();
+        
+        // Store animation state
+        currentAnimation_ = animation;
+        animR_ = r;
+        animG_ = g;
+        animB_ = b;
+        animSpeed_ = speed;
+        
+        ESP_LOGI(LED_TEST_TAG, "Starting animation: %s RGB(%d,%d,%d) speed=%d", 
+                 animation.c_str(), r, g, b, speed);
+        
+        // For solid color, just set it directly - no task needed
+        if (animation == "solid" || animation == "Solid") {
+            animationRunning_ = false;  // No task running
+            taskExited_ = true;
+            setAllColor(r, g, b);
+            return;
+        }
+        
+        // Create animation task for continuous animations
+        animationRunning_ = true;
+        taskExited_ = false;
+        xTaskCreate(animationTaskFunc, "led_anim", 4096, nullptr, 3, &animationTaskHandle_);
+    }
+    
+    /**
+     * @brief Stop any running animation
+     */
+    static void stopAnimation() {
+        if (!animationRunning_ && animationTaskHandle_ == nullptr) {
+            return;  // Nothing to stop
+        }
+        
+        // Signal task to stop
+        animationRunning_ = false;
+        
+        // Wait briefly for task to exit (up to 150ms)
+        int waitCount = 0;
+        while (!taskExited_ && waitCount < 15) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            waitCount++;
+        }
+        
+        // If task didn't exit gracefully, force delete it
+        if (!taskExited_ && animationTaskHandle_ != nullptr) {
+            vTaskDelete(animationTaskHandle_);
+        }
+        
+        animationTaskHandle_ = nullptr;
+        taskExited_ = true;
+    }
+    
+    /**
+     * @brief Check if an animation is currently running
+     */
+    static bool isAnimationRunning() {
+        return animationRunning_;
+    }
+    
+private:
+    /**
+     * @brief Animation task - runs in background
+     */
+    static void animationTaskFunc(void* param) {
+        (void)param;
+        
+        uint32_t frame = 0;
+        
+        while (animationRunning_) {
+            // Calculate delay based on speed (1-100) -> 10ms to 100ms
+            int delayMs = 110 - animSpeed_;  // speed 100 = 10ms, speed 1 = 109ms
+            if (delayMs < 10) delayMs = 10;
+            
+            if (currentAnimation_ == "breathe" || currentAnimation_ == "Breathe") {
+                // Breathing animation - fade in and out
+                float phase = (float)(frame % 200) / 200.0f;
+                float brightness = (sinf(phase * 2.0f * 3.14159f) + 1.0f) / 2.0f;
+                
+                uint8_t r = (uint8_t)(animR_ * brightness);
+                uint8_t g = (uint8_t)(animG_ * brightness);
+                uint8_t b = (uint8_t)(animB_ * brightness);
+                
+                setAllColor(r, g, b);
+            }
+            else if (currentAnimation_ == "rainbow" || currentAnimation_ == "Rainbow") {
+                // Rainbow animation - cycle through hues
+                uint8_t baseHue = (frame * 2) % 256;
+                
+                for (int i = 0; i < NUM_STRIPS; i++) {
+                    if (LED_STRIPS[i].active) {
+                        for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
+                            uint8_t hue = (baseHue + j * 10) % 256;
+                            uint8_t r, g, b;
+                            hsvToRgb(hue, 255, 255, r, g, b);
+                            setPixel(i, j, r, g, b, 0);
+                        }
+                    }
+                }
+                refreshAllStrips();
+            }
+            else if (currentAnimation_ == "pulse" || currentAnimation_ == "Pulse") {
+                // Pulse animation - sharp on/off pulse
+                float phase = (float)(frame % 100) / 100.0f;
+                float brightness = (phase < 0.3f) ? 1.0f : 0.0f;
+                
+                uint8_t r = (uint8_t)(animR_ * brightness);
+                uint8_t g = (uint8_t)(animG_ * brightness);
+                uint8_t b = (uint8_t)(animB_ * brightness);
+                
+                setAllColor(r, g, b);
+            }
+            else if (currentAnimation_ == "chase" || currentAnimation_ == "Chase") {
+                // Chase animation - moving dot
+                int position = frame % 64;
+                
+                clearAllBuffers();
+                for (int i = 0; i < NUM_STRIPS; i++) {
+                    if (LED_STRIPS[i].active) {
+                        int pos = position % LED_STRIPS[i].ledCount;
+                        int trail1 = (pos - 1 + LED_STRIPS[i].ledCount) % LED_STRIPS[i].ledCount;
+                        int trail2 = (pos - 2 + LED_STRIPS[i].ledCount) % LED_STRIPS[i].ledCount;
+                        
+                        setPixel(i, pos, animR_, animG_, animB_, 0);
+                        setPixel(i, trail1, animR_/2, animG_/2, animB_/2, 0);
+                        setPixel(i, trail2, animR_/4, animG_/4, animB_/4, 0);
+                    }
+                }
+                refreshAllStrips();
+            }
+            else if (currentAnimation_ == "sparkle" || currentAnimation_ == "Sparkle") {
+                // Sparkle animation - random flashes (using frame-based pseudo-random)
+                clearAllBuffers();
+                for (int i = 0; i < NUM_STRIPS; i++) {
+                    if (LED_STRIPS[i].active) {
+                        // Set base dim color
+                        for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
+                            setPixel(i, j, animR_/10, animG_/10, animB_/10, 0);
+                        }
+                        // Pseudo-random sparkles based on frame
+                        int numSparkles = LED_STRIPS[i].ledCount / 3;
+                        for (int s = 0; s < numSparkles; s++) {
+                            // Simple pseudo-random using frame, strip index and sparkle index
+                            int randLed = ((frame * 7 + i * 13 + s * 17) % LED_STRIPS[i].ledCount);
+                            setPixel(i, randLed, animR_, animG_, animB_, 0);
+                        }
+                    }
+                }
+                refreshAllStrips();
+            }
+            else if (currentAnimation_ == "fire" || currentAnimation_ == "Fire") {
+                // Fire animation - flickering red/orange (simplified)
+                for (int i = 0; i < NUM_STRIPS; i++) {
+                    if (LED_STRIPS[i].active) {
+                        for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
+                            // Simple flicker using sine wave with offset per LED
+                            float flicker = sinf((float)frame * 0.3f + (float)j * 1.7f + (float)i * 2.3f);
+                            flicker = (flicker + 1.0f) / 2.0f;  // Normalize to 0-1
+                            flicker = 0.5f + flicker * 0.5f;    // Range 0.5 to 1.0
+                            
+                            uint8_t r = (uint8_t)(255 * flicker);
+                            uint8_t g = (uint8_t)(80 * flicker);  // Orange tint
+                            uint8_t b = 0;
+                            setPixel(i, j, r, g, b, 0);
+                        }
+                    }
+                }
+                refreshAllStrips();
+            }
+            else if (currentAnimation_ == "wave" || currentAnimation_ == "Wave") {
+                // Wave animation - sine wave of brightness
+                float phase = (float)frame / 20.0f;
+                
+                for (int i = 0; i < NUM_STRIPS; i++) {
+                    if (LED_STRIPS[i].active) {
+                        for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
+                            float brightness = (sinf(phase + j * 0.5f) + 1.0f) / 2.0f;
+                            uint8_t r = (uint8_t)(animR_ * brightness);
+                            uint8_t g = (uint8_t)(animG_ * brightness);
+                            uint8_t b = (uint8_t)(animB_ * brightness);
+                            setPixel(i, j, r, g, b, 0);
+                        }
+                    }
+                }
+                refreshAllStrips();
+            }
+            else if (currentAnimation_ == "gradient" || currentAnimation_ == "Gradient") {
+                // Gradient animation - fade across strip with shifting
+                int shift = frame % 256;
+                
+                for (int i = 0; i < NUM_STRIPS; i++) {
+                    if (LED_STRIPS[i].active) {
+                        for (int j = 0; j < LED_STRIPS[i].ledCount; j++) {
+                            float pos = (float)(j + shift) / (float)LED_STRIPS[i].ledCount;
+                            pos = fmodf(pos, 1.0f);
+                            
+                            // Gradient from base color to complementary
+                            uint8_t r = (uint8_t)(animR_ * (1.0f - pos) + (255 - animR_) * pos);
+                            uint8_t g = (uint8_t)(animG_ * (1.0f - pos) + (255 - animG_) * pos);
+                            uint8_t b = (uint8_t)(animB_ * (1.0f - pos) + (255 - animB_) * pos);
+                            setPixel(i, j, r, g, b, 0);
+                        }
+                    }
+                }
+                refreshAllStrips();
+            }
+            
+            frame++;
+            vTaskDelay(pdMS_TO_TICKS(delayMs));
+        }
+        
+        // Turn off LEDs when stopping
+        allOff();
+        
+        // Signal that we've exited, then delete ourselves
+        taskExited_ = true;
+        animationTaskHandle_ = nullptr;
+        vTaskDelete(nullptr);
+    }
+    
+public:
     
     static void setStripColor(int stripIndex, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0) {
         if (stripIndex < 0 || stripIndex >= NUM_STRIPS) return;
@@ -1147,6 +1394,16 @@ inline uint8_t LedStripTestHarness::pixelBuffers_[NUM_STRIPS][64][4] = {{{0}}};
 inline bool LedStripTestHarness::initialized_ = false;
 inline bool LedStripTestHarness::testRunning_ = false;
 inline uint8_t LedStripTestHarness::currentBrightness_ = 64;
+
+// Animation state static members
+inline volatile bool LedStripTestHarness::animationRunning_ = false;
+inline std::string LedStripTestHarness::currentAnimation_ = "solid";
+inline uint8_t LedStripTestHarness::animR_ = 255;
+inline uint8_t LedStripTestHarness::animG_ = 255;
+inline uint8_t LedStripTestHarness::animB_ = 255;
+inline uint8_t LedStripTestHarness::animSpeed_ = 50;
+inline TaskHandle_t LedStripTestHarness::animationTaskHandle_ = nullptr;
+inline volatile bool LedStripTestHarness::taskExited_ = true;
 
 } // namespace Testing
 } // namespace SystemAPI
