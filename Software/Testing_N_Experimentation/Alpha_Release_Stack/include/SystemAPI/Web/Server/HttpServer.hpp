@@ -58,7 +58,8 @@ namespace Web {
 static const char* HTTP_TAG = "HttpServer";
 
 /**
- * @brief Saved sprite metadata with embedded pixel data
+ * @brief Saved sprite metadata with lazy-loaded pixel data
+ * Pixel data and previews are loaded from SD card on-demand to save RAM
  */
 struct SavedSprite {
     int id = 0;
@@ -66,9 +67,10 @@ struct SavedSprite {
     int width = 64;
     int height = 32;
     int scale = 100;
-    std::string preview;  // base64 PNG thumbnail
-    std::vector<uint8_t> pixelData;  // Raw RGB888 pixel data for GPU upload
+    std::string preview;  // base64 PNG thumbnail (cleared after save to SD)
+    std::vector<uint8_t> pixelData;  // Raw RGB888 pixel data (cleared after save to SD)
     bool uploadedToGpu = false;      // Track if sprite is in GPU cache
+    bool savedToSd = false;          // True if pixel data is on SD card (lazy load)
 };
 
 /**
@@ -889,6 +891,28 @@ private:
         // Wait for filesystem to settle after pixel writes
         vTaskDelay(pdMS_TO_TICKS(200));
         
+        // MEMORY OPTIMIZATION: Clear pixel data from RAM after saving to SD card
+        // This prevents memory exhaustion when saving many sprites
+        // Pixel data will be lazy-loaded from SD when needed
+        size_t freedBytes = 0;
+        for (auto& sprite : savedSprites_) {
+            if (!sprite.pixelData.empty()) {
+                freedBytes += sprite.pixelData.size();
+                sprite.pixelData.clear();
+                sprite.pixelData.shrink_to_fit();  // Actually release memory
+                sprite.savedToSd = true;
+            }
+            // Also clear preview from RAM - it's saved to preview_X.txt
+            if (!sprite.preview.empty()) {
+                freedBytes += sprite.preview.size();
+                sprite.preview.clear();
+                sprite.preview.shrink_to_fit();
+            }
+        }
+        if (freedBytes > 0) {
+            ESP_LOGI(HTTP_TAG, "Freed %zu bytes of sprite data from RAM (lazy load enabled)", freedBytes);
+        }
+        
         // Build JSON index
         cJSON* root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "version", 2);
@@ -1022,20 +1046,16 @@ private:
             }
             
             sprite.scale = 100;
-            sprite.pixelData.resize((size_t)fileSize);
-            
-            int bytesRead = fs.readFile(pixelRelPath, sprite.pixelData.data(), sprite.pixelData.size());
-            
-            if (bytesRead == (int)fileSize) {
-                sprite.uploadedToGpu = false;
-                savedSprites_.push_back(sprite);
-                ESP_LOGI(HTTP_TAG, "Recovered sprite %d (%dx%d, %d bytes)", 
-                         id, sprite.width, sprite.height, bytesRead);
-                         
-                // Update nextSpriteId if needed
-                if (id >= nextSpriteId_) nextSpriteId_ = id + 1;
-                recovered++;
-            }
+            // MEMORY OPTIMIZATION: Don't load pixel data, just mark as saved to SD
+            sprite.savedToSd = true;
+            sprite.uploadedToGpu = false;
+            savedSprites_.push_back(sprite);
+            ESP_LOGI(HTTP_TAG, "Recovered sprite %d (%dx%d, lazy load enabled)", 
+                     id, sprite.width, sprite.height);
+                     
+            // Update nextSpriteId if needed
+            if (id >= nextSpriteId_) nextSpriteId_ = id + 1;
+            recovered++;
         }
         
         // If we recovered sprites, save the updated index
@@ -1161,18 +1181,14 @@ private:
                 char pixelRelPath[64];
                 snprintf(pixelRelPath, sizeof(pixelRelPath), "/Sprites/sprite_%d.bin", sprite.id);
                 
+                // MEMORY OPTIMIZATION: Don't load pixel data into RAM on boot
+                // Just check if file exists and set savedToSd flag for lazy loading
                 if (fs.fileExists(pixelRelPath)) {
                     uint64_t fileSize = fs.getFileSize(pixelRelPath);
                     if (fileSize > 0 && fileSize < 1024*1024) {  // Max 1MB
-                        sprite.pixelData.resize((size_t)fileSize);
-                        int bytesRead = fs.readFile(pixelRelPath, sprite.pixelData.data(), sprite.pixelData.size());
-                        
-                        if (bytesRead == (int)fileSize) {
-                            ESP_LOGI(HTTP_TAG, "  Loaded %d bytes of pixel data", bytesRead);
-                        } else {
-                            ESP_LOGW(HTTP_TAG, "  Pixel read mismatch: expected %llu, got %d", fileSize, bytesRead);
-                            sprite.pixelData.clear();
-                        }
+                        // Mark as saved to SD for lazy loading - don't load into RAM now!
+                        sprite.savedToSd = true;
+                        ESP_LOGI(HTTP_TAG, "  Sprite pixel file exists (%llu bytes, lazy load enabled)", fileSize);
                     } else {
                         ESP_LOGW(HTTP_TAG, "  Invalid pixel file size: %llu", fileSize);
                     }
@@ -1180,18 +1196,13 @@ private:
                     ESP_LOGW(HTTP_TAG, "  No pixel file found");
                 }
                 
-                // Try to load preview file
+                // MEMORY OPTIMIZATION: Don't load preview into RAM either
+                // Preview is only needed for web UI display and will be loaded on-demand
                 char previewRelPath[64];
                 snprintf(previewRelPath, sizeof(previewRelPath), "/Sprites/preview_%d.txt", sprite.id);
                 
                 if (fs.fileExists(previewRelPath)) {
-                    char* previewBuf = nullptr;
-                    size_t previewSize = 0;
-                    if (fs.readFile(previewRelPath, &previewBuf, &previewSize) && previewBuf) {
-                        sprite.preview = std::string(previewBuf, previewSize);
-                        free(previewBuf);
-                        ESP_LOGI(HTTP_TAG, "  Loaded preview (%zu bytes)", sprite.preview.size());
-                    }
+                    ESP_LOGI(HTTP_TAG, "  Preview file exists (lazy load enabled)");
                 } else {
                     ESP_LOGW(HTTP_TAG, "  No preview file found");
                 }
@@ -5744,9 +5755,27 @@ private:
         cJSON* root = cJSON_CreateObject();
         cJSON* sprites = cJSON_CreateArray();
         
-        for (const auto& sprite : savedSprites_) {
+        auto& fs = Utils::FileSystemService::instance();
+        
+        for (auto& sprite : savedSprites_) {
             ESP_LOGI(HTTP_TAG, "  Sprite: id=%d, name='%s', %dx%d", 
                      sprite.id, sprite.name.c_str(), sprite.width, sprite.height);
+            
+            // Lazy load preview if needed for API response
+            if (sprite.preview.empty() && sprite.savedToSd && sdcard_storage_ready_ && fs.isReady()) {
+                char previewRelPath[64];
+                snprintf(previewRelPath, sizeof(previewRelPath), "/Sprites/preview_%d.txt", sprite.id);
+                if (fs.fileExists(previewRelPath)) {
+                    char* previewBuf = nullptr;
+                    size_t previewSize = 0;
+                    if (fs.readFile(previewRelPath, &previewBuf, &previewSize) && previewBuf) {
+                        sprite.preview = std::string(previewBuf, previewSize);
+                        free(previewBuf);
+                        ESP_LOGI(HTTP_TAG, "    Lazy loaded preview (%zu bytes)", sprite.preview.size());
+                    }
+                }
+            }
+            
             cJSON* item = cJSON_CreateObject();
             cJSON_AddNumberToObject(item, "id", sprite.id);
             cJSON_AddStringToObject(item, "name", sprite.name.c_str());
@@ -5756,8 +5785,8 @@ private:
             // Calculate size in bytes (RGB888)
             int sizeBytes = sprite.width * sprite.height * 3;
             cJSON_AddNumberToObject(item, "sizeBytes", sizeBytes);
-            cJSON_AddBoolToObject(item, "hasPixels", !sprite.pixelData.empty());
-            cJSON_AddNumberToObject(item, "pixelDataSize", sprite.pixelData.size());
+            cJSON_AddBoolToObject(item, "hasPixels", !sprite.pixelData.empty() || sprite.savedToSd);
+            cJSON_AddNumberToObject(item, "pixelDataSize", sprite.pixelData.empty() ? sizeBytes : sprite.pixelData.size());
             cJSON_AddStringToObject(item, "preview", sprite.preview.c_str());
             cJSON_AddItemToArray(sprites, item);
         }
@@ -8244,17 +8273,73 @@ public:
     }
     
     /**
-     * @brief Find a saved sprite by ID
+     * @brief Lazy load sprite pixel data from SD card
+     * Called when sprite is needed but pixel data was cleared from RAM
+     */
+    static bool lazyLoadSpritePixels(SavedSprite& sprite) {
+        if (!sprite.pixelData.empty()) {
+            return true;  // Already loaded
+        }
+        
+        if (!sprite.savedToSd) {
+            ESP_LOGW(HTTP_TAG, "Cannot lazy load sprite %d - not saved to SD", sprite.id);
+            return false;
+        }
+        
+        auto& fs = Utils::FileSystemService::instance();
+        if (!sdcard_storage_ready_ || !fs.isReady() || !fs.isMounted()) {
+            ESP_LOGE(HTTP_TAG, "SD card not available for lazy load");
+            return false;
+        }
+        
+        char pixelRelPath[64];
+        snprintf(pixelRelPath, sizeof(pixelRelPath), "/Sprites/sprite_%d.bin", sprite.id);
+        
+        if (!fs.fileExists(pixelRelPath)) {
+            ESP_LOGW(HTTP_TAG, "Sprite %d pixel file not found: %s", sprite.id, pixelRelPath);
+            return false;
+        }
+        
+        uint64_t fileSize = fs.getFileSize(pixelRelPath);
+        if (fileSize == 0 || fileSize > 1024*1024) {
+            ESP_LOGW(HTTP_TAG, "Invalid pixel file size for sprite %d: %llu", sprite.id, fileSize);
+            return false;
+        }
+        
+        sprite.pixelData.resize((size_t)fileSize);
+        int bytesRead = fs.readFile(pixelRelPath, sprite.pixelData.data(), sprite.pixelData.size());
+        
+        if (bytesRead == (int)fileSize) {
+            ESP_LOGI(HTTP_TAG, "Lazy loaded %d bytes for sprite %d '%s'", 
+                     bytesRead, sprite.id, sprite.name.c_str());
+            return true;
+        } else {
+            ESP_LOGE(HTTP_TAG, "Failed to lazy load sprite %d: expected %llu, got %d", 
+                     sprite.id, fileSize, bytesRead);
+            sprite.pixelData.clear();
+            return false;
+        }
+    }
+    
+    /**
+     * @brief Find a saved sprite by ID (with lazy loading)
      * @param spriteId The sprite ID to find
      * @return Pointer to sprite, or nullptr if not found
      */
     static SavedSprite* findSpriteById(int spriteId) {
         ESP_LOGI(HTTP_TAG, "findSpriteById(%d): searching %d sprites", spriteId, savedSprites_.size());
         for (auto& sprite : savedSprites_) {
-            ESP_LOGI(HTTP_TAG, "  - Checking sprite id=%d '%s' pixels=%s", 
-                     sprite.id, sprite.name.c_str(), sprite.pixelData.empty() ? "NO" : "YES");
+            ESP_LOGI(HTTP_TAG, "  - Checking sprite id=%d '%s' pixels=%s savedToSd=%s", 
+                     sprite.id, sprite.name.c_str(), 
+                     sprite.pixelData.empty() ? "NO" : "YES",
+                     sprite.savedToSd ? "YES" : "NO");
             if (sprite.id == spriteId) {
                 ESP_LOGI(HTTP_TAG, "  - FOUND!");
+                // Lazy load pixel data if needed
+                if (sprite.pixelData.empty() && sprite.savedToSd) {
+                    ESP_LOGI(HTTP_TAG, "  - Lazy loading pixel data from SD...");
+                    lazyLoadSpritePixels(sprite);
+                }
                 return &sprite;
             }
         }
