@@ -27,6 +27,7 @@
 #include "driver/gpio.h"
 #include "GpuDriver/GpuCommands.hpp"
 #include "SystemAPI/Security/SecurityDriver.hpp"
+#include "Drivers/FanDriver.hpp"
 
 // Forward declaration for scene activation
 namespace SystemAPI { namespace Web { struct SavedScene; } }
@@ -948,50 +949,24 @@ private:
         gpu_->oledLine(0, 32, 0, 95, true);      // Left edge
         gpu_->oledLine(127, 32, 127, 95, true);  // Right edge
         
-        // Declare statusBuf here for use in viewport section
+        // Simplified viewport - just time and fan status for debugging
         char statusBuf[32];
-        int viewportY = 34;  // Start inside the border
-        
-        // Show device name centered
-        int nameLen = strlen(deviceName_);
-        int nameX = (128 - nameLen * 6) / 2;
-        gpu_->oledTextNative(nameX, viewportY, deviceName_, 1, true);
-        viewportY += 10;
-        
-        // Show model
-        char modelBuf[32];
-        snprintf(modelBuf, sizeof(modelBuf), "Model: %s", deviceModel_);
-        gpu_->oledTextNative(4, viewportY, modelBuf, 1, true);
-        viewportY += 10;
-        
-        // IMU quick data
-        snprintf(statusBuf, sizeof(statusBuf), "IMU: %.1f %.1f %.1f", 
-                 imuData_.accelX, imuData_.accelY, imuData_.accelZ);
-        gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
-        viewportY += 10;
+        int viewportY = 50;  // Center vertically in viewport
         
         // Time from GPS (or loading message if no fix)
         if (gpsData_.hasFix && gpsData_.connected) {
-            // Show time in HH:MM:SS format
             snprintf(statusBuf, sizeof(statusBuf), "Time: %02d:%02d:%02d", 
                      gpsData_.hour, gpsData_.minute, gpsData_.second);
-        } else if (gpsData_.connected) {
-            snprintf(statusBuf, sizeof(statusBuf), "GPS loading...");
         } else {
             snprintf(statusBuf, sizeof(statusBuf), "GPS loading...");
         }
         gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
-        viewportY += 10;
+        viewportY += 14;
         
-        // Mic level bar visualization (using dB level, scale from -60dB to 0dB)
-        gpu_->oledTextNative(4, viewportY, "MIC:", 1, true);
-        // Convert dB to bar width: -60dB = 0, 0dB = 96 pixels
-        int barWidth = (int)((micData_.dbLevel + 60.0f) * 96.0f / 60.0f);
-        if (barWidth < 0) barWidth = 0;
-        if (barWidth > 96) barWidth = 96;
-        if (barWidth > 0) {
-            gpu_->oledFill(28, viewportY, barWidth, 8, true);
-        }
+        // Fan status
+        bool fanOn = Drivers::FanDriver::isOn();
+        snprintf(statusBuf, sizeof(statusBuf), "Fan: %s", fanOn ? "ON" : "OFF");
+        gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
         
         // === HUB75 MIRROR SECTION (Bottom 32 pixels: code Y 96-127) ===
         // Mirror the HUB75 panel content (128x32) to bottom of OLED at 1:1 scale

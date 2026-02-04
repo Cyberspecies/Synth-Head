@@ -19,6 +19,7 @@
 #include <atomic>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -268,7 +269,6 @@ static GPUState gpu;
 // Framebuffers
 // ============================================================
 static uint8_t* hub75_buffer = nullptr;  // TOTAL_WIDTH * TOTAL_HEIGHT * 3
-static uint8_t* oled_buffer = nullptr;   // OLED_WIDTH * OLED_HEIGHT / 8
 
 constexpr int HUB75_BUFFER_SIZE = TOTAL_WIDTH * TOTAL_HEIGHT * 3;
 constexpr int OLED_BUFFER_SIZE = OLED_WIDTH * OLED_HEIGHT / 8;
@@ -285,9 +285,29 @@ static bool hub75_ok = false;
 static DRIVER_OLED_SH1107* oled = nullptr;
 static bool oled_ok = false;
 
-// OLED update runs on Core 0 to avoid interfering with HUB75 DMA on Core 1
+// OLED retained-mode rendering with TRUE triple buffering:
+// - oled_back_buffer: CPU draws here (never displayed directly)
+// - oled_front_buffer: Staged for next display update (swapped on OLED_PRESENT)
+// - oled_display_buffer: Currently being sent to I2C (safe to read during transfer)
+// Flow: CPU draws to back -> PRESENT copies back->front -> oledTask copies front->display -> I2C
 static volatile bool oled_update_pending = false;
-static uint8_t* oled_update_buffer = nullptr;  // Double buffer for safe cross-core transfer
+static uint8_t* oled_back_buffer = nullptr;     // Back buffer - CPU draws here
+static uint8_t* oled_front_buffer = nullptr;    // Front buffer - staged for display
+static uint8_t* oled_display_buffer = nullptr;  // Display buffer - being sent to I2C
+static uint8_t* oled_buffer = nullptr;          // Alias for oled_back_buffer (legacy)
+static uint8_t* oled_update_buffer = nullptr;   // Alias for front buffer (legacy compatibility)
+static SemaphoreHandle_t oled_buffer_mutex = nullptr;  // Protects front buffer access
+
+// Helper to safely present OLED buffer (copies back->front with mutex)
+static void presentOLEDBuffer() {
+  if (oled_ok && oled_buffer_mutex) {
+    if (xSemaphoreTake(oled_buffer_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+      memcpy(oled_front_buffer, oled_back_buffer, OLED_BUFFER_SIZE);
+      oled_update_pending = true;
+      xSemaphoreGive(oled_buffer_mutex);
+    }
+  }
+}
 
 // Anti-aliasing enabled by default
 static bool aa_enabled = true;  // Re-enabled with panel boundary fix
@@ -800,9 +820,9 @@ static inline void setPixelOLED(int x, int y, bool on) {
   int byte_idx = (y / 8) * OLED_WIDTH + x;
   int bit = y % 8;
   if (on) {
-    oled_buffer[byte_idx] |= (1 << bit);
+    oled_back_buffer[byte_idx] |= (1 << bit);
   } else {
-    oled_buffer[byte_idx] &= ~(1 << bit);
+    oled_back_buffer[byte_idx] &= ~(1 << bit);
   }
 }
 
@@ -820,9 +840,9 @@ static inline void setPixelOLEDInternal(int x, int y, bool on) {
   int byte_idx = (y / 8) * OLED_WIDTH + x;
   int bit = y % 8;
   if (on) {
-    oled_buffer[byte_idx] |= (1 << bit);
+    oled_back_buffer[byte_idx] |= (1 << bit);
   } else {
-    oled_buffer[byte_idx] &= ~(1 << bit);
+    oled_back_buffer[byte_idx] &= ~(1 << bit);
   }
 }
 
@@ -837,7 +857,7 @@ static inline bool getPixelOLED(int x, int y) {
   
   int byte_idx = (y / 8) * OLED_WIDTH + x;
   int bit = y % 8;
-  return (oled_buffer[byte_idx] >> bit) & 1;
+  return (oled_back_buffer[byte_idx] >> bit) & 1;
 }
 
 // Unified pixel set based on target
@@ -1038,120 +1058,149 @@ static void presentHUB75Buffer() {
   if (!hub75_ok || !hub75) return;
   
   // Update glitch state once per frame (if glitch shader is active)
-  updateGlitchState();
+  bool glitchEnabled = (g_shaderType == ShaderType::GLITCH);
+  if (glitchEnabled) {
+    updateGlitchState();
+  }
   
-  for (int y = 0; y < TOTAL_HEIGHT; y++) {
-    // Get glitch offset for this row
-    int16_t glitchOffset = 0;
-    int16_t glitchChromaR = 0;
-    int16_t glitchChromaB = 0;
-    
-    if (g_glitchActive && g_shaderType == ShaderType::GLITCH) {
-      glitchOffset = g_glitchRowOffsets[y];
+  // Pre-compute RGB channel indices based on RGB_ORDER
+  // This moves the switch outside the pixel loops
+  int rIdx = 0, gIdx = 1, bIdx = 2;
+  switch (RGB_ORDER) {
+    case 1: rIdx = 0; gIdx = 2; bIdx = 1; break;  // RBG
+    case 2: rIdx = 1; gIdx = 0; bIdx = 2; break;  // GRB
+    case 3: rIdx = 1; gIdx = 2; bIdx = 0; break;  // GBR
+    case 4: rIdx = 2; gIdx = 0; bIdx = 1; break;  // BRG
+    case 5: rIdx = 2; gIdx = 1; bIdx = 0; break;  // BGR
+    default: break; // RGB (0)
+  }
+  
+  // Fast path: no glitch effect
+  if (!glitchEnabled || !g_glitchActive) {
+    for (int y = 0; y < TOTAL_HEIGHT; y++) {
+      for (int x = 0; x < TOTAL_WIDTH; x++) {
+        // Start with buffer coordinates
+        int bufX = GLOBAL_MIRROR_X ? (TOTAL_WIDTH - 1 - x) : x;
+        int bufY = y;
+        
+        // Determine which panel this pixel belongs to (in buffer space)
+        bool isRightPanel = (bufX >= PANEL_WIDTH);
+        int panelX = isRightPanel ? (bufX - PANEL_WIDTH) : bufX;
+        
+        // Apply per-panel transforms
+        int transformedPanelX = panelX;
+        int transformedY = bufY;
+        
+        if (isRightPanel) {
+          if (PANEL1_MIRROR_X) transformedPanelX = (PANEL_WIDTH - 1) - panelX;
+          if (PANEL1_MIRROR_Y) transformedY = (TOTAL_HEIGHT - 1) - bufY;
+        } else {
+          if (PANEL0_MIRROR_X) transformedPanelX = (PANEL_WIDTH - 1) - panelX;
+          if (PANEL0_MIRROR_Y) transformedY = (TOTAL_HEIGHT - 1) - bufY;
+        }
+        
+        // Calculate display X position
+        int displayX;
+        if (GLOBAL_SWAP_PANELS) {
+          displayX = isRightPanel ? transformedPanelX : (PANEL_WIDTH + transformedPanelX);
+        } else {
+          displayX = isRightPanel ? (PANEL_WIDTH + transformedPanelX) : transformedPanelX;
+        }
+        
+        // Read from buffer (no glitch offset)
+        int srcX = x;
+        int idx;
+        if (PANEL0_SWAP) {
+          int readX = isRightPanel ? panelX : (PANEL_WIDTH + panelX);
+          idx = (bufY * TOTAL_WIDTH + readX) * 3;
+        } else {
+          idx = (bufY * TOTAL_WIDTH + srcX) * 3;
+        }
+        
+        uint8_t r = hub75_buffer[idx];
+        uint8_t g = hub75_buffer[idx + 1];
+        uint8_t b = hub75_buffer[idx + 2];
+        
+        // Apply RGB order using pre-computed indices
+        uint8_t rgb[3] = {r, g, b};
+        hub75->setPixel(displayX, transformedY, RGB(rgb[rIdx], rgb[gIdx], rgb[bIdx]));
+      }
+    }
+  } else {
+    // Slow path: glitch effect active
+    for (int y = 0; y < TOTAL_HEIGHT; y++) {
+      // Get glitch offset for this row
+      int16_t glitchOffset = g_glitchRowOffsets[y];
+      int16_t glitchChromaR = 0;
+      int16_t glitchChromaB = 0;
+      
       // Chromatic aberration: shift R and B channels relative to G
       if (g_glitchChromatic > 0 && glitchOffset != 0) {
         int16_t chromaAmount = 1 + (g_glitchChromatic * abs(glitchOffset) / 80);
         glitchChromaR = (glitchOffset > 0) ? -chromaAmount : chromaAmount;
         glitchChromaB = (glitchOffset > 0) ? chromaAmount : -chromaAmount;
       }
-    }
     
-    for (int x = 0; x < TOTAL_WIDTH; x++) {
-      // Start with buffer coordinates
-      int bufX = x;
-      int bufY = y;
-      
-      // Apply global X mirror if enabled
-      if (GLOBAL_MIRROR_X) {
-        bufX = (TOTAL_WIDTH - 1) - bufX;
-      }
-      
-      // Determine which panel this pixel belongs to (in buffer space)
-      bool isRightPanel = (bufX >= PANEL_WIDTH);
-      int panelX = isRightPanel ? (bufX - PANEL_WIDTH) : bufX;
-      
-      // Apply per-panel transforms
-      int transformedPanelX = panelX;
-      int transformedY = bufY;
-      
-      if (isRightPanel) {
-        // Panel 1 transforms
-        if (PANEL1_MIRROR_X) transformedPanelX = (PANEL_WIDTH - 1) - panelX;
-        if (PANEL1_MIRROR_Y) transformedY = (TOTAL_HEIGHT - 1) - bufY;
-      } else {
-        // Panel 0 transforms
-        if (PANEL0_MIRROR_X) transformedPanelX = (PANEL_WIDTH - 1) - panelX;
-        if (PANEL0_MIRROR_Y) transformedY = (TOTAL_HEIGHT - 1) - bufY;
-      }
-      
-      // Calculate display X position
-      int displayX;
-      if (GLOBAL_SWAP_PANELS) {
-        // Swap panel positions
+      for (int x = 0; x < TOTAL_WIDTH; x++) {
+        int bufX = GLOBAL_MIRROR_X ? (TOTAL_WIDTH - 1 - x) : x;
+        int bufY = y;
+        
+        bool isRightPanel = (bufX >= PANEL_WIDTH);
+        int panelX = isRightPanel ? (bufX - PANEL_WIDTH) : bufX;
+        
+        int transformedPanelX = panelX;
+        int transformedY = bufY;
+        
         if (isRightPanel) {
-          displayX = transformedPanelX;  // Right panel goes to left side
+          if (PANEL1_MIRROR_X) transformedPanelX = (PANEL_WIDTH - 1) - panelX;
+          if (PANEL1_MIRROR_Y) transformedY = (TOTAL_HEIGHT - 1) - bufY;
         } else {
-          displayX = PANEL_WIDTH + transformedPanelX;  // Left panel goes to right side
+          if (PANEL0_MIRROR_X) transformedPanelX = (PANEL_WIDTH - 1) - panelX;
+          if (PANEL0_MIRROR_Y) transformedY = (TOTAL_HEIGHT - 1) - bufY;
         }
-      } else {
-        // Normal panel positions
-        if (isRightPanel) {
-          displayX = PANEL_WIDTH + transformedPanelX;
+        
+        int displayX;
+        if (GLOBAL_SWAP_PANELS) {
+          displayX = isRightPanel ? transformedPanelX : (PANEL_WIDTH + transformedPanelX);
         } else {
-          displayX = transformedPanelX;
+          displayX = isRightPanel ? (PANEL_WIDTH + transformedPanelX) : transformedPanelX;
         }
+        
+        // Apply glitch offset to source X coordinate
+        int srcX = x + glitchOffset;
+        if (srcX < 0) srcX = 0;
+        if (srcX >= TOTAL_WIDTH) srcX = TOTAL_WIDTH - 1;
+        
+        int idx;
+        if (PANEL0_SWAP) {
+          int readX = isRightPanel ? panelX : (PANEL_WIDTH + panelX);
+          readX += glitchOffset;
+          if (readX < 0) readX = 0;
+          if (readX >= TOTAL_WIDTH) readX = TOTAL_WIDTH - 1;
+          idx = (bufY * TOTAL_WIDTH + readX) * 3;
+        } else {
+          idx = (bufY * TOTAL_WIDTH + srcX) * 3;
+        }
+        
+        // Read G channel (reference for chromatic aberration)
+        uint8_t g_ch = hub75_buffer[idx + 1];
+        
+        // Read R with chromatic offset
+        int srcXr = srcX + glitchChromaR;
+        if (srcXr < 0) srcXr = 0;
+        if (srcXr >= TOTAL_WIDTH) srcXr = TOTAL_WIDTH - 1;
+        uint8_t r_ch = hub75_buffer[(bufY * TOTAL_WIDTH + srcXr) * 3];
+        
+        // Read B with chromatic offset
+        int srcXb = srcX + glitchChromaB;
+        if (srcXb < 0) srcXb = 0;
+        if (srcXb >= TOTAL_WIDTH) srcXb = TOTAL_WIDTH - 1;
+        uint8_t b_ch = hub75_buffer[(bufY * TOTAL_WIDTH + srcXb) * 3 + 2];
+        
+        // Apply RGB order
+        uint8_t rgb[3] = {r_ch, g_ch, b_ch};
+        hub75->setPixel(displayX, transformedY, RGB(rgb[rIdx], rgb[gIdx], rgb[bIdx]));
       }
-      
-      // Handle PANEL0_SWAP (swap which panel's data goes where)
-      // Also apply glitch offset to source X coordinate
-      int srcX = x + glitchOffset;
-      
-      // Clamp srcX to valid range (wrap or clamp)
-      if (srcX < 0) srcX = 0;
-      if (srcX >= TOTAL_WIDTH) srcX = TOTAL_WIDTH - 1;
-      
-      int idx;
-      if (PANEL0_SWAP) {
-        // This swaps source data, not output position
-        // Read from opposite panel
-        int readX = isRightPanel ? panelX : (PANEL_WIDTH + panelX);
-        readX += glitchOffset;
-        if (readX < 0) readX = 0;
-        if (readX >= TOTAL_WIDTH) readX = TOTAL_WIDTH - 1;
-        idx = (bufY * TOTAL_WIDTH + readX) * 3;
-      } else {
-        idx = (bufY * TOTAL_WIDTH + srcX) * 3;
-      }
-      
-      // Read G channel (green is the reference for chromatic aberration)
-      uint8_t g_ch = hub75_buffer[idx + 1];
-      
-      // Read R channel with chromatic offset
-      int srcXr = srcX + glitchChromaR;
-      if (srcXr < 0) srcXr = 0;
-      if (srcXr >= TOTAL_WIDTH) srcXr = TOTAL_WIDTH - 1;
-      int idxR = (bufY * TOTAL_WIDTH + srcXr) * 3;
-      uint8_t r_ch = hub75_buffer[idxR];
-      
-      // Read B channel with chromatic offset
-      int srcXb = srcX + glitchChromaB;
-      if (srcXb < 0) srcXb = 0;
-      if (srcXb >= TOTAL_WIDTH) srcXb = TOTAL_WIDTH - 1;
-      int idxB = (bufY * TOTAL_WIDTH + srcXb) * 3;
-      uint8_t b_ch = hub75_buffer[idxB + 2];
-      
-      // Apply RGB channel order correction
-      uint8_t ch0, ch1, ch2;
-      switch (RGB_ORDER) {
-        case 0: ch0 = r_ch; ch1 = g_ch; ch2 = b_ch; break;  // RGB
-        case 1: ch0 = r_ch; ch1 = b_ch; ch2 = g_ch; break;  // RBG
-        case 2: ch0 = g_ch; ch1 = r_ch; ch2 = b_ch; break;  // GRB
-        case 3: ch0 = g_ch; ch1 = b_ch; ch2 = r_ch; break;  // GBR
-        case 4: ch0 = b_ch; ch1 = r_ch; ch2 = g_ch; break;  // BRG
-        case 5: ch0 = b_ch; ch1 = g_ch; ch2 = r_ch; break;  // BGR
-        default: ch0 = r_ch; ch1 = g_ch; ch2 = b_ch; break;
-      }
-      hub75->setPixel(displayX, transformedY, RGB(ch0, ch1, ch2));
     }
   }
   hub75->show();
@@ -1463,10 +1512,7 @@ static bool updateBootAnimation() {
       
       // Present displays
       presentHUB75Buffer();
-      if (oled_ok) {
-        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
-        oled_update_pending = true;
-      }
+      presentOLEDBuffer();
       
       if (progress >= 1.0f) {
         bootState = BootState::HOLD;
@@ -1509,10 +1555,7 @@ static bool updateBootAnimation() {
       
       // Present displays
       presentHUB75Buffer();
-      if (oled_ok) {
-        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
-        oled_update_pending = true;
-      }
+      presentOLEDBuffer();
       return true;
     }
     
@@ -1542,10 +1585,7 @@ static bool updateBootAnimation() {
       
       // Present displays
       presentHUB75Buffer();
-      if (oled_ok) {
-        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
-        oled_update_pending = true;
-      }
+      presentOLEDBuffer();
       
       if (progress >= 1.0f) {
         bootState = BootState::RUNNING;
@@ -1606,10 +1646,7 @@ static bool updateBootAnimation() {
       
       // Present displays
       presentHUB75Buffer();
-      if (oled_ok) {
-        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
-        oled_update_pending = true;
-      }
+      presentOLEDBuffer();
       
       // Check if CPU reconnected
       if (cpuConnected) {
@@ -4063,9 +4100,8 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         // Use release semantics so Core 0 sees this update
         dbg_last_hub75_present.store(now, std::memory_order_release);
       } else if (gpu.target == 1 && oled_ok) {
-        // Copy to update buffer and signal Core 0 task (non-blocking)
-        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
-        oled_update_pending = true;
+        // Present OLED with mutex protection
+        presentOLEDBuffer();
       }
       gpu.frameCount++;
       break;
@@ -4073,7 +4109,8 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     
     // ========== OLED-Specific Commands (always target OLED) ==========
     case CmdType::OLED_CLEAR: {
-      memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+      // In retained mode, clear only the back buffer (doesn't affect display until present)
+      memset(oled_back_buffer, 0, OLED_BUFFER_SIZE);
       break;
     }
     
@@ -4167,13 +4204,16 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     }
     
     case CmdType::OLED_PRESENT: {
-      if (oled_ok) {
-        memcpy(oled_update_buffer, oled_buffer, OLED_BUFFER_SIZE);
-        oled_update_pending = true;
+      if (oled_ok && oled_buffer_mutex) {
+        // Copy back buffer to front buffer (safer than swapping)
+        // This ensures drawing always goes to back buffer, display always reads from front
+        if (xSemaphoreTake(oled_buffer_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+          memcpy(oled_front_buffer, oled_back_buffer, OLED_BUFFER_SIZE);
+          oled_update_pending = true;
+          xSemaphoreGive(oled_buffer_mutex);
+        }
         dbg_oled_presents++;
         dbg_last_oled_present = esp_timer_get_time();
-        // Note: Don't clear buffer here - CPU sends OLED_CLEAR before each frame
-        // Clearing here caused flashing when frames arrived faster than display
       }
       break;
     }
@@ -4931,56 +4971,46 @@ static void uartTask(void* arg) {
 // ============================================================
 static void oledTask(void* arg) {
   ESP_LOGI(TAG, "OLED task started on Core 0");
-  int64_t lastUpdateTime = 0;
-  const int MIN_MS_AFTER_HUB75 = 2;  // Wait at least 2ms after HUB75 present (reduced from 8ms)
   static uint32_t oled_update_num = 0;  // For sparse logging
   
   while (true) {
     if (oled_update_pending && oled_ok) {
       oled_update_pending = false;
       
-      // Copy buffer first (fast operation)
-      memcpy(oled->getBuffer(), oled_update_buffer, OLED_BUFFER_SIZE);
-      
-      // Wait until at least MIN_MS_AFTER_HUB75 since last HUB75 present
-      // This gives DMA time to settle before we start I2C traffic
-      int retries = 0;
-      int64_t sinceHUB75;
-      while (retries < 20) {  // Max ~20ms of waiting (reduced from 50)
-        int64_t now = esp_timer_get_time();
-        // Use acquire semantics to ensure we see the latest value from Core 1
-        int64_t lastHUB75 = dbg_last_hub75_present.load(std::memory_order_acquire);
-        sinceHUB75 = (now - lastHUB75) / 1000;  // ms
-        
-        // Check if we're past the minimum time
-        if (sinceHUB75 >= MIN_MS_AFTER_HUB75) {
-          break;  // Safe to proceed
-        }
-        
-        // Short yield then check again
-        vTaskDelay(pdMS_TO_TICKS(1));  // 1ms tick
-        retries++;
+      // Copy front buffer to display buffer while holding mutex (fast memcpy)
+      // This ensures front buffer isn't modified during copy
+      if (oled_buffer_mutex && xSemaphoreTake(oled_buffer_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        memcpy(oled_display_buffer, oled_front_buffer, OLED_BUFFER_SIZE);
+        xSemaphoreGive(oled_buffer_mutex);
+      } else {
+        // Couldn't get mutex, retry next tick
+        oled_update_pending = true;
+        vTaskDelay(pdMS_TO_TICKS(1));
+        continue;
       }
       
-      // Do the I2C update
-      oled->updateDisplay();
+      // Now copy display buffer to OLED driver and do I2C transfer
+      // This happens OUTSIDE the mutex, so OLED_PRESENT can update front buffer
+      memcpy(oled->getBuffer(), oled_display_buffer, OLED_BUFFER_SIZE);
+      
+      // Small delay to let buffer settle before I2C transfer
+      // This may help reduce display artifacts from timing issues
+      vTaskDelay(pdMS_TO_TICKS(1));
+      
+      oled->updateDisplay();  // Full update (~40ms at 400kHz I2C)
       dbg_oled_updates++;
       oled_update_num++;
-      lastUpdateTime = esp_timer_get_time();
       
-      // Log only every 60th update to reduce overhead (changed from 30)
+      // Log only every 60th update to reduce overhead
       if ((oled_update_num % 60) == 0) {
         int64_t now = esp_timer_get_time();
         int64_t lastHUB75 = dbg_last_hub75_present.load(std::memory_order_acquire);
-        sinceHUB75 = (now - lastHUB75) / 1000;
-        ESP_LOGI(TAG, "OLED #%lu: since_hub75=%lldms, retries=%d", 
-                 (unsigned long)oled_update_num, sinceHUB75, retries);
+        int64_t sinceHUB75 = (now - lastHUB75) / 1000;
+        ESP_LOGI(TAG, "OLED #%lu: since_hub75=%lldms", 
+                 (unsigned long)oled_update_num, sinceHUB75);
       }
-      
-      // Give HUB75 DMA time to recover after I2C burst (reduced from 5ms)
-      vTaskDelay(pdMS_TO_TICKS(2));
     }
-    vTaskDelay(pdMS_TO_TICKS(5));  // Check every 5ms (~60Hz potential, was 10ms)
+    vTaskDelay(pdMS_TO_TICKS(5));  // Check every 5ms - balances responsiveness with stability
   }
 }
 
@@ -5093,19 +5123,32 @@ extern "C" void app_main() {
   lastCpuCommandTime = 0;
   lastDisplayCommandTime = 0;
   
-  // Allocate framebuffers
+  // Allocate framebuffers - TRUE triple buffering for OLED to prevent flashing
+  // Back buffer: CPU writes here
+  // Front buffer: staged for next display update
+  // Display buffer: currently being sent to I2C (isolated from writes)
   hub75_buffer = (uint8_t*)heap_caps_malloc(HUB75_BUFFER_SIZE, MALLOC_CAP_DMA);
-  oled_buffer = (uint8_t*)heap_caps_malloc(OLED_BUFFER_SIZE, MALLOC_CAP_DEFAULT);
-  oled_update_buffer = (uint8_t*)heap_caps_malloc(OLED_BUFFER_SIZE, MALLOC_CAP_DEFAULT);
+  oled_back_buffer = (uint8_t*)heap_caps_malloc(OLED_BUFFER_SIZE, MALLOC_CAP_DEFAULT);
+  oled_front_buffer = (uint8_t*)heap_caps_malloc(OLED_BUFFER_SIZE, MALLOC_CAP_DEFAULT);
+  oled_display_buffer = (uint8_t*)heap_caps_malloc(OLED_BUFFER_SIZE, MALLOC_CAP_DEFAULT);
+  oled_buffer = oled_back_buffer;          // Alias for backward compatibility with internal code
+  oled_update_buffer = oled_front_buffer;  // Alias for legacy compatibility
   
-  if (!hub75_buffer || !oled_buffer || !oled_update_buffer) {
+  if (!hub75_buffer || !oled_back_buffer || !oled_front_buffer || !oled_display_buffer) {
     ESP_LOGE(TAG, "Failed to allocate framebuffers!");
     return;
   }
   
   memset(hub75_buffer, 0, HUB75_BUFFER_SIZE);
-  memset(oled_buffer, 0, OLED_BUFFER_SIZE);
-  memset(oled_update_buffer, 0, OLED_BUFFER_SIZE);
+  memset(oled_back_buffer, 0, OLED_BUFFER_SIZE);
+  memset(oled_front_buffer, 0, OLED_BUFFER_SIZE);
+  memset(oled_display_buffer, 0, OLED_BUFFER_SIZE);
+  
+  // Create mutex for OLED buffer synchronization between cores
+  oled_buffer_mutex = xSemaphoreCreateMutex();
+  if (!oled_buffer_mutex) {
+    ESP_LOGE(TAG, "Failed to create OLED buffer mutex!");
+  }
   
   ESP_LOGI(TAG, "Framebuffers: HUB75=%d bytes, OLED=%d bytes", 
            HUB75_BUFFER_SIZE, OLED_BUFFER_SIZE);
