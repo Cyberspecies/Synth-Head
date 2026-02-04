@@ -347,6 +347,184 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
     .toast.show { transform: translateY(0); opacity: 1; }
     .toast.success { background: var(--success); }
     .toast.error { background: var(--danger); }
+
+    /* Mic Reactivity Button */
+    .mic-btn {
+      width: 28px;
+      height: 28px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      flex-shrink: 0;
+      margin-left: 6px;
+    }
+    .mic-btn:hover {
+      background: var(--accent-subtle);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .mic-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--bg-primary);
+    }
+
+    /* Mic Reactivity Modal */
+    .mic-modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 3000;
+      padding: 20px;
+    }
+    .mic-modal-overlay.show { display: flex; }
+    .mic-modal {
+      background: var(--bg-card);
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .mic-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .mic-modal-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mic-modal-title .icon { color: var(--accent); }
+    .mic-modal-close {
+      width: 32px;
+      height: 32px;
+      background: var(--bg-secondary);
+      border: none;
+      border-radius: 8px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    .mic-modal-close:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+    /* Mic Modal Toggle */
+    .mic-enable-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg-secondary);
+      border-radius: 10px;
+      margin-bottom: 16px;
+    }
+    .mic-enable-label { font-size: 0.9rem; font-weight: 500; }
+
+    /* Mic Modal Formula Display */
+    .mic-formula {
+      background: var(--bg-secondary);
+      padding: 14px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .mic-formula-title {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .mic-formula-expr {
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 1rem;
+      color: var(--accent);
+    }
+    .mic-formula-expr .var { color: var(--info); }
+
+    /* Mic Modal Param Rows */
+    .mic-param-row {
+      display: flex;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .mic-param-row:last-child { border-bottom: none; }
+    .mic-param-label {
+      flex: 0 0 45%;
+      font-size: 0.85rem;
+    }
+    .mic-param-label .hint {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: block;
+    }
+    .mic-param-input {
+      flex: 1;
+      padding: 10px 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+    .mic-param-input:focus {
+      border-color: var(--accent);
+      outline: none;
+    }
+
+    /* Mic Live Preview */
+    .mic-preview {
+      background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
+      padding: 14px;
+      border-radius: 10px;
+      margin-top: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .mic-preview-item {
+      text-align: center;
+    }
+    .mic-preview-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .mic-preview-value {
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-top: 2px;
+    }
+    .mic-preview-value.accent { color: var(--accent); }
+
+    /* Mic Modal Actions */
+    .mic-modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .mic-modal-actions .btn { flex: 1; }
   </style>
 </head>
 <body>
@@ -536,6 +714,76 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
 
   <div id="toast" class="toast"></div>
 
+  <!-- Mic Reactivity Modal -->
+  <div id="micModal" class="mic-modal-overlay" onclick="if(event.target===this)closeMicModal()">
+    <div class="mic-modal">
+      <div class="mic-modal-header">
+        <div class="mic-modal-title">
+          <span class="icon">&#x1F3A4;</span>
+          <span id="micModalTitle">Mic Reactivity</span>
+        </div>
+        <button class="mic-modal-close" onclick="closeMicModal()">&#x2715;</button>
+      </div>
+      
+      <div class="mic-enable-row">
+        <span class="mic-enable-label">Enable Mic Control</span>
+        <label class="toggle">
+          <input type="checkbox" id="micEnabled" onchange="updateMicPreview()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      
+      <div class="mic-formula">
+        <div class="mic-formula-title">Formula</div>
+        <div class="mic-formula-expr">(<span class="var">Y</span> × (Mic - <span class="var">X</span>)) + <span class="var">Z</span></div>
+      </div>
+      
+      <div class="mic-param-row">
+        <div class="mic-param-label">
+          X - Offset
+          <span class="hint">Subtracted from mic (0-255)</span>
+        </div>
+        <input type="number" id="micOffsetX" class="mic-param-input" value="0" min="-255" max="255" step="1" oninput="updateMicPreview()">
+      </div>
+      
+      <div class="mic-param-row">
+        <div class="mic-param-label">
+          Y - Multiplier
+          <span class="hint">Scales the result</span>
+        </div>
+        <input type="number" id="micMultY" class="mic-param-input" value="1" min="-10" max="10" step="0.01" oninput="updateMicPreview()">
+      </div>
+      
+      <div class="mic-param-row">
+        <div class="mic-param-label">
+          Z - Base Offset
+          <span class="hint">Added to final value</span>
+        </div>
+        <input type="number" id="micOffsetZ" class="mic-param-input" value="0" step="0.1" oninput="updateMicPreview()">
+      </div>
+      
+      <div class="mic-preview">
+        <div class="mic-preview-item">
+          <div class="mic-preview-label">Mic Level</div>
+          <div class="mic-preview-value" id="micPreviewLevel">--</div>
+        </div>
+        <div class="mic-preview-item">
+          <div class="mic-preview-label">&#x2192;</div>
+          <div class="mic-preview-value">&#x2192;</div>
+        </div>
+        <div class="mic-preview-item">
+          <div class="mic-preview-label">Output</div>
+          <div class="mic-preview-value accent" id="micPreviewOutput">--</div>
+        </div>
+      </div>
+      
+      <div class="mic-modal-actions">
+        <button class="btn btn-secondary" onclick="closeMicModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveMicSettings()">&#x2713; Apply</button>
+      </div>
+    </div>
+  </div>
+
   <script>
   // Scene state
   var sceneId = null;
@@ -699,6 +947,26 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
     scene.effectsOnly = document.getElementById('effectsOnly').checked;
   }
 
+  // ========== Mic Reactivity System ==========
+  var currentMicParam = null;  // Which param is being edited
+  var micLevel = 0;           // Current mic level (0-255)
+  var micReactSettings = {};  // Settings per param: { enabled, x, y, z }
+  var micPollInterval = null;
+  
+  // Helper to create param row with mic button - MUST be defined before renderAnimParams
+  function makeParamRow(label, inputId, min, max, step, defVal, paramKey, suffix, valueId) {
+    var micBtnClass = (micReactSettings[paramKey] && micReactSettings[paramKey].enabled) ? 'mic-btn active' : 'mic-btn';
+    return '<div class="param-row">' +
+      '<span class="param-label">' + label + '</span>' +
+      '<div class="param-control">' +
+        '<input type="range" id="' + inputId + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + defVal + '" ' +
+          'oninput="updateAnimParam(\'' + paramKey + '\', this.value);document.getElementById(\'' + valueId + '\').textContent=this.value+\'' + suffix + '\'">' +
+        '<span class="param-value" id="' + valueId + '">' + defVal + suffix + '</span>' +
+        '<button class="' + micBtnClass + '" onclick="openMicModal(\'' + paramKey + '\', \'' + label + '\')" title="Mic Reactivity">&#x1F3A4;</button>' +
+      '</div>' +
+    '</div>';
+  }
+
   // Select animation type
   function selectAnimation(type) {
     scene.animationType = type;
@@ -715,37 +983,51 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
     var container = document.getElementById('animParams');
     var html = '';
     
+    console.log('renderAnimParams called with type:', type);
+    
     if (type === 'static_sprite' || type === 'static_image' || type === 'static') {
       html = '<div class="subsection-title" style="margin-top:0;">Static Image Settings</div>' +
         '<div class="param-row"><span class="param-label">Sprite</span><div class="param-control"><select id="staticSprite" onchange="updateAnimParam(\'sprite\', this.value)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">' +
         sprites.map(function(s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('') +
         '</select></div></div>' +
-        '<div class="param-row"><span class="param-label">Scale</span><div class="param-control"><input type="range" id="staticScale" min="0.5" max="4" step="0.1" value="1" oninput="updateAnimParam(\'scale\', this.value);document.getElementById(\'staticScaleVal\').textContent=this.value+\'x\'"><span class="param-value" id="staticScaleVal">1x</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Rotation</span><div class="param-control"><input type="range" id="staticRotation" min="0" max="360" value="0" oninput="updateAnimParam(\'rotation\', this.value);document.getElementById(\'staticRotVal\').textContent=this.value+\'°\'"><span class="param-value" id="staticRotVal">0°</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Position X</span><div class="param-control"><input type="range" id="staticX" min="0" max="128" value="64" oninput="updateAnimParam(\'posX\', this.value);document.getElementById(\'staticXVal\').textContent=this.value"><span class="param-value" id="staticXVal">64</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Position Y</span><div class="param-control"><input type="range" id="staticY" min="0" max="32" value="16" oninput="updateAnimParam(\'posY\', this.value);document.getElementById(\'staticYVal\').textContent=this.value"><span class="param-value" id="staticYVal">16</span></div></div>';
+        makeParamRow('Scale', 'staticScale', 0.5, 4, 0.1, 1, 'scale', 'x', 'staticScaleVal') +
+        makeParamRow('Rotation', 'staticRotation', 0, 360, 1, 0, 'rotation', '°', 'staticRotVal') +
+        makeParamRow('Position X', 'staticX', 0, 128, 1, 64, 'posX', '', 'staticXVal') +
+        makeParamRow('Position Y', 'staticY', 0, 32, 1, 16, 'posY', '', 'staticYVal');
     } else if (type === 'static_mirrored') {
       html = '<div class="subsection-title" style="margin-top:0;">Mirrored Display Settings</div>' +
         '<div class="param-row"><span class="param-label">Sprite</span><div class="param-control"><select id="mirroredSprite" onchange="updateAnimParam(\'sprite\', this.value)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">' +
         sprites.map(function(s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('') +
         '</select></div></div>' +
         '<div class="subsection-title" style="margin-top:12px;">Left Panel</div>' +
-        '<div class="param-row"><span class="param-label">Position X</span><div class="param-control"><input type="range" id="leftX" min="0" max="64" value="32" oninput="updateAnimParam(\'left_x\', this.value);document.getElementById(\'leftXVal\').textContent=this.value"><span class="param-value" id="leftXVal">32</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Position Y</span><div class="param-control"><input type="range" id="leftY" min="0" max="32" value="16" oninput="updateAnimParam(\'left_y\', this.value);document.getElementById(\'leftYVal\').textContent=this.value"><span class="param-value" id="leftYVal">16</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Rotation</span><div class="param-control"><input type="range" id="leftRot" min="0" max="360" value="0" oninput="updateAnimParam(\'left_rotation\', this.value);document.getElementById(\'leftRotVal\').textContent=this.value+\'°\'"><span class="param-value" id="leftRotVal">0°</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Scale</span><div class="param-control"><input type="range" id="leftScale" min="0.5" max="4" step="0.1" value="1" oninput="updateAnimParam(\'left_scale\', this.value);document.getElementById(\'leftScaleVal\').textContent=this.value+\'x\'"><span class="param-value" id="leftScaleVal">1x</span></div></div>' +
+        makeParamRow('Position X', 'leftX', 0, 64, 1, 32, 'left_x', '', 'leftXVal') +
+        makeParamRow('Position Y', 'leftY', 0, 32, 1, 16, 'left_y', '', 'leftYVal') +
+        makeParamRow('Rotation', 'leftRot', 0, 360, 1, 0, 'left_rotation', '°', 'leftRotVal') +
+        makeParamRow('Scale', 'leftScale', 0.5, 4, 0.1, 1, 'left_scale', 'x', 'leftScaleVal') +
         '<div class="subsection-title" style="margin-top:12px;">Right Panel</div>' +
-        '<div class="param-row"><span class="param-label">Position X</span><div class="param-control"><input type="range" id="rightX" min="64" max="128" value="96" oninput="updateAnimParam(\'right_x\', this.value);document.getElementById(\'rightXVal\').textContent=this.value"><span class="param-value" id="rightXVal">96</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Position Y</span><div class="param-control"><input type="range" id="rightY" min="0" max="32" value="16" oninput="updateAnimParam(\'right_y\', this.value);document.getElementById(\'rightYVal\').textContent=this.value"><span class="param-value" id="rightYVal">16</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Rotation</span><div class="param-control"><input type="range" id="rightRot" min="0" max="360" value="180" oninput="updateAnimParam(\'right_rotation\', this.value);document.getElementById(\'rightRotVal\').textContent=this.value+\'°\'"><span class="param-value" id="rightRotVal">180°</span></div></div>' +
-        '<div class="param-row"><span class="param-label">Scale</span><div class="param-control"><input type="range" id="rightScale" min="0.5" max="4" step="0.1" value="1" oninput="updateAnimParam(\'right_scale\', this.value);document.getElementById(\'rightScaleVal\').textContent=this.value+\'x\'"><span class="param-value" id="rightScaleVal">1x</span></div></div>';
+        makeParamRow('Position X', 'rightX', 64, 128, 1, 96, 'right_x', '', 'rightXVal') +
+        makeParamRow('Position Y', 'rightY', 0, 32, 1, 16, 'right_y', '', 'rightYVal') +
+        makeParamRow('Rotation', 'rightRot', 0, 360, 1, 180, 'right_rotation', '°', 'rightRotVal') +
+        makeParamRow('Scale', 'rightScale', 0.5, 4, 0.1, 1, 'right_scale', 'x', 'rightScaleVal');
+    } else if (type === 'reactive_eyes') {
+      html = '<div class="subsection-title" style="margin-top:0;">Reactive Eyes Settings</div>' +
+        '<div class="param-row"><span class="param-label">Sprite</span><div class="param-control"><select id="reactiveSprite" onchange="updateAnimParam(\'sprite\', this.value)" style="flex:1;padding:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">' +
+        sprites.map(function(s) { return '<option value="' + s.id + '">' + s.name + '</option>'; }).join('') +
+        '</select></div></div>' +
+        makeParamRow('Y Sensitivity', 'reactiveSensY', 0, 50, 1, 15, 'reactive_y_sensitivity', '', 'reactiveSensYVal') +
+        makeParamRow('Smoothing', 'reactiveSmooth', 0.01, 1, 0.01, 0.15, 'reactive_smoothing', '', 'reactiveSmoothVal');
+    } else {
+      // Fallback: show generic controls for unknown animation types
+      html = '<div class="subsection-title" style="margin-top:0;">Animation: ' + type + '</div>' +
+        '<p style="color:var(--text-muted);font-size:0.85rem;">No custom parameters for this animation type.</p>';
     }
     
     container.innerHTML = html;
     
-    // Apply saved values if present
+    // Apply saved values if present and load mic settings
     if (scene.animParams) {
       // Restore values from scene.animParams
+      loadMicReactSettings();
     }
   }
 
@@ -825,6 +1107,10 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
       return;
     }
     
+    // Ensure mic react settings are in animParams
+    if (!scene.animParams) scene.animParams = {};
+    scene.animParams.micReact = micReactSettings;
+    
     // Flatten scene data for backend
     var payload = {
       id: sceneId,
@@ -872,6 +1158,177 @@ inline const char* PAGE_SCENE_EDIT = R"rawpage(<!DOCTYPE html>
     t.textContent = msg;
     t.className = 'toast ' + type + ' show';
     setTimeout(function() { t.classList.remove('show'); }, 3000);
+  }
+
+  // Open mic modal for a parameter
+  function openMicModal(paramKey, label) {
+    currentMicParam = paramKey;
+    document.getElementById('micModalTitle').textContent = 'Mic: ' + label;
+    
+    // Load saved settings for this param
+    var settings = micReactSettings[paramKey] || { enabled: false, x: 0, y: 1, z: 0 };
+    document.getElementById('micEnabled').checked = settings.enabled;
+    document.getElementById('micOffsetX').value = settings.x;
+    document.getElementById('micMultY').value = settings.y;
+    document.getElementById('micOffsetZ').value = settings.z;
+    
+    // Start polling mic level for preview
+    startMicPolling();
+    updateMicPreview();
+    
+    document.getElementById('micModal').classList.add('show');
+  }
+  
+  // Close mic modal
+  function closeMicModal() {
+    document.getElementById('micModal').classList.remove('show');
+    currentMicParam = null;
+    stopMicPolling();
+  }
+  
+  // Save mic settings for current param
+  function saveMicSettings() {
+    if (!currentMicParam) return;
+    
+    micReactSettings[currentMicParam] = {
+      enabled: document.getElementById('micEnabled').checked,
+      x: parseFloat(document.getElementById('micOffsetX').value) || 0,
+      y: parseFloat(document.getElementById('micMultY').value) || 1,
+      z: parseFloat(document.getElementById('micOffsetZ').value) || 0
+    };
+    
+    // Store in scene for persistence
+    if (!scene.animParams) scene.animParams = {};
+    scene.animParams.micReact = micReactSettings;
+    
+    // Update mic button appearance
+    updateMicButtonStates();
+    
+    closeMicModal();
+    showToast('Mic reactivity applied', 'success');
+  }
+  
+  // Update all mic button states (active/inactive)
+  function updateMicButtonStates() {
+    document.querySelectorAll('.mic-btn').forEach(function(btn) {
+      var onclick = btn.getAttribute('onclick');
+      if (onclick) {
+        var match = onclick.match(/openMicModal\('([^']+)'/);
+        if (match) {
+          var param = match[1];
+          if (micReactSettings[param] && micReactSettings[param].enabled) {
+            btn.classList.add('active');
+          } else {
+            btn.classList.remove('active');
+          }
+        }
+      }
+    });
+  }
+  
+  // Poll mic level from API
+  function startMicPolling() {
+    if (micPollInterval) return;
+    micPollInterval = setInterval(function() {
+      fetch('/api/sensors')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          // mic_db is typically -60 to 0 dB, convert to 0-255
+          var db = data.mic_db || -60;
+          micLevel = Math.round(((db + 60) / 60) * 255);
+          micLevel = Math.max(0, Math.min(255, micLevel));
+          updateMicPreview();
+          applyMicReactivity();
+        })
+        .catch(function() {});
+    }, 50);  // 50ms = 20Hz update rate
+  }
+  
+  function stopMicPolling() {
+    if (micPollInterval) {
+      clearInterval(micPollInterval);
+      micPollInterval = null;
+    }
+  }
+  
+  // Update live preview in modal
+  function updateMicPreview() {
+    var x = parseFloat(document.getElementById('micOffsetX').value) || 0;
+    var y = parseFloat(document.getElementById('micMultY').value) || 1;
+    var z = parseFloat(document.getElementById('micOffsetZ').value) || 0;
+    
+    // Calculate output: (Y * (mic - X)) + Z
+    var output = (y * (micLevel - x)) + z;
+    
+    document.getElementById('micPreviewLevel').textContent = micLevel;
+    document.getElementById('micPreviewOutput').textContent = output.toFixed(1);
+  }
+  
+  // Apply mic reactivity to all enabled params
+  function applyMicReactivity() {
+    Object.keys(micReactSettings).forEach(function(paramKey) {
+      var settings = micReactSettings[paramKey];
+      if (!settings || !settings.enabled) return;
+      
+      // Calculate value: (Y * (mic - X)) + Z
+      var output = (settings.y * (micLevel - settings.x)) + settings.z;
+      
+      // Find the corresponding slider and update it
+      var slider = findSliderForParam(paramKey);
+      if (slider) {
+        // Clamp to slider range
+        var min = parseFloat(slider.min) || 0;
+        var max = parseFloat(slider.max) || 100;
+        output = Math.max(min, Math.min(max, output));
+        
+        slider.value = output;
+        // Trigger the input event to update display and scene
+        slider.dispatchEvent(new Event('input'));
+      }
+    });
+  }
+  
+  // Find slider element for a param key
+  function findSliderForParam(paramKey) {
+    // Map param keys to slider IDs
+    var sliderMap = {
+      'scale': 'staticScale',
+      'rotation': 'staticRotation',
+      'posX': 'staticX',
+      'posY': 'staticY',
+      'left_x': 'leftX',
+      'left_y': 'leftY',
+      'left_rotation': 'leftRot',
+      'left_scale': 'leftScale',
+      'right_x': 'rightX',
+      'right_y': 'rightY',
+      'right_rotation': 'rightRot',
+      'right_scale': 'rightScale',
+      'reactive_y_sensitivity': 'reactiveSensY',
+      'reactive_smoothing': 'reactiveSmooth'
+    };
+    
+    var sliderId = sliderMap[paramKey];
+    if (sliderId) {
+      return document.getElementById(sliderId);
+    }
+    return null;
+  }
+  
+  // Load mic react settings from scene
+  function loadMicReactSettings() {
+    if (scene.animParams && scene.animParams.micReact) {
+      micReactSettings = scene.animParams.micReact;
+      updateMicButtonStates();
+      
+      // Start polling if any are enabled
+      var anyEnabled = Object.keys(micReactSettings).some(function(k) {
+        return micReactSettings[k] && micReactSettings[k].enabled;
+      });
+      if (anyEnabled) {
+        startMicPolling();
+      }
+    }
   }
 
   // Initialize

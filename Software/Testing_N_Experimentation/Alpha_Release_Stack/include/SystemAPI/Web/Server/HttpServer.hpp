@@ -152,6 +152,16 @@ struct SavedScene {
     bool mirrorSprite = false;  // Mirror sprite on right panel
     std::map<std::string, float> params;  // Animation-specific parameters
     
+    // Mic reactivity settings per parameter
+    // Key = parameter name, value = {enabled, x, y, z} for formula: result = (y * (mic - x)) + z
+    struct MicReactSetting {
+        bool enabled = false;
+        float x = 0.0f;   // Threshold (subtract from mic dB)
+        float y = 1.0f;   // Multiplier
+        float z = 0.0f;   // Offset
+    };
+    std::map<std::string, MicReactSetting> micReact;
+    
     // Shader settings
     bool shaderAA = true;
     bool shaderInvert = false;
@@ -1394,6 +1404,22 @@ private:
                 cJSON_AddItemToObject(item, "effects", effects);
             }
             
+            // Save mic reactivity settings
+            if (!s.micReact.empty()) {
+                cJSON* micReact = cJSON_CreateObject();
+                for (const auto& kv : s.micReact) {
+                    cJSON* micObj = cJSON_CreateObject();
+                    cJSON_AddBoolToObject(micObj, "enabled", kv.second.enabled);
+                    cJSON_AddNumberToObject(micObj, "x", kv.second.x);
+                    cJSON_AddNumberToObject(micObj, "y", kv.second.y);
+                    cJSON_AddNumberToObject(micObj, "z", kv.second.z);
+                    cJSON_AddItemToObject(micReact, kv.first.c_str(), micObj);
+                    ESP_LOGI(HTTP_TAG, "  [SaveMicReact] '%s' enabled=%d x=%.2f y=%.2f z=%.2f", 
+                             kv.first.c_str(), kv.second.enabled, kv.second.x, kv.second.y, kv.second.z);
+                }
+                cJSON_AddItemToObject(item, "micReact", micReact);
+            }
+            
             // Save gyro eye config if present (legacy)
             if (s.hasGyroEyeConfig) {
                 cJSON* gyro = cJSON_CreateObject();
@@ -1671,6 +1697,28 @@ private:
                                 eff.intensity = (float)intensityVal->valuedouble;
                             }
                             scene.effects[effect->string] = eff;
+                        }
+                    }
+                }
+                
+                // Load mic reactivity settings
+                cJSON* micReact = cJSON_GetObjectItem(item, "micReact");
+                if (micReact && cJSON_IsObject(micReact)) {
+                    cJSON* mic = NULL;
+                    cJSON_ArrayForEach(mic, micReact) {
+                        if (cJSON_IsObject(mic) && mic->string) {
+                            SavedScene::MicReactSetting setting;
+                            cJSON* enabledVal = cJSON_GetObjectItem(mic, "enabled");
+                            cJSON* xVal = cJSON_GetObjectItem(mic, "x");
+                            cJSON* yVal = cJSON_GetObjectItem(mic, "y");
+                            cJSON* zVal = cJSON_GetObjectItem(mic, "z");
+                            if (enabledVal) setting.enabled = cJSON_IsTrue(enabledVal);
+                            if (xVal && cJSON_IsNumber(xVal)) setting.x = (float)xVal->valuedouble;
+                            if (yVal && cJSON_IsNumber(yVal)) setting.y = (float)yVal->valuedouble;
+                            if (zVal && cJSON_IsNumber(zVal)) setting.z = (float)zVal->valuedouble;
+                            scene.micReact[mic->string] = setting;
+                            ESP_LOGI(HTTP_TAG, "  [LoadMicReact] '%s' enabled=%d x=%.2f y=%.2f z=%.2f", 
+                                     mic->string, setting.enabled, setting.x, setting.y, setting.z);
                         }
                     }
                 }
@@ -2903,6 +2951,18 @@ private:
         }
         cJSON_AddItemToObject(leds, "strips", strips);
         cJSON_AddItemToObject(config, "LEDS", leds);
+        
+        // MicReact section - microphone reactivity settings per parameter
+        cJSON* micReactJson = cJSON_CreateObject();
+        for (const auto& [paramName, micSetting] : scene.micReact) {
+            cJSON* micParam = cJSON_CreateObject();
+            cJSON_AddBoolToObject(micParam, "enabled", micSetting.enabled);
+            cJSON_AddNumberToObject(micParam, "x", micSetting.x);
+            cJSON_AddNumberToObject(micParam, "y", micSetting.y);
+            cJSON_AddNumberToObject(micParam, "z", micSetting.z);
+            cJSON_AddItemToObject(micReactJson, paramName.c_str(), micParam);
+        }
+        cJSON_AddItemToObject(config, "MicReact", micReactJson);
         
         cJSON_AddItemToObject(root, "config", config);
         
@@ -5601,6 +5661,29 @@ private:
                                     eff.intensity = (float)intensityItem->valuedouble;
                                 }
                                 scene.effects[effect->string] = eff;
+                            }
+                        }
+                    }
+                    
+                    // Update mic reactivity settings
+                    cJSON* micReact = cJSON_GetObjectItem(root, "micReact");
+                    if (micReact && cJSON_IsObject(micReact)) {
+                        printf("[SceneUpdate] Received micReact settings\n");
+                        cJSON* mic = NULL;
+                        cJSON_ArrayForEach(mic, micReact) {
+                            if (cJSON_IsObject(mic) && mic->string) {
+                                SavedScene::MicReactSetting setting;
+                                cJSON* enabledItem = cJSON_GetObjectItem(mic, "enabled");
+                                cJSON* xItem = cJSON_GetObjectItem(mic, "x");
+                                cJSON* yItem = cJSON_GetObjectItem(mic, "y");
+                                cJSON* zItem = cJSON_GetObjectItem(mic, "z");
+                                if (enabledItem) setting.enabled = cJSON_IsTrue(enabledItem);
+                                if (xItem && cJSON_IsNumber(xItem)) setting.x = (float)xItem->valuedouble;
+                                if (yItem && cJSON_IsNumber(yItem)) setting.y = (float)yItem->valuedouble;
+                                if (zItem && cJSON_IsNumber(zItem)) setting.z = (float)zItem->valuedouble;
+                                scene.micReact[mic->string] = setting;
+                                printf("  [micReact] '%s' enabled=%d x=%.2f y=%.2f z=%.2f\n", 
+                                       mic->string, setting.enabled, setting.x, setting.y, setting.z);
                             }
                         }
                     }

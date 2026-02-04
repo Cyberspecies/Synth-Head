@@ -61,6 +61,8 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
+#include <map>
+#include <string>
 
 namespace Modes {
 
@@ -277,6 +279,164 @@ namespace GpuDriverState {
     static uint8_t shaderGlitchChromatic = 20;    // Chromatic aberration amount (0-100)
     static uint8_t shaderGlitchQuantity = 50;     // Quantity/density of glitch bands (0-100)
     static bool shaderGlitchParamsDirty = true;   // Flag to send glitch params to GPU
+    
+    // ====== MIC REACTIVITY MANAGER ======
+    // Proper encapsulated system for mic reactivity
+    // Base values are stored separately and NEVER modified
+    // Final values are calculated on-demand: final = base + smoothedOffset
+    class MicReactivityManager {
+    public:
+        struct MicSetting {
+            bool enabled = false;
+            float x = 0.0f;   // Threshold
+            float y = 1.0f;   // Multiplier
+            float z = 0.0f;   // Offset
+        };
+        
+    private:
+        std::map<std::string, float> baseValues_;      // Original values from scene
+        std::map<std::string, float> smoothedOffsets_; // Smoothed mic offsets
+        std::map<std::string, MicSetting> settings_;   // Mic settings per param
+        bool initialized_ = false;
+        float smoothingFactor_ = 0.3f;
+        
+    public:
+        // Initialize with scene data - call when scene is activated
+        void initialize() {
+            baseValues_.clear();
+            smoothedOffsets_.clear();
+            settings_.clear();
+            initialized_ = true;
+            printf("[MicReact] Manager initialized\n");
+        }
+        
+        // Store a base value (from scene params)
+        void setBaseValue(const std::string& param, float value) {
+            baseValues_[param] = value;
+        }
+        
+        // Load mic settings from active scene
+        void loadSettingsFromScene() {
+            settings_.clear();
+            auto& httpServer = SystemAPI::Web::HttpServer::instance();
+            const auto* activeScene = httpServer.getActiveScene();
+            if (!activeScene) return;
+            
+            for (const auto& pair : activeScene->micReact) {
+                MicSetting s;
+                s.enabled = pair.second.enabled;
+                s.x = pair.second.x;
+                s.y = pair.second.y;
+                s.z = pair.second.z;
+                settings_[pair.first] = s;
+                if (s.enabled) {
+                    printf("[MicReact] Loaded setting: '%s' X=%.2f Y=%.2f Z=%.2f\n",
+                           pair.first.c_str(), s.x, s.y, s.z);
+                }
+            }
+        }
+        
+        // Update smoothed values based on current mic level
+        // Call this once per frame
+        // The equation (Y*(mic-X))+Z produces the FINAL value directly
+        void update(float micDb) {
+            if (!initialized_) return;
+            
+            for (auto& pair : settings_) {
+                if (!pair.second.enabled) continue;
+                
+                const std::string& paramName = pair.first;
+                const MicSetting& setting = pair.second;
+                
+                // Calculate equation result: Y * (mic - X) + Z
+                // This IS the final value, not an offset
+                float rawValue = setting.y * (micDb - setting.x) + setting.z;
+                
+                // Apply smoothing
+                float& smoothed = smoothedOffsets_[paramName];
+                smoothed = smoothed + (rawValue - smoothed) * smoothingFactor_;
+            }
+        }
+        
+        // Get the final value for a parameter (base + offset)
+        // If no mic reactivity for this param, returns the base value
+        // NOTE: The equation (Y*(mic-X))+Z produces the FINAL value directly,
+        // not an offset. So when enabled, we return the equation result directly.
+        float getFinalValue(const std::string& param, float fallbackBase) const {
+            float base = fallbackBase;
+            auto baseIt = baseValues_.find(param);
+            if (baseIt != baseValues_.end()) {
+                base = baseIt->second;
+            }
+            
+            auto settingIt = settings_.find(param);
+            if (settingIt == settings_.end() || !settingIt->second.enabled) {
+                return base;  // No mic reactivity, return base
+            }
+            
+            auto offsetIt = smoothedOffsets_.find(param);
+            if (offsetIt == smoothedOffsets_.end()) {
+                return base;  // No offset calculated yet
+            }
+            
+            // The equation (Y*(mic-X))+Z produces the FINAL value directly
+            // NOT an offset to add to base
+            return offsetIt->second;
+        }
+        
+        // Check if a parameter has mic reactivity enabled
+        bool hasReactivity(const std::string& param) const {
+            auto it = settings_.find(param);
+            return it != settings_.end() && it->second.enabled;
+        }
+        
+        // Debug print current state
+        void debugPrint() const {
+            printf("[MicReact] Manager state:\n");
+            for (const auto& pair : settings_) {
+                if (pair.second.enabled) {
+                    float base = 0;
+                    auto baseIt = baseValues_.find(pair.first);
+                    if (baseIt != baseValues_.end()) base = baseIt->second;
+                    
+                    float offset = 0;
+                    auto offsetIt = smoothedOffsets_.find(pair.first);
+                    if (offsetIt != smoothedOffsets_.end()) offset = offsetIt->second;
+                    
+                    printf("  '%s': base=%.2f offset=%.2f final=%.2f\n",
+                           pair.first.c_str(), base, offset, base + offset);
+                }
+            }
+        }
+    };
+    
+    // Global mic reactivity manager instance
+    static MicReactivityManager micReactManager;
+    
+    // Update mic reactivity manager with current mic level
+    // Call this once per frame before rendering
+    static void updateMicReactivity() {
+        auto& syncState = SystemAPI::SYNC_STATE.state();
+        float micDb = syncState.micDb;
+        micReactManager.update(micDb);
+    }
+    
+    // Get a parameter value with mic reactivity applied
+    // Use this when rendering instead of the raw variable
+    static float getMicReactiveValue(const std::string& param, float baseValue) {
+        return micReactManager.getFinalValue(param, baseValue);
+    }
+    
+    // Initialize mic reactivity for a new scene
+    static void initMicReactivityForScene() {
+        micReactManager.initialize();
+        micReactManager.loadSettingsFromScene();
+    }
+    
+    // Store base value in the manager
+    static void storeBaseValue(const char* paramName, float value) {
+        micReactManager.setBaseValue(paramName, value);
+    }
     
     // Flag to prevent re-saving params while loading from scene
     static bool loadingSceneParams = false;
@@ -681,6 +841,9 @@ namespace GpuDriverState {
             }
             // ====== SCENE-BASED ANIMATION RENDERING ======
             else if (currentAnimMode != SceneAnimMode::NONE) {
+                // Mic reactivity is now applied per-render-case using getMicReactiveValue()
+                // This keeps base values clean and calculates final values on-demand
+                
                 // Sync shader palette to GPU if changed (must be done before shader config)
                 if (shaderPaletteDirty && (shaderType == 2 || shaderType == 3)) {  // 2 = HUE_CYCLE, 3 = GRADIENT_CYCLE
                     g_gpu.setShaderPalette(shaderHuePalette, shaderHueCycleColorCount);
@@ -804,23 +967,44 @@ namespace GpuDriverState {
                         mirrorEnabled = true;
                         g_gpu.hub75Clear(bgR, bgG, bgB);
                         
+                        // Update mic reactivity each frame (calculates smoothed offsets)
+                        updateMicReactivity();
+                        
+                        // Get final values with mic reactivity applied (base + offset)
+                        // These do NOT modify the base variables
+                        float finalLeftX = getMicReactiveValue("left_x", leftPosX);
+                        float finalLeftY = getMicReactiveValue("left_y", leftPosY);
+                        float finalLeftRot = getMicReactiveValue("left_rotation", leftRotation);
+                        float finalLeftScale = getMicReactiveValue("left_scale", leftScale);
+                        float finalRightX = getMicReactiveValue("right_x", rightPosX);
+                        float finalRightY = getMicReactiveValue("right_y", rightPosY);
+                        float finalRightRot = getMicReactiveValue("right_rotation", rightRotation);
+                        float finalRightScale = getMicReactiveValue("right_scale", rightScale);
+                        
+                        // DEBUG: Print mic reactivity state every 60 frames
+                        if (renderFrameCount % 60 == 0) {
+                            printf("[MicDebug] Base: leftScale=%.3f rightScale=%.3f | Final: leftScale=%.3f rightScale=%.3f\n",
+                                   leftScale, rightScale, finalLeftScale, finalRightScale);
+                            micReactManager.debugPrint();
+                        }
+                        
                         if (spriteReady) {
-                            // Draw on left panel with left-specific params (pos, rot, scale, flip)
-                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, leftPosX, leftPosY, leftRotation, leftScale, leftFlipX);
-                            // Draw on right panel with right-specific params (pos, rot, scale, flip)
-                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, rightPosX, rightPosY, rightRotation, rightScale, rightFlipX);
+                            // Draw on left panel with mic-reactive params
+                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, finalLeftX, finalLeftY, finalLeftRot, finalLeftScale, leftFlipX);
+                            // Draw on right panel with mic-reactive params
+                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, finalRightX, finalRightY, finalRightRot, finalRightScale, rightFlipX);
                         } else {
                             // No sprite uploaded - use default vector eye drawing
-                            drawDefaultVectorEye(g_gpu, leftPosX, leftPosY, false, leftRotation);
-                            drawDefaultVectorEye(g_gpu, rightPosX, rightPosY, true, rightRotation);
+                            drawDefaultVectorEye(g_gpu, finalLeftX, finalLeftY, false, finalLeftRot);
+                            drawDefaultVectorEye(g_gpu, finalRightX, finalRightY, true, finalRightRot);
                         }
                         
                         g_gpu.hub75Present();
                         
                         if (renderFrameCount % 120 == 0) {
                             printf("STATIC_MIRRORED: Frame %lu - L(%.0f,%.0f,%.0f,%.2f,flip=%d) R(%.0f,%.0f,%.0f,%.2f,flip=%d)\n", 
-                                   renderFrameCount, leftPosX, leftPosY, leftRotation, leftScale, leftFlipX,
-                                   rightPosX, rightPosY, rightRotation, rightScale, rightFlipX);
+                                   renderFrameCount, finalLeftX, finalLeftY, finalLeftRot, finalLeftScale, leftFlipX,
+                                   finalRightX, finalRightY, finalRightRot, finalRightScale, rightFlipX);
                         }
                         break;
                     }
@@ -896,13 +1080,23 @@ namespace GpuDriverState {
                         float rx = fmaxf(64.0f, fminf(127.0f, reactiveRPosXSmooth));
                         float ry = fmaxf(0.0f, fminf(31.0f, reactiveRPosYSmooth));
                         
+                        // Update mic reactivity and get final scale value
+                        updateMicReactivity();
+                        float finalScale = getMicReactiveValue("reactive_scale", reactiveScale);
+                        
+                        // DEBUG: Print mic reactivity state every 60 frames
+                        if (renderFrameCount % 60 == 0) {
+                            printf("[MicDebug] reactive_scale: base=%.3f equation=%.3f (used when mic enabled)\n", reactiveScale, finalScale);
+                            micReactManager.debugPrint();
+                        }
+                        
                         // Render
                         g_gpu.hub75Clear(bgR, bgG, bgB);
                         
                         if (spriteReady) {
                             // Draw left and right sprites with reactive positions, rotations, and flips
-                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, lx, ly, reactiveLRotSmooth, reactiveScale, reactiveLeftFlipX);
-                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, rx, ry, reactiveRRotSmooth, reactiveScale, reactiveRightFlipX);
+                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, lx, ly, reactiveLRotSmooth, finalScale, reactiveLeftFlipX);
+                            g_gpu.blitSpriteRotatedScaledFlip(activeSpriteId, rx, ry, reactiveRRotSmooth, finalScale, reactiveRightFlipX);
                         } else {
                             // Fallback vector eyes
                             drawDefaultVectorEye(g_gpu, lx, ly, false, reactiveLRotSmooth);
@@ -1133,6 +1327,12 @@ namespace GpuDriverState {
         staticRotation = rotation;
         staticPosX = posX;
         staticPosY = posY;
+        
+        // Store as base values for mic reactivity
+        storeBaseValue("static_scale", scale);
+        storeBaseValue("static_rotation", rotation);
+        storeBaseValue("static_pos_x", posX);
+        storeBaseValue("static_pos_y", posY);
     }
     
     // Set flip state for single sprite mode
@@ -1159,6 +1359,17 @@ namespace GpuDriverState {
         rightPosY = ry;
         rightRotation = rrot;
         rightScale = rscale;
+        
+        // Store as base values for mic reactivity (use consistent names)
+        storeBaseValue("left_x", lx);
+        storeBaseValue("left_y", ly);
+        storeBaseValue("left_rotation", lrot);
+        storeBaseValue("left_scale", lscale);
+        storeBaseValue("right_x", rx);
+        storeBaseValue("right_y", ry);
+        storeBaseValue("right_rotation", rrot);
+        storeBaseValue("right_scale", rscale);
+        printf("[setMirroredParams] Stored base values: L(%.1f,%.1f) R(%.1f,%.1f)\n", lx, ly, rx, ry);
     }
     
     // Reset reactive eyes smoothed values (call after loading params)
@@ -1346,7 +1557,11 @@ namespace GpuDriverState {
         else if (strcmp(paramName, "reactive_x_sensitivity") == 0) { reactiveXSensitivity = value; printf("  -> reactiveXSensitivity = %.2f\n", reactiveXSensitivity); }
         else if (strcmp(paramName, "reactive_rot_sensitivity") == 0) { reactiveRotSensitivity = value; printf("  -> reactiveRotSensitivity = %.2f\n", reactiveRotSensitivity); }
         else if (strcmp(paramName, "reactive_smoothing") == 0) { reactiveSmoothing = fmaxf(0.01f, fminf(1.0f, value)); printf("  -> reactiveSmoothing = %.2f\n", reactiveSmoothing); }
-        else if (strcmp(paramName, "reactive_scale") == 0) { reactiveScale = value; printf("  -> reactiveScale = %.2f\n", reactiveScale); }
+        else if (strcmp(paramName, "reactive_scale") == 0) { 
+            reactiveScale = value; 
+            storeBaseValue("reactive_scale", value);  // Store as base for mic reactivity
+            printf("  -> reactiveScale = %.2f (stored as base)\n", reactiveScale); 
+        }
         else if (strcmp(paramName, "reactive_base_left_x") == 0) { reactiveBaseLeftX = value; printf("  -> reactiveBaseLeftX = %.2f\n", reactiveBaseLeftX); }
         else if (strcmp(paramName, "reactive_base_left_y") == 0) { reactiveBaseLeftY = value; printf("  -> reactiveBaseLeftY = %.2f\n", reactiveBaseLeftY); }
         else if (strcmp(paramName, "reactive_left_flip_x") == 0) { reactiveLeftFlipX = (value > 0.5f); printf("  -> reactiveLeftFlipX = %s\n", reactiveLeftFlipX ? "true" : "false"); }
@@ -1919,6 +2134,9 @@ void CurrentMode::onStart() {
                esp_get_free_heap_size(), esp_get_minimum_free_heap_size());
         printf("  ========================================\n\n");
         
+        // Initialize mic reactivity manager for this scene (clears state, will load settings later)
+        GpuDriverState::initMicReactivityForScene();
+        
         // Update OLED to show this as the active scene
         OledMenu::OledMenuSystem::instance().setActiveSceneId(scene.id);
         
@@ -2317,6 +2535,10 @@ void CurrentMode::onStart() {
         
         // Done loading scene params - clear flag to allow saving
         GpuDriverState::loadingSceneParams = false;
+        
+        // Base values are now stored by setMirroredParams() and setStaticParams()
+        // The MicReactivityManager handles all mic reactive calculations
+        printf("  [MicReact] Base values stored via setMirroredParams/setStaticParams\n");
         
         // Force sync shader to GPU after applying all scene params
         // This ensures the GPU gets the complete shader config immediately

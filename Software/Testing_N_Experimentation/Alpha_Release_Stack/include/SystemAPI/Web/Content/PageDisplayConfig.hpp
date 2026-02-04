@@ -488,6 +488,144 @@ inline const char PAGE_DISPLAY_CONFIG[] = R"rawliteral(
   to { transform: rotate(360deg); }
 }
 
+/* ============================================
+   Mic Reactivity Styles
+   ============================================ */
+.mic-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+.mic-btn:hover {
+  background: var(--accent);
+  color: white;
+}
+.mic-btn.active {
+  background: #ff9500;
+  color: white;
+}
+.mic-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.mic-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.mic-modal h3 {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+.mic-modal-subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 20px;
+}
+.mic-param-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.mic-param-row label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  flex: 0 0 45%;
+}
+.mic-param-row input {
+  flex: 0 0 50%;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.mic-formula {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 16px 0;
+  text-align: center;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 13px;
+  color: var(--accent);
+}
+.mic-enable-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}
+.mic-enable-row label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.mic-preview {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+  text-align: center;
+}
+.mic-preview-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.mic-preview-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: 'SF Mono', Monaco, monospace;
+}
+.mic-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.mic-modal-actions button {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mic-modal-actions .btn-cancel {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.mic-modal-actions .btn-save {
+  background: var(--accent);
+  color: white;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
   .yaml-field-row {
@@ -562,6 +700,46 @@ inline const char PAGE_DISPLAY_CONFIG[] = R"rawliteral(
           <div class="loading-spinner"></div>
         </div>
       </div>
+      
+      <!-- Mic Reactivity Modal -->
+      <div id="mic-modal" class="mic-modal-overlay" style="display:none;">
+        <div class="mic-modal">
+          <h3>&#x1F3A4; Mic Reactivity</h3>
+          <div class="mic-modal-subtitle">Parameter: <span id="mic-modal-param"></span></div>
+          <div class="mic-formula">Result = (Y × (Mic - X)) + Z</div>
+          <div class="mic-param-row">
+            <label>X (Threshold)</label>
+            <input type="number" id="mic-x" value="0" step="0.1">
+          </div>
+          <div class="mic-param-row">
+            <label>Y (Multiplier)</label>
+            <input type="number" id="mic-y" value="1" step="0.1">
+          </div>
+          <div class="mic-param-row">
+            <label>Z (Offset)</label>
+            <input type="number" id="mic-z" value="0" step="0.1">
+          </div>
+          <div class="mic-preview">
+            <div class="mic-preview-label">Mic Level (dB)</div>
+            <div class="mic-preview-value" id="mic-raw-val">--</div>
+          </div>
+          <div class="mic-preview">
+            <div class="mic-preview-label">Equation Output: (Y×(Mic-X))+Z</div>
+            <div class="mic-preview-value" id="mic-preview-val">--</div>
+          </div>
+          <div class="mic-enable-row">
+            <label>Enable Mic Reactivity</label>
+            <label class="yaml-toggle">
+              <input type="checkbox" id="mic-enable">
+              <span class="yaml-toggle-slider"></span>
+            </label>
+          </div>
+          <div class="mic-modal-actions">
+            <button class="btn-cancel" onclick="DisplayConfig.closeMicModal()">Cancel</button>
+            <button class="btn-save" onclick="DisplayConfig.saveMicSettings()">Save</button>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -575,6 +753,12 @@ const DisplayConfig = {
   sceneData: null,
   requestedSceneId: null,
   animationsList: [],
+  
+  // Mic reactivity state
+  micReactSettings: {},
+  currentMicParam: null,
+  micPollingInterval: null,
+  currentMicDb: -60,
   
   // Initialize
   init: function() {
@@ -684,6 +868,13 @@ const DisplayConfig = {
       .then(data => {
         if (data.success && data.config) {
           this.sceneData = data.config;
+          // Load mic reactivity settings from server
+          if (data.config.MicReact) {
+            this.micReactSettings = data.config.MicReact;
+            console.log('[loadSceneConfig] Loaded MicReact settings:', this.micReactSettings);
+          } else {
+            this.micReactSettings = {};
+          }
           console.log('[loadSceneConfig] Loaded animation_type=' + data.config?.Display?.animation_type);
           this.renderConfigForm(data.config);
           // Re-populate dropdown after form is rendered to ensure correct selection
@@ -1250,6 +1441,9 @@ const DisplayConfig = {
     const controlType = schema.type || this.getControlType(schema);
     const desc = schema.desc || '';
     const unit = schema.unit || '';
+    const paramKey = path.split('.').pop();
+    const micActive = this.micReactSettings[paramKey] && this.micReactSettings[paramKey].enabled;
+    const micBtnClass = micActive ? 'mic-btn active' : 'mic-btn';
     
     let html = `<div class="yaml-field-row" data-field-path="${path}">`;
     html += `<label class="yaml-field-label">${label}`;
@@ -1267,7 +1461,7 @@ const DisplayConfig = {
         <span class="yaml-toggle-slider"></span>
       </label>`;
     } else if (controlType === 'number') {
-      // Typed number input
+      // Typed number input with mic button
       const min = schema.min ?? '';
       const max = schema.max ?? '';
       html += `<input type="number" class="yaml-input-number" data-path="${path}"
@@ -1275,8 +1469,9 @@ const DisplayConfig = {
       if (unit) {
         html += `<span class="yaml-input-unit">${unit}</span>`;
       }
+      html += `<button type="button" class="${micBtnClass}" data-param="${paramKey}" onclick="event.preventDefault(); DisplayConfig.openMicModal('${paramKey}', '${label.replace(/'/g, "\\'")}'); return false;" title="Mic Reactivity">&#x1F3A4;</button>`;
     } else {
-      // Slider (default)
+      // Slider (default) with mic button
       const min = schema.min ?? 0;
       const max = schema.max ?? 100;
       const step = schema.step ?? 1;
@@ -1287,6 +1482,7 @@ const DisplayConfig = {
           min="${min}" max="${max}" step="${step}" value="${value}">
         <span class="yaml-slider-value" id="val-${pathId}">${value}${unit ? ' ' + unit : ''}</span>
       </div>`;
+      html += `<button type="button" class="${micBtnClass}" data-param="${paramKey}" onclick="event.preventDefault(); DisplayConfig.openMicModal('${paramKey}', '${label.replace(/'/g, "\\'")}'); return false;" title="Mic Reactivity">&#x1F3A4;</button>`;
     }
     
     html += `</div></div>`;
@@ -2150,6 +2346,176 @@ const DisplayConfig = {
   hideLoading: function() {
     const loading = document.getElementById('loading');
     if (loading) loading.style.display = 'none';
+  },
+  
+  // ============================================
+  // Mic Reactivity Functions
+  // ============================================
+  
+  openMicModal: function(paramKey, label) {
+    this.currentMicParam = paramKey;
+    document.getElementById('mic-modal-param').textContent = label;
+    
+    // Load existing settings for this param
+    const settings = this.micReactSettings[paramKey] || { x: 0, y: 1, z: 0, enabled: false };
+    document.getElementById('mic-x').value = settings.x;
+    document.getElementById('mic-y').value = settings.y;
+    document.getElementById('mic-z').value = settings.z;
+    document.getElementById('mic-enable').checked = settings.enabled;
+    
+    document.getElementById('mic-modal').style.display = 'flex';
+    this.startMicPolling();
+  },
+  
+  closeMicModal: function() {
+    document.getElementById('mic-modal').style.display = 'none';
+    this.stopMicPolling();
+    this.currentMicParam = null;
+  },
+  
+  saveMicSettings: function() {
+    if (!this.currentMicParam) return;
+    
+    const xVal = document.getElementById('mic-x').value;
+    const yVal = document.getElementById('mic-y').value;
+    const zVal = document.getElementById('mic-z').value;
+    
+    console.log('[saveMicSettings] Raw values - x:', xVal, 'y:', yVal, 'z:', zVal);
+    
+    const settings = {
+      x: parseFloat(xVal) || 0,
+      y: parseFloat(yVal) || 1,
+      z: parseFloat(zVal) || 0,
+      enabled: document.getElementById('mic-enable').checked
+    };
+    
+    console.log('[saveMicSettings] Parsed settings:', settings);
+    
+    this.micReactSettings[this.currentMicParam] = settings;
+    
+    // Update button state
+    const btn = document.querySelector('.mic-btn[data-param="' + this.currentMicParam + '"]');
+    if (btn) {
+      if (settings.enabled) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    }
+    
+    // Save to server - send full micReact object
+    const payload = {
+      id: this.currentSceneId,
+      micReact: this.micReactSettings
+    };
+    
+    console.log('[saveMicSettings] Sending payload:', JSON.stringify(payload));
+    
+    fetch('/api/scene/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        console.log('[saveMicSettings] Saved successfully');
+        // Reload scene to verify saved values
+        console.log('[saveMicSettings] Reloading scene to verify...');
+        return fetch('/api/scene/config?id=' + this.currentSceneId);
+      } else {
+        console.error('[saveMicSettings] Failed:', data.error);
+      }
+    })
+    .then(r => r ? r.json() : null)
+    .then(data => {
+      if (data && data.config && data.config.MicReact) {
+        console.log('[saveMicSettings] Server has MicReact:', data.config.MicReact);
+      }
+    })
+    .catch(err => console.error('[saveMicSettings] Error:', err));
+    
+    this.closeMicModal();
+  },
+  
+  startMicPolling: function() {
+    const self = this;
+    if (this.micPollingInterval) return;
+    
+    this.micPollingInterval = setInterval(() => {
+      fetch('/api/sensors')
+        .then(r => r.json())
+        .then(data => {
+          self.currentMicDb = data.mic_db || -60;
+          self.updateMicPreview();
+          // NOTE: Live routing to variables removed for debugging
+          // self.applyMicReactivity();
+        })
+        .catch(() => {});
+    }, 100);
+  },
+  
+  stopMicPolling: function() {
+    if (this.micPollingInterval) {
+      clearInterval(this.micPollingInterval);
+      this.micPollingInterval = null;
+    }
+  },
+  
+  updateMicPreview: function() {
+    const x = parseFloat(document.getElementById('mic-x')?.value) || 0;
+    const y = parseFloat(document.getElementById('mic-y')?.value) || 1;
+    const z = parseFloat(document.getElementById('mic-z')?.value) || 0;
+    
+    // Show raw mic value
+    const rawEl = document.getElementById('mic-raw-val');
+    if (rawEl) {
+      rawEl.textContent = this.currentMicDb.toFixed(2) + ' dB';
+    }
+    
+    // Show equation result
+    const result = (y * (this.currentMicDb - x)) + z;
+    const previewEl = document.getElementById('mic-preview-val');
+    if (previewEl) {
+      previewEl.textContent = result.toFixed(2);
+    }
+  },
+  
+  updateMicReactivityPolling: function() {
+    // Check if any mic reactivity is enabled
+    const anyEnabled = Object.values(this.micReactSettings).some(s => s.enabled);
+    if (anyEnabled && !this.micPollingInterval) {
+      this.startMicPolling();
+    } else if (!anyEnabled && this.micPollingInterval && !document.getElementById('mic-modal').style.display !== 'none') {
+      this.stopMicPolling();
+    }
+  },
+  
+  applyMicReactivity: function() {
+    for (const [paramKey, settings] of Object.entries(this.micReactSettings)) {
+      if (!settings.enabled) continue;
+      
+      const result = (settings.y * (this.currentMicDb - settings.x)) + settings.z;
+      
+      // Find the slider/input for this param and update it
+      const slider = document.querySelector('.yaml-slider[data-path="AnimParams.' + paramKey + '"]');
+      if (slider) {
+        slider.value = result;
+        const pathId = 'AnimParams.' + paramKey;
+        const valueSpan = document.getElementById('val-' + pathId.replace(/\\./g, '-'));
+        if (valueSpan) {
+          valueSpan.textContent = result.toFixed(2);
+        }
+        // Trigger update to server
+        this.updateField(pathId, result, 'number');
+      }
+      
+      const numInput = document.querySelector('.yaml-input-number[data-path="AnimParams.' + paramKey + '"]');
+      if (numInput) {
+        numInput.value = result.toFixed(2);
+        this.updateField('AnimParams.' + paramKey, result, 'number');
+      }
+    }
   }
 };
 
