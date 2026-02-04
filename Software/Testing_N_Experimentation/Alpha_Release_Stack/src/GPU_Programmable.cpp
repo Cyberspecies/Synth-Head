@@ -362,7 +362,8 @@ static uint16_t g_gradientDistance = 20;   // Pixels between color bands
 static int16_t g_gradientAngle = 0;        // Angle in degrees (-180 to 180)
 static bool g_gradientMirror = false;      // Mirror gradient on right panel
 
-// Glitch shader specific params
+// Glitch effect params (now an overlay that works on top of any shader)
+static bool g_glitchOverlayEnabled = false; // Master toggle for glitch overlay
 static uint8_t g_glitchSpeed = 128;        // Speed of glitch changes (0-255)
 static uint8_t g_glitchIntensity = 64;     // Intensity of displacement (0-255)
 static uint8_t g_glitchChromatic = 32;     // Chromatic aberration intensity (0-255)
@@ -379,10 +380,11 @@ static inline uint32_t glitchRandom() {
 }
 
 // Update glitch state - generates per-row displacement pattern
-// Called each frame when glitch shader is active
+// Called each frame when glitch overlay is enabled
 static void updateGlitchState() {
-  if (g_shaderType != ShaderType::GLITCH) {
-    // Not in glitch mode - ensure all glitch state is cleared
+  // Glitch is now an overlay - check the overlay enable flag, not shader type
+  if (!g_glitchOverlayEnabled) {
+    // Glitch overlay not enabled - ensure all glitch state is cleared
     if (g_glitchActive) {
       g_glitchActive = false;
       for (int i = 0; i < 32; i++) {
@@ -1057,8 +1059,9 @@ static inline void setDiagPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
 static void presentHUB75Buffer() {
   if (!hub75_ok || !hub75) return;
   
-  // Update glitch state once per frame (if glitch shader is active)
-  bool glitchEnabled = (g_shaderType == ShaderType::GLITCH);
+  // Update glitch state once per frame (if glitch overlay is enabled)
+  // Glitch now works as an overlay on top of any shader
+  bool glitchEnabled = g_glitchOverlayEnabled;
   if (glitchEnabled) {
     updateGlitchState();
   }
@@ -3236,6 +3239,7 @@ enum class CmdType : uint8_t {
   SET_SHADER_PALETTE = 0x54, // Set color palette for shaders: count, [R,G,B]*N (up to 32 colors)
   SET_GRADIENT_PARAMS = 0x55, // Set gradient cycle params: distLo, distHi, angleLo, angleHi (signed)
   SET_GLITCH_PARAMS = 0x56,   // Set glitch shader params: speed, intensity, chromatic
+  SET_GLITCH_ENABLE = 0x57,   // Enable/disable glitch overlay: 0=off, 1=on
   
   // OLED-specific commands (always target OLED buffer)
   OLED_CLEAR = 0x60,
@@ -3993,6 +3997,15 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         
         ESP_LOGI(TAG, "SET_GLITCH_PARAMS: speed=%d, intensity=%d, chromatic=%d, quantity=%d",
                  g_glitchSpeed, g_glitchIntensity, g_glitchChromatic, g_glitchQuantity);
+      }
+      break;
+    }
+    
+    case CmdType::SET_GLITCH_ENABLE: {
+      // Payload: [enabled:1] - 0=off, 1=on
+      if (hdr->length >= 1) {
+        g_glitchOverlayEnabled = (payload[0] != 0);
+        ESP_LOGI(TAG, "SET_GLITCH_ENABLE: %s", g_glitchOverlayEnabled ? "ON" : "OFF");
       }
       break;
     }

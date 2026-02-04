@@ -273,12 +273,14 @@ namespace GpuDriverState {
     static bool shaderGradientMirror = false;     // Mirror gradient on right panel
     static bool shaderGradientParamsDirty = true; // Flag to send gradient params to GPU
     
-    // Glitch shader specific state
+    // Glitch overlay state (independent of shader type - works on top of any shader)
+    static bool shaderGlitchEnabled = false;      // Master toggle for glitch overlay
     static uint8_t shaderGlitchSpeed = 50;        // Speed of glitch updates (0-100)
     static uint8_t shaderGlitchIntensity = 30;    // Intensity of displacement (0-100)
     static uint8_t shaderGlitchChromatic = 20;    // Chromatic aberration amount (0-100)
     static uint8_t shaderGlitchQuantity = 50;     // Quantity/density of glitch bands (0-100)
     static bool shaderGlitchParamsDirty = true;   // Flag to send glitch params to GPU
+    static bool shaderGlitchEnableDirty = true;   // Flag to send glitch enable state to GPU
     
     // ====== MIC REACTIVITY MANAGER ======
     // Proper encapsulated system for mic reactivity
@@ -447,10 +449,11 @@ namespace GpuDriverState {
         shaderDirty = true;
         shaderPaletteDirty = true;
         shaderGradientParamsDirty = true;
+        shaderGlitchEnableDirty = true;  // Must sync glitch enable state too!
         shaderGlitchParamsDirty = true;
-        printf("[Shader] Force sync: type=%d, invert=%d, gradient(dist=%d,angle=%d,mirror=%d), glitch(spd=%d,int=%d,chr=%d,qty=%d)\n",
+        printf("[Shader] Force sync: type=%d, invert=%d, gradient(dist=%d,angle=%d,mirror=%d), glitch(en=%d,spd=%d,int=%d,chr=%d,qty=%d)\n",
                shaderType, shaderInvert, shaderGradientDistance, shaderGradientAngle, shaderGradientMirror,
-               shaderGlitchSpeed, shaderGlitchIntensity, shaderGlitchChromatic, shaderGlitchQuantity);
+               shaderGlitchEnabled, shaderGlitchSpeed, shaderGlitchIntensity, shaderGlitchChromatic, shaderGlitchQuantity);
     }
     
     // ====== COMPLEX TRANSITION ANIMATION ======
@@ -858,8 +861,15 @@ namespace GpuDriverState {
                     printf("  GRADIENT PARAMS: distance=%d, angle=%d, mirror=%d\n", shaderGradientDistance, shaderGradientAngle, shaderGradientMirror);
                 }
                 
-                // Sync glitch params to GPU if changed (before shader config)
-                if (shaderGlitchParamsDirty && shaderType == 4) {  // 4 = GLITCH
+                // Sync glitch enable state to GPU if changed (glitch is now an overlay, independent of shader type)
+                if (shaderGlitchEnableDirty) {
+                    g_gpu.setGlitchEnable(shaderGlitchEnabled);
+                    shaderGlitchEnableDirty = false;
+                    printf("  GLITCH ENABLE: %s\n", shaderGlitchEnabled ? "ON" : "OFF");
+                }
+                
+                // Sync glitch params to GPU if glitch overlay is enabled
+                if (shaderGlitchParamsDirty && shaderGlitchEnabled) {
                     g_gpu.setGlitchParams(shaderGlitchSpeed, shaderGlitchIntensity, shaderGlitchChromatic, shaderGlitchQuantity);
                     shaderGlitchParamsDirty = false;
                     printf("  GLITCH PARAMS: speed=%d, intensity=%d, chromatic=%d, quantity=%d\n", shaderGlitchSpeed, shaderGlitchIntensity, shaderGlitchChromatic, shaderGlitchQuantity);
@@ -1530,7 +1540,12 @@ namespace GpuDriverState {
             shaderGradientParamsDirty = true;
             printf("  -> shaderGradientMirror = %s\n", shaderGradientMirror ? "true" : "false"); 
         }
-        // Glitch shader params
+        // Glitch overlay params (glitch is now independent of shader type)
+        else if (strcmp(paramName, "shader_glitch_enabled") == 0) { 
+            shaderGlitchEnabled = (value != 0); 
+            shaderGlitchEnableDirty = true;
+            printf("  -> shaderGlitchEnabled = %s\n", shaderGlitchEnabled ? "true" : "false"); 
+        }
         else if (strcmp(paramName, "shader_glitch_speed") == 0) { 
             shaderGlitchSpeed = (uint8_t)value; 
             shaderGlitchParamsDirty = true;
@@ -2384,7 +2399,8 @@ void CurrentMode::onStart() {
         GpuDriverState::setSingleParam("shader_gradient_angle", 0.0f);
         GpuDriverState::setSingleParam("shader_gradient_mirror", 0.0f);
         
-        // Reset glitch params
+        // Reset glitch overlay params
+        GpuDriverState::setSingleParam("shader_glitch_enabled", 0.0f);  // Glitch overlay off by default
         GpuDriverState::setSingleParam("shader_glitch_speed", 50.0f);
         GpuDriverState::setSingleParam("shader_glitch_intensity", 30.0f);
         GpuDriverState::setSingleParam("shader_glitch_chromatic", 20.0f);
@@ -2519,7 +2535,10 @@ void CurrentMode::onStart() {
         if (scene.params.count("shader_gradient_mirror")) {
             GpuDriverState::setSingleParam("shader_gradient_mirror", scene.params.at("shader_gradient_mirror"));
         }
-        // Glitch params
+        // Glitch overlay params (glitch is now independent of shader type)
+        if (scene.params.count("shader_glitch_enabled")) {
+            GpuDriverState::setSingleParam("shader_glitch_enabled", scene.params.at("shader_glitch_enabled"));
+        }
         if (scene.params.count("shader_glitch_speed")) {
             GpuDriverState::setSingleParam("shader_glitch_speed", scene.params.at("shader_glitch_speed"));
         }

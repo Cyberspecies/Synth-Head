@@ -119,6 +119,7 @@ private:
         SET_SHADER_PALETTE = 0x54, // Set color palette for shaders (up to 32 colors)
         SET_GRADIENT_PARAMS = 0x55, // Set gradient cycle params: distance, angle
         SET_GLITCH_PARAMS = 0x56,   // Set glitch shader params: speed, intensity, chromatic
+        SET_GLITCH_ENABLE = 0x57,   // Enable/disable glitch overlay: 0=off, 1=on
         
         // OLED-specific commands
         OLED_CLEAR = 0x60,
@@ -1544,6 +1545,17 @@ public:
         payload[2] = chromatic;
         payload[3] = quantity;
         sendCmd(CmdType::SET_GLITCH_PARAMS, payload, 4);
+    }
+    
+    /**
+     * Enable/disable the glitch overlay effect
+     * Glitch is now an independent overlay that works on top of any shader
+     * @param enabled True to enable glitch overlay, false to disable
+     */
+    void setGlitchEnable(bool enabled) {
+        uint8_t payload[1];
+        payload[0] = enabled ? 1 : 0;
+        sendCmd(CmdType::SET_GLITCH_ENABLE, payload, 1);
     }
     
     /**

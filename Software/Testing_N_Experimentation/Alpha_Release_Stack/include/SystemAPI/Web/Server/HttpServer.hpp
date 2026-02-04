@@ -2917,7 +2917,10 @@ private:
         it = scene.params.find("shader_gradient_mirror");
         cJSON_AddNumberToObject(shader, "gradient_mirror", it != scene.params.end() ? (int)it->second : 0);
         
-        // Glitch settings
+        // Glitch overlay settings (glitch is now an overlay, independent of shader type)
+        it = scene.params.find("shader_glitch_enabled");
+        cJSON_AddNumberToObject(shader, "glitch_enabled", it != scene.params.end() ? (int)it->second : 0);
+        
         it = scene.params.find("shader_glitch_speed");
         cJSON_AddNumberToObject(shader, "glitch_speed", it != scene.params.end() ? (int)it->second : 50);
         
@@ -2926,6 +2929,9 @@ private:
         
         it = scene.params.find("shader_glitch_chromatic");
         cJSON_AddNumberToObject(shader, "glitch_chromatic", it != scene.params.end() ? (int)it->second : 20);
+        
+        it = scene.params.find("shader_glitch_quantity");
+        cJSON_AddNumberToObject(shader, "glitch_quantity", it != scene.params.end() ? (int)it->second : 50);
         
         cJSON_AddItemToObject(config, "Shader", shader);
         

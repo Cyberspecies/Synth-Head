@@ -1075,13 +1075,11 @@ const DisplayConfig = {
     return defaults[param] ?? 0;
   },
   
-  // Shader type definitions
+  // Shader type definitions (glitch is now a separate overlay toggle)
   shaderTypes: [
     { id: 'none', name: 'None', value: 0 },
-    { id: 'color_override', name: 'Color Override', value: 1 },
     { id: 'hue_cycle', name: 'RGB Hue Cycle', value: 2 },
-    { id: 'gradient_cycle', name: 'Gradient Cycle', value: 3 },
-    { id: 'glitch', name: 'Glitch', value: 4 }
+    { id: 'gradient_cycle', name: 'Gradient Cycle', value: 3 }
   ],
   
   // Get shader field value from sceneData
@@ -1112,10 +1110,12 @@ const DisplayConfig = {
       'gradient_distance': 20,
       'gradient_angle': 0,
       'gradient_mirror': 0,
-      // Glitch shader specific
+      // Glitch overlay specific (now independent of shader type)
+      'glitch_enabled': 0,  // Glitch overlay toggle (0=off, 1=on)
       'glitch_speed': 50,
       'glitch_intensity': 30,
-      'glitch_chromatic': 20
+      'glitch_chromatic': 20,
+      'glitch_quantity': 50
     };
     
     // For colors beyond 7, default to red
@@ -1305,8 +1305,24 @@ const DisplayConfig = {
     html += `</div>`; // close gradient-palette-colors
     html += `</div>`; // close shader-gradient-cycle-params
     
-    // Glitch shader parameters (only shown when shader type is glitch)
-    html += `<div id="shader-glitch-params" style="display: ${shaderType === 4 ? 'block' : 'none'};">`;
+    // Glitch Overlay Section (always visible, independent of shader type)
+    // This is a toggle that enables glitch as a post-process effect on top of any shader
+    const glitchEnabled = this.getShaderFieldValue('glitch_enabled');
+    
+    html += `<div id="shader-glitch-overlay-section" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #3a3a3a;">`;
+    
+    // Glitch overlay toggle
+    html += `<div class="yaml-field-row" data-field-path="Shader.glitch_enabled">`;
+    html += `<label class="yaml-field-label">Glitch Overlay</label>`;
+    html += `<div class="yaml-field-control">`;
+    html += `<label class="yaml-toggle">`;
+    html += `<input type="checkbox" ${glitchEnabled ? 'checked' : ''} data-path="Shader.glitch_enabled" onchange="yamlEditorHandleGlitchToggle(this)">`;
+    html += `<span class="yaml-toggle-slider"></span>`;
+    html += `</label>`;
+    html += `</div></div>`;
+    
+    // Glitch parameters (only shown when glitch overlay is enabled)
+    html += `<div id="shader-glitch-params" style="display: ${glitchEnabled ? 'block' : 'none'};">`;
     
     // Glitch speed slider
     const glitchSpeed = this.getShaderFieldValue('glitch_speed');
@@ -1345,6 +1361,7 @@ const DisplayConfig = {
     html += `</div></div>`;
     
     html += `</div>`; // close shader-glitch-params
+    html += `</div>`; // close shader-glitch-overlay-section
     
     html += `</div></div>`; // close body and section
     return html;
@@ -1989,11 +2006,7 @@ const DisplayConfig = {
           if (gradientCycleParams) {
             gradientCycleParams.style.display = (value === 3) ? 'block' : 'none';
           }
-          // Show/hide glitch params based on shader type
-          const glitchParams = document.getElementById('shader-glitch-params');
-          if (glitchParams) {
-            glitchParams.style.display = (value === 4) ? 'block' : 'none';
-          }
+          // Note: Glitch is now an independent overlay toggle, not tied to shader type
         }
         
         this.updateField(select.dataset.path, value, type);
@@ -2518,6 +2531,18 @@ const DisplayConfig = {
     }
   }
 };
+
+// Global function for glitch overlay toggle
+// (Called from inline onchange handler because it's simpler for a single toggle)
+function yamlEditorHandleGlitchToggle(checkbox) {
+  const isEnabled = checkbox.checked;
+  const glitchParamsDiv = document.getElementById('shader-glitch-params');
+  if (glitchParamsDiv) {
+    glitchParamsDiv.style.display = isEnabled ? 'block' : 'none';
+  }
+  // Update the field value
+  DisplayConfig.updateField('Shader.glitch_enabled', isEnabled ? 1 : 0, 'number');
+}
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
