@@ -2201,25 +2201,39 @@ void CurrentMode::onStart() {
             printf("  [Shader] Invert: ON (from scene.shaderInvert)\n");
         }
         
-        // Apply shaderColorMode: none=0, solid=1, hue_cycle=2, gradient_cycle=3, glitch=4
+        // Apply shaderColorMode: solid=1, hue_cycle=2, gradient_cycle=3, glitch=4
+        // Track if shaderColorMode explicitly sets a shader type
+        // NOTE: "none" and empty mean "use params" - they don't force shader_type
+        bool shaderColorModeExplicit = false;
         if (scene.shaderColorMode == "solid") {
             GpuDriverState::setSingleParam("shader_type", 1.0f);
             printf("  [Shader] Type: SOLID (from scene.shaderColorMode)\n");
+            shaderColorModeExplicit = true;
         } else if (scene.shaderColorMode == "rainbow" || scene.shaderColorMode == "hue_cycle") {
             GpuDriverState::setSingleParam("shader_type", 2.0f);
             printf("  [Shader] Type: HUE_CYCLE (from scene.shaderColorMode)\n");
+            shaderColorModeExplicit = true;
         } else if (scene.shaderColorMode == "gradient" || scene.shaderColorMode == "gradient_cycle") {
             GpuDriverState::setSingleParam("shader_type", 3.0f);
             printf("  [Shader] Type: GRADIENT_CYCLE (from scene.shaderColorMode)\n");
+            shaderColorModeExplicit = true;
         } else if (scene.shaderColorMode == "glitch") {
             GpuDriverState::setSingleParam("shader_type", 4.0f);
             printf("  [Shader] Type: GLITCH (from scene.shaderColorMode)\n");
+            shaderColorModeExplicit = true;
         }
+        // "none" or empty shaderColorMode = let params control shader_type
         
         // Parse shaderColor hex string to RGB for solid color mode
         if (!scene.shaderColor.empty() && scene.shaderColor[0] == '#' && scene.shaderColor.length() >= 7) {
-            int r = 0, g = 0, b = 0;
-            sscanf(scene.shaderColor.c_str() + 1, "%02x%02x%02x", &r, &g, &b);
+            // Parse hex color properly - extract 2 chars at a time
+            const char* hex = scene.shaderColor.c_str() + 1;  // Skip '#'
+            char rHex[3] = {hex[0], hex[1], 0};
+            char gHex[3] = {hex[2], hex[3], 0};
+            char bHex[3] = {hex[4], hex[5], 0};
+            int r = (int)strtol(rHex, NULL, 16);
+            int g = (int)strtol(gHex, NULL, 16);
+            int b = (int)strtol(bHex, NULL, 16);
             GpuDriverState::setSingleParam("shader_override_r", (float)r);
             GpuDriverState::setSingleParam("shader_override_g", (float)g);
             GpuDriverState::setSingleParam("shader_override_b", (float)b);
@@ -2236,10 +2250,11 @@ void CurrentMode::onStart() {
         printf("\n");
         
         // Override with explicit params if present (from Advanced editor or API)
-        if (scene.params.count("shader_type")) {
+        // BUT only if shaderColorMode wasn't explicitly set - shaderColorMode takes priority
+        if (!shaderColorModeExplicit && scene.params.count("shader_type")) {
             float shaderTypeVal = scene.params.at("shader_type");
             GpuDriverState::setSingleParam("shader_type", shaderTypeVal);
-            printf("  Shader Type Override: %d (from params)\n", (int)shaderTypeVal);
+            printf("  Shader Type Override: %d (from params, no shaderColorMode)\n", (int)shaderTypeVal);
         }
         if (scene.params.count("shader_invert")) {
             GpuDriverState::setSingleParam("shader_invert", scene.params.at("shader_invert"));
@@ -2486,6 +2501,44 @@ void CurrentMode::onStart() {
         else {
             printf("  -> Current mode is %d, applying no specific params\n", (int)currentMode);
         }
+        
+        // Handle shader settings from scene struct
+        // Convert shaderColorMode string to shader_type value
+        // NOTE: "none" or empty means "don't change shader" - use current/params value
+        if (scene.shaderColorMode == "solid") {
+            GpuDriverState::setSingleParam("shader_type", 1.0f);
+            printf("  -> Set shader_type=1 (SOLID/COLOR_OVERRIDE)\n");
+        } else if (scene.shaderColorMode == "rainbow" || scene.shaderColorMode == "hue_cycle") {
+            GpuDriverState::setSingleParam("shader_type", 2.0f);
+            printf("  -> Set shader_type=2 (HUE_CYCLE)\n");
+        } else if (scene.shaderColorMode == "gradient" || scene.shaderColorMode == "gradient_cycle") {
+            GpuDriverState::setSingleParam("shader_type", 3.0f);
+            printf("  -> Set shader_type=3 (GRADIENT_CYCLE)\n");
+        } else if (scene.shaderColorMode == "glitch") {
+            GpuDriverState::setSingleParam("shader_type", 4.0f);
+            printf("  -> Set shader_type=4 (GLITCH)\n");
+        }
+        // "none" or empty = don't touch shader_type, let params or current value apply
+        
+        // Handle shaderInvert
+        GpuDriverState::setSingleParam("shader_invert", scene.shaderInvert ? 1.0f : 0.0f);
+        
+        // Parse shaderColor hex string to RGB for solid color mode
+        if (!scene.shaderColor.empty() && scene.shaderColor[0] == '#' && scene.shaderColor.length() >= 7) {
+            // Parse hex color properly - extract 2 chars at a time
+            const char* hex = scene.shaderColor.c_str() + 1;  // Skip '#'
+            char rHex[3] = {hex[0], hex[1], 0};
+            char gHex[3] = {hex[2], hex[3], 0};
+            char bHex[3] = {hex[4], hex[5], 0};
+            int r = (int)strtol(rHex, NULL, 16);
+            int g = (int)strtol(gHex, NULL, 16);
+            int b = (int)strtol(bHex, NULL, 16);
+            GpuDriverState::setSingleParam("shader_override_r", (float)r);
+            GpuDriverState::setSingleParam("shader_override_g", (float)g);
+            GpuDriverState::setSingleParam("shader_override_b", (float)b);
+            printf("  -> Set shader override color: %s -> RGB(%d,%d,%d)\n", scene.shaderColor.c_str(), r, g, b);
+        }
+        
         printf("*** END CALLBACK ***\n\n");
     });
     
