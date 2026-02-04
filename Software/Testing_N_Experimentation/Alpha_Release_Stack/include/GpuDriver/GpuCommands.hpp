@@ -1289,6 +1289,14 @@ public:
         
         ESP_LOGI("GpuCmd", "Uploading sprite %d: %dx%d, %lu bytes (chunked)", id, width, height, dataSize);
         
+        // CRITICAL: Hold mutex for entire upload to prevent interleaving with render loop
+        // Without this, other commands can slip between chunks and corrupt the upload
+        GpuUart::GpuUartLock lock(5000);  // 5 second timeout for large sprites
+        if (!lock.isAcquired()) {
+            ESP_LOGE("GpuCmd", "uploadSprite: mutex timeout, upload aborted");
+            return false;
+        }
+        
         // Step 1: Send SPRITE_BEGIN
         // Payload: spriteId, width, height, format, totalSize (2 bytes little-endian)
         uint8_t beginPayload[6] = {
@@ -1299,7 +1307,7 @@ public:
             static_cast<uint8_t>(dataSize & 0xFF),
             static_cast<uint8_t>((dataSize >> 8) & 0xFF)
         };
-        sendCmd(CmdType::SPRITE_BEGIN, beginPayload, 6);
+        sendCmdInternal(CmdType::SPRITE_BEGIN, beginPayload, 6);
         vTaskDelay(pdMS_TO_TICKS(5));  // Give GPU time to prepare
         
         // Step 2: Send SPRITE_CHUNK for each chunk
@@ -1319,7 +1327,7 @@ public:
             chunkPayload[2] = static_cast<uint8_t>((chunkIdx >> 8) & 0xFF);
             memcpy(chunkPayload + 3, data + offset, thisChunkSize);
             
-            sendCmd(CmdType::SPRITE_CHUNK, chunkPayload, 3 + thisChunkSize);
+            sendCmdInternal(CmdType::SPRITE_CHUNK, chunkPayload, 3 + thisChunkSize);
             
             offset += thisChunkSize;
             chunkIdx++;
@@ -1340,7 +1348,7 @@ public:
             static_cast<uint8_t>(chunkIdx & 0xFF),
             static_cast<uint8_t>((chunkIdx >> 8) & 0xFF)
         };
-        sendCmd(CmdType::SPRITE_END, endPayload, 3);
+        sendCmdInternal(CmdType::SPRITE_END, endPayload, 3);
         
         ESP_LOGI("GpuCmd", "Sprite %d upload complete: %d chunks sent", id, chunkIdx);
         return true;

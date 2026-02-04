@@ -878,9 +878,9 @@ namespace GpuDriverState {
                         float rightTargetX = reactiveBaseRightX + gz * reactiveZSensitivity; // +Z = right moves forward (right)
                         float rightTargetY = reactiveBaseRightY - gy * reactiveYSensitivity  // +Y = right moves UP (negative Y screen = up)
                                             + gx * reactiveXSensitivity;                      // +X = both move down
-                        // Right uses same rotation direction as left (+gx = same direction)
-                        // The 180 base is just the starting orientation, gyro adds same way
-                        float rightTargetRot = (180.0f + reactiveRightRotOffset) + gx * reactiveRotSensitivity;
+                        // Right rotation is MIRRORED: when left rotates CW, right rotates CCW
+                        // This gives a natural "both eyes looking the same direction" effect
+                        float rightTargetRot = (180.0f + reactiveRightRotOffset) - gx * reactiveRotSensitivity;
                         
                         // Apply smoothing (exponential moving average)
                         reactiveLPosXSmooth += (leftTargetX - reactiveLPosXSmooth) * reactiveSmoothing;
