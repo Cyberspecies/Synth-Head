@@ -278,6 +278,21 @@ namespace GpuDriverState {
     static uint8_t shaderGlitchQuantity = 50;     // Quantity/density of glitch bands (0-100)
     static bool shaderGlitchParamsDirty = true;   // Flag to send glitch params to GPU
     
+    // Flag to prevent re-saving params while loading from scene
+    static bool loadingSceneParams = false;
+    
+    // Force all shader dirty flags to trigger resync to GPU
+    // Call this after loading scene shader params to ensure GPU gets updated
+    static void forceShaderSync() {
+        shaderDirty = true;
+        shaderPaletteDirty = true;
+        shaderGradientParamsDirty = true;
+        shaderGlitchParamsDirty = true;
+        printf("[Shader] Force sync: type=%d, invert=%d, gradient(dist=%d,angle=%d,mirror=%d), glitch(spd=%d,int=%d,chr=%d,qty=%d)\n",
+               shaderType, shaderInvert, shaderGradientDistance, shaderGradientAngle, shaderGradientMirror,
+               shaderGlitchSpeed, shaderGlitchIntensity, shaderGlitchChromatic, shaderGlitchQuantity);
+    }
+    
     // ====== COMPLEX TRANSITION ANIMATION ======
     static AnimationSystem::Animations::ComplexTransitionAnim complexAnim;
     static bool complexAnimEnabled = false;  // Disabled - use sandbox instead
@@ -733,18 +748,9 @@ namespace GpuDriverState {
                 }
                 
                 // Get gyro data DIRECTLY from IMU driver for lowest latency
-                int16_t gx = Drivers::ImuDriver::gyroX;
-                int16_t gy = Drivers::ImuDriver::gyroY;
-                (void)gx; (void)gy;  // Used in debug print and future gyro features
-                
-                // DEBUG: Print IMMEDIATELY when gyro is non-zero
-                static int64_t lastMovementTime = 0;
-                (void)lastMovementTime;  // Used in debug prints
-                if (gx != 0 || gy != 0) {
-                    int64_t now = esp_timer_get_time();
-                    printf("MOVE[%lu]: gyro=(%d,%d) t=%lld\n", renderFrameCount, gx, gy, now/1000);
-                    lastMovementTime = now;
-                }
+                // (Used for debug prints - REACTIVE_EYES uses SYNC_STATE calibrated data)
+                (void)Drivers::ImuDriver::gyroX;
+                (void)Drivers::ImuDriver::gyroY;
                 
                 switch (currentAnimMode) {
                     case SceneAnimMode::GYRO_EYES:
@@ -1249,8 +1255,8 @@ namespace GpuDriverState {
             shaderDirty = true;
             printf("  -> shaderOverrideB = %d\n", shaderOverrideB); 
         }
-        // Hue Cycle shader params
-        else if (strcmp(paramName, "shader_hue_speed") == 0) { 
+        // Hue Cycle shader params (accept both naming conventions)
+        else if (strcmp(paramName, "shader_hue_speed") == 0 || strcmp(paramName, "shader_hue_cycle_speed") == 0) { 
             shaderHueCycleSpeed = (uint16_t)value; 
             shaderDirty = true;
             printf("  -> shaderHueCycleSpeed = %d\n", shaderHueCycleSpeed); 
@@ -1350,6 +1356,15 @@ namespace GpuDriverState {
         else if (strcmp(paramName, "reactive_right_flip_x") == 0) { reactiveRightFlipX = (value > 0.5f); printf("  -> reactiveRightFlipX = %s\n", reactiveRightFlipX ? "true" : "false"); }
         else if (strcmp(paramName, "reactive_right_rot_offset") == 0) { reactiveRightRotOffset = value; printf("  -> reactiveRightRotOffset = %.2f\n", reactiveRightRotOffset); }
         else { printf("  -> UNKNOWN PARAM\n"); }
+        
+        // Auto-save shader params to active scene (if not loading from scene)
+        // This ensures shader config persists per-scene
+        if (!loadingSceneParams && strncmp(paramName, "shader_", 7) == 0) {
+            if (SystemAPI::Web::HttpServer::updateActiveSceneParam(paramName, value)) {
+                // Throttled save to storage
+                SystemAPI::Web::HttpServer::saveActiveSceneParams();
+            }
+        }
     }
     
     // Set mirror enabled state directly
@@ -1900,6 +1915,8 @@ void CurrentMode::onStart() {
         printf("  Animation Type: %s\n", scene.animType.c_str());
         printf("  Display Enabled: %s\n", scene.displayEnabled ? "YES" : "NO");
         printf("  Background: RGB(%d,%d,%d)\n", scene.bgR, scene.bgG, scene.bgB);
+        printf("  [Memory] Free heap: %lu bytes, Min: %lu bytes\n", 
+               esp_get_free_heap_size(), esp_get_minimum_free_heap_size());
         printf("  ========================================\n\n");
         
         // Update OLED to show this as the active scene
@@ -2081,6 +2098,10 @@ void CurrentMode::onStart() {
             }
             
             // Handle sprite upload if scene uses a sprite
+            // IMPORTANT: Clear ALL sprite RAM first to avoid accumulation when switching scenes
+            SystemAPI::Web::HttpServer::clearAllSpriteRam();
+            printf("  [Memory] Cleared all sprite RAM before loading new sprite\n");
+            
             if (scene.spriteId >= 0) {
                 auto* sprite = SystemAPI::Web::HttpServer::findSpriteById(scene.spriteId);
                 if (sprite && !sprite->pixelData.empty()) {
@@ -2098,6 +2119,10 @@ void CurrentMode::onStart() {
                         vTaskDelay(pdMS_TO_TICKS(100));
                         GpuDriverState::setSpriteScene(gpuSpriteId, 64.0f, 16.0f, 0.0f, scene.bgR, scene.bgG, scene.bgB);
                         printf("  Sprite uploaded to GPU slot 0, spriteReady=true\n");
+                        
+                        // Clear sprite RAM after successful upload to GPU
+                        SystemAPI::Web::HttpServer::clearSpriteRam(scene.spriteId);
+                        printf("  [Memory] Sprite %d RAM cleared after GPU upload\n", scene.spriteId);
                     } else {
                         printf("  ERROR: Sprite upload to GPU failed!\n");
                     }
@@ -2118,11 +2143,56 @@ void CurrentMode::onStart() {
         
         // Apply shader params from scene.params (stored from Advanced editor)
         // These are stored with "shader_" prefix in the params map
-        // IMPORTANT: Reset shader to NONE first to ensure clean slate when switching scenes
-        // This prevents shader from previous scene persisting if new scene has no shader_type
+        // IMPORTANT: Reset ALL shader params to defaults when switching scenes
+        // This ensures no leftover config from previous scene affects the new one
+        printf("  [Shader] Resetting ALL shader params to defaults...\n");
+        
+        // Set flag to prevent saving reset values back to scene
+        GpuDriverState::loadingSceneParams = true;
+        
+        // Reset shader type and basic params
         GpuDriverState::setSingleParam("shader_type", 0.0f);  // Reset to NONE
-        GpuDriverState::setSingleParam("shader_invert", 0.0f);  // Reset invert
-        printf("  [Shader] Reset to NONE before applying scene params\n");
+        GpuDriverState::setSingleParam("shader_invert", 0.0f);
+        GpuDriverState::setSingleParam("shader_mask_enabled", 1.0f);  // Default on
+        GpuDriverState::setSingleParam("shader_mask_r", 0.0f);
+        GpuDriverState::setSingleParam("shader_mask_g", 0.0f);
+        GpuDriverState::setSingleParam("shader_mask_b", 0.0f);
+        GpuDriverState::setSingleParam("shader_override_r", 255.0f);
+        GpuDriverState::setSingleParam("shader_override_g", 255.0f);
+        GpuDriverState::setSingleParam("shader_override_b", 255.0f);
+        
+        // Reset gradient params
+        GpuDriverState::setSingleParam("shader_gradient_distance", 20.0f);
+        GpuDriverState::setSingleParam("shader_gradient_angle", 0.0f);
+        GpuDriverState::setSingleParam("shader_gradient_mirror", 0.0f);
+        
+        // Reset glitch params
+        GpuDriverState::setSingleParam("shader_glitch_speed", 50.0f);
+        GpuDriverState::setSingleParam("shader_glitch_intensity", 30.0f);
+        GpuDriverState::setSingleParam("shader_glitch_chromatic", 20.0f);
+        GpuDriverState::setSingleParam("shader_glitch_quantity", 50.0f);
+        
+        // Reset hue cycle params
+        GpuDriverState::setSingleParam("shader_hue_speed", 1000.0f);
+        GpuDriverState::setSingleParam("shader_hue_color_count", 5.0f);
+        // Reset palette colors to defaults
+        for (int i = 0; i < 32; i++) {
+            char rKey[32], gKey[32], bKey[32];
+            snprintf(rKey, sizeof(rKey), "shader_hue_color_%d_r", i);
+            snprintf(gKey, sizeof(gKey), "shader_hue_color_%d_g", i);
+            snprintf(bKey, sizeof(bKey), "shader_hue_color_%d_b", i);
+            // Default: first 5 colors are rainbow, rest red
+            uint8_t r = 255, g = 0, b = 0;
+            if (i == 1) { r = 255; g = 255; b = 0; }
+            else if (i == 2) { r = 0; g = 255; b = 0; }
+            else if (i == 3) { r = 0; g = 0; b = 255; }
+            else if (i == 4) { r = 128; g = 0; b = 255; }
+            GpuDriverState::setSingleParam(rKey, (float)r);
+            GpuDriverState::setSingleParam(gKey, (float)g);
+            GpuDriverState::setSingleParam(bKey, (float)b);
+        }
+        
+        printf("  [Shader] All params reset to defaults\n");
         
         // Apply dedicated shader fields from scene struct (fallback if params don't have them)
         // These are the fields saved/loaded by saveScenesStorage/loadScenesFromStorage
@@ -2186,9 +2256,12 @@ void CurrentMode::onStart() {
         if (scene.params.count("shader_mask_b")) {
             GpuDriverState::setSingleParam("shader_mask_b", scene.params.at("shader_mask_b"));
         }
-        // Hue/Gradient cycle speed
+        // Hue/Gradient cycle speed (check both naming conventions)
         if (scene.params.count("shader_hue_cycle_speed")) {
-            GpuDriverState::setSingleParam("shader_hue_cycle_speed", scene.params.at("shader_hue_cycle_speed"));
+            GpuDriverState::setSingleParam("shader_hue_speed", scene.params.at("shader_hue_cycle_speed"));
+        }
+        if (scene.params.count("shader_hue_speed")) {
+            GpuDriverState::setSingleParam("shader_hue_speed", scene.params.at("shader_hue_speed"));
         }
         // Hue color count and palette
         if (scene.params.count("shader_hue_color_count")) {
@@ -2226,6 +2299,14 @@ void CurrentMode::onStart() {
         if (scene.params.count("shader_glitch_quantity")) {
             GpuDriverState::setSingleParam("shader_glitch_quantity", scene.params.at("shader_glitch_quantity"));
         }
+        
+        // Done loading scene params - clear flag to allow saving
+        GpuDriverState::loadingSceneParams = false;
+        
+        // Force sync shader to GPU after applying all scene params
+        // This ensures the GPU gets the complete shader config immediately
+        GpuDriverState::forceShaderSync();
+        printf("  [Shader] Forced sync to GPU after scene activation\n");
         
         // LED control removed - LEDs are now managed independently of scenes
     });

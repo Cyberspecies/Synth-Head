@@ -435,6 +435,41 @@ public:
     }
     
     /**
+     * @brief Update a parameter on the active scene
+     * Saves the param value to the active scene's params map
+     * @param paramName The name of the parameter (e.g., "shader_gradient_distance")
+     * @param value The value to set
+     * @return true if active scene found and updated
+     */
+    static bool updateActiveSceneParam(const char* paramName, float value) {
+        if (activeSceneId_ < 0) return false;
+        
+        for (auto& scene : savedScenes_) {
+            if (scene.id == activeSceneId_) {
+                scene.params[paramName] = value;
+                ESP_LOGI(HTTP_TAG, "[updateActiveSceneParam] scene %d: %s = %.2f", 
+                         activeSceneId_, paramName, value);
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * @brief Force save active scene's params to storage
+     */
+    static void saveActiveSceneParams() {
+        static uint32_t lastSaveTime = 0;
+        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        // Throttle saves to every 2 seconds
+        if (now - lastSaveTime > 2000) {
+            saveScenesStorage();
+            lastSaveTime = now;
+            ESP_LOGI(HTTP_TAG, "Saved scenes to storage (throttled)");
+        }
+    }
+    
+    /**
      * @brief Get all saved sprites (for diagnostic/debug purposes)
      */
     const std::vector<SavedSprite>& getSprites() const {
@@ -8358,6 +8393,54 @@ public:
                 break;
             }
         }
+    }
+    
+    /**
+     * @brief Clear sprite pixel data from RAM to free memory
+     * Call after sprite has been uploaded to GPU
+     * @param spriteId The sprite ID to clear RAM for
+     */
+    static void clearSpriteRam(int spriteId) {
+        for (auto& sprite : savedSprites_) {
+            if (sprite.id == spriteId) {
+                if (!sprite.pixelData.empty()) {
+                    size_t freedBytes = sprite.pixelData.size();
+                    sprite.pixelData.clear();
+                    sprite.pixelData.shrink_to_fit();  // Actually release the memory
+                    ESP_LOGI(HTTP_TAG, "Cleared %zu bytes RAM for sprite %d (savedToSd=%s)", 
+                             freedBytes, spriteId, sprite.savedToSd ? "YES" : "NO");
+                }
+                // Also clear preview to save more RAM
+                if (!sprite.preview.empty()) {
+                    size_t previewBytes = sprite.preview.size();
+                    sprite.preview.clear();
+                    sprite.preview.shrink_to_fit();
+                    ESP_LOGI(HTTP_TAG, "Cleared %zu bytes preview RAM for sprite %d", previewBytes, spriteId);
+                }
+                break;
+            }
+        }
+    }
+    
+    /**
+     * @brief Clear all sprite pixel data from RAM
+     * Call to free memory when sprites are no longer needed in RAM
+     */
+    static void clearAllSpriteRam() {
+        size_t totalFreed = 0;
+        for (auto& sprite : savedSprites_) {
+            if (!sprite.pixelData.empty()) {
+                totalFreed += sprite.pixelData.size();
+                sprite.pixelData.clear();
+                sprite.pixelData.shrink_to_fit();
+            }
+            if (!sprite.preview.empty()) {
+                totalFreed += sprite.preview.size();
+                sprite.preview.clear();
+                sprite.preview.shrink_to_fit();
+            }
+        }
+        ESP_LOGI(HTTP_TAG, "Cleared %zu total bytes of sprite RAM (%d sprites)", totalFreed, savedSprites_.size());
     }
 };
 

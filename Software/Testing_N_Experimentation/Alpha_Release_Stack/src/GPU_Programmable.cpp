@@ -454,10 +454,15 @@ static inline uint8_t lerpU8(uint8_t a, uint8_t b, float t) {
   return (uint8_t)(a + (b - a) * t);
 }
 
-// Get current hue cycle color based on time and speed
-static inline void getHueCycleColor(uint8_t& r, uint8_t& g, uint8_t& b) {
+// Cached hue cycle color (same for all pixels in a frame, computed once per frame)
+static uint8_t g_cachedHueR = 255, g_cachedHueG = 0, g_cachedHueB = 0;
+static uint32_t g_cachedHueFrame = 0xFFFFFFFF;  // Last frame this was computed
+static uint32_t g_currentFrameId = 0;  // Incremented each frame
+
+// Update cached hue cycle color (call once per frame before rendering)
+static void updateCachedHueCycleColor() {
   if (g_huePaletteCount == 0) {
-    r = g = b = 255;
+    g_cachedHueR = g_cachedHueG = g_cachedHueB = 255;
     return;
   }
   
@@ -480,73 +485,82 @@ static inline void getHueCycleColor(uint8_t& r, uint8_t& g, uint8_t& b) {
   uint8_t idx1 = segmentIndex % g_huePaletteCount;
   uint8_t idx2 = (segmentIndex + 1) % g_huePaletteCount;
   
-  // Interpolate
-  r = lerpU8(g_huePalette[idx1 * 3 + 0], g_huePalette[idx2 * 3 + 0], segmentProgress);
-  g = lerpU8(g_huePalette[idx1 * 3 + 1], g_huePalette[idx2 * 3 + 1], segmentProgress);
-  b = lerpU8(g_huePalette[idx1 * 3 + 2], g_huePalette[idx2 * 3 + 2], segmentProgress);
+  // Interpolate and cache
+  g_cachedHueR = lerpU8(g_huePalette[idx1 * 3 + 0], g_huePalette[idx2 * 3 + 0], segmentProgress);
+  g_cachedHueG = lerpU8(g_huePalette[idx1 * 3 + 1], g_huePalette[idx2 * 3 + 1], segmentProgress);
+  g_cachedHueB = lerpU8(g_huePalette[idx1 * 3 + 2], g_huePalette[idx2 * 3 + 2], segmentProgress);
 }
 
-// Get gradient cycle color based on position and time
-// Projects pixel position onto angle direction and calculates color from gradient
-static inline void getGradientCycleColor(int16_t pixelX, int16_t pixelY, uint8_t& r, uint8_t& g, uint8_t& b) {
-  static uint32_t debugCounter = 0;
-  
-  if (g_huePaletteCount == 0) {
-    r = g = b = 255;
-    return;
-  }
+// Get current hue cycle color (uses cached value, very fast)
+static inline void getHueCycleColor(uint8_t& r, uint8_t& g, uint8_t& b) {
+  r = g_cachedHueR;
+  g = g_cachedHueG;
+  b = g_cachedHueB;
+}
+
+// Cached gradient cycle values (updated once per frame)
+static float g_cachedGradientDirX = 1.0f, g_cachedGradientDirY = 0.0f;
+static float g_cachedGradientDirXMirror = -1.0f;  // For mirrored right panel
+static float g_cachedGradientScrollOffset = 0.0f;
+static float g_cachedGradientTotalLength = 64.0f;
+static float g_cachedGradientInvDistance = 1.0f / 64.0f;
+
+// Update cached gradient values (call once per frame before rendering)
+static void updateCachedGradientValues() {
+  if (g_huePaletteCount == 0) return;
   
   // Get speed in ms (stored as 16-bit in param1,param2)
   uint16_t speedMs = g_shaderParam1 | (g_shaderParam2 << 8);
   if (speedMs == 0) speedMs = 1000;  // Default 1 second
   
+  // Pre-compute angle direction
+  float angleRad = (float)g_gradientAngle * 3.14159265f / 180.0f;
+  g_cachedGradientDirX = cosf(angleRad);
+  g_cachedGradientDirY = sinf(angleRad);
+  g_cachedGradientDirXMirror = cosf(-angleRad);  // For mirrored panels
+  
+  // Pre-compute time-based scroll offset
+  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+  uint32_t elapsed = now - g_hueCycleStartTime;
+  float pixelsPerMs = (float)g_gradientDistance / (float)speedMs;
+  g_cachedGradientScrollOffset = (float)elapsed * pixelsPerMs;
+  
+  // Pre-compute total gradient length and inverse distance for division
+  g_cachedGradientTotalLength = (float)g_gradientDistance * (float)g_huePaletteCount;
+  g_cachedGradientInvDistance = 1.0f / (float)g_gradientDistance;
+}
+
+// Get gradient cycle color based on position (uses cached frame values)
+// Projects pixel position onto angle direction and calculates color from gradient
+static inline void getGradientCycleColor(int16_t pixelX, int16_t pixelY, uint8_t& r, uint8_t& g, uint8_t& b) {
+  if (g_huePaletteCount == 0) {
+    r = g = b = 255;
+    return;
+  }
+  
   // Calculate effective position for gradient calculation
   int16_t effectiveX = pixelX;
-  int16_t effectiveAngle = g_gradientAngle;
+  float dirX = g_cachedGradientDirX;
   bool isRightPanel = (pixelX >= PANEL_WIDTH);
   
   if (g_gradientMirror && isRightPanel) {
     // Mirror effect: transform right panel coordinates to mirror left panel
-    // Map x from [64-127] to [63-0] (mirror around the center line)
     effectiveX = TOTAL_WIDTH - 1 - pixelX;
-    // Negate the angle to flip the gradient direction horizontally
-    effectiveAngle = -g_gradientAngle;
-  }
-  
-  float angleRad = (float)effectiveAngle * 3.14159265f / 180.0f;
-  float dirX = cosf(angleRad);
-  float dirY = sinf(angleRad);
-  
-  // Debug output every ~1 second (assuming ~60fps, ~4096 pixels per frame)
-  if (++debugCounter % 250000 == 0) {
-    ESP_LOGI(TAG, "GRADIENT: angle=%d, mirror=%d, dirX=%.3f, dirY=%.3f, dist=%d, colors=%d",
-             g_gradientAngle, g_gradientMirror, dirX, dirY, g_gradientDistance, g_huePaletteCount);
+    dirX = g_cachedGradientDirXMirror;
   }
   
   // Project pixel position onto direction vector to get position along gradient
-  float projectedPos = (float)effectiveX * dirX + (float)pixelY * dirY;
-  
-  // Time-based offset for scrolling
-  uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-  uint32_t elapsed = now - g_hueCycleStartTime;
-  
-  // Calculate scroll offset in pixels
-  // Speed determines how fast it scrolls - pixels per second = distance / (speedMs/1000)
-  float pixelsPerMs = (float)g_gradientDistance / (float)speedMs;
-  float scrollOffset = (float)elapsed * pixelsPerMs;
-  
-  // Total gradient length in pixels
-  float totalGradientLength = (float)g_gradientDistance * (float)g_huePaletteCount;
+  float projectedPos = (float)effectiveX * dirX + (float)pixelY * g_cachedGradientDirY;
   
   // Add scroll offset to position and wrap
-  float gradientPos = projectedPos + scrollOffset;
+  float gradientPos = projectedPos + g_cachedGradientScrollOffset;
   
   // Wrap to total gradient length (handle negatives)
-  gradientPos = fmodf(gradientPos, totalGradientLength);
-  if (gradientPos < 0) gradientPos += totalGradientLength;
+  gradientPos = fmodf(gradientPos, g_cachedGradientTotalLength);
+  if (gradientPos < 0) gradientPos += g_cachedGradientTotalLength;
   
-  // Calculate which color segment we're in
-  float segmentFloat = gradientPos / (float)g_gradientDistance;
+  // Calculate which color segment we're in (use cached inverse for faster division)
+  float segmentFloat = gradientPos * g_cachedGradientInvDistance;
   int segmentIndex = (int)segmentFloat;
   float segmentProgress = segmentFloat - (float)segmentIndex;
   
@@ -3974,6 +3988,13 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
     
     case CmdType::CLEAR: {
       if (hdr->length >= 3) {
+        // Update cached shader values at start of frame (before any blitting)
+        if (g_shaderType == ShaderType::HUE_CYCLE) {
+          updateCachedHueCycleColor();
+        } else if (g_shaderType == ShaderType::GRADIENT_CYCLE) {
+          updateCachedGradientValues();
+        }
+        
         if (gpu.target == 0) {
           for (int i = 0; i < TOTAL_WIDTH * TOTAL_HEIGHT; i++) {
             hub75_buffer[i * 3 + 0] = payload[0];
@@ -4151,8 +4172,8 @@ static void processCommand(const CmdHeader* hdr, const uint8_t* payload) {
         oled_update_pending = true;
         dbg_oled_presents++;
         dbg_last_oled_present = esp_timer_get_time();
-        // Clear buffer after present to prevent stale data
-        memset(oled_buffer, 0, OLED_BUFFER_SIZE);
+        // Note: Don't clear buffer here - CPU sends OLED_CLEAR before each frame
+        // Clearing here caused flashing when frames arrived faster than display
       }
       break;
     }
@@ -4911,7 +4932,7 @@ static void uartTask(void* arg) {
 static void oledTask(void* arg) {
   ESP_LOGI(TAG, "OLED task started on Core 0");
   int64_t lastUpdateTime = 0;
-  const int MIN_MS_AFTER_HUB75 = 8;  // Wait at least 8ms after HUB75 present
+  const int MIN_MS_AFTER_HUB75 = 2;  // Wait at least 2ms after HUB75 present (reduced from 8ms)
   static uint32_t oled_update_num = 0;  // For sparse logging
   
   while (true) {
@@ -4925,7 +4946,7 @@ static void oledTask(void* arg) {
       // This gives DMA time to settle before we start I2C traffic
       int retries = 0;
       int64_t sinceHUB75;
-      while (retries < 50) {  // Max ~100ms of waiting
+      while (retries < 20) {  // Max ~20ms of waiting (reduced from 50)
         int64_t now = esp_timer_get_time();
         // Use acquire semantics to ensure we see the latest value from Core 1
         int64_t lastHUB75 = dbg_last_hub75_present.load(std::memory_order_acquire);
@@ -4947,8 +4968,8 @@ static void oledTask(void* arg) {
       oled_update_num++;
       lastUpdateTime = esp_timer_get_time();
       
-      // Log only every 30th update to reduce overhead
-      if ((oled_update_num % 30) == 0) {
+      // Log only every 60th update to reduce overhead (changed from 30)
+      if ((oled_update_num % 60) == 0) {
         int64_t now = esp_timer_get_time();
         int64_t lastHUB75 = dbg_last_hub75_present.load(std::memory_order_acquire);
         sinceHUB75 = (now - lastHUB75) / 1000;
@@ -4956,10 +4977,10 @@ static void oledTask(void* arg) {
                  (unsigned long)oled_update_num, sinceHUB75, retries);
       }
       
-      // Give HUB75 DMA time to recover after I2C burst (reduced from 20ms)
-      vTaskDelay(pdMS_TO_TICKS(5));
+      // Give HUB75 DMA time to recover after I2C burst (reduced from 5ms)
+      vTaskDelay(pdMS_TO_TICKS(2));
     }
-    vTaskDelay(pdMS_TO_TICKS(10));  // Check every 10ms (~30Hz potential)
+    vTaskDelay(pdMS_TO_TICKS(5));  // Check every 5ms (~60Hz potential, was 10ms)
   }
 }
 

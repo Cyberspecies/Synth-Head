@@ -82,10 +82,10 @@ static constexpr int MAX_CONTENT_LINES = 9; // (116-18)/11 = ~9 lines
 // ============================================================================
 
 static constexpr uint32_t DEBOUNCE_MS = 100;        // Button debounce
-static constexpr uint32_t RENDER_NORMAL_MS = 100;   // 10fps for menus
+static constexpr uint32_t RENDER_NORMAL_MS = 66;    // 15fps for menus
 static constexpr uint32_t RENDER_FAST_MS = 50;      // 20fps for animations
-static constexpr uint32_t RENDER_MARQUEE_MS = 100;  // 10fps marquee scroll
-static constexpr uint32_t RENDER_SENSOR_MS = 100;   // 10fps sensor data
+static constexpr uint32_t RENDER_MARQUEE_MS = 66;   // 15fps marquee scroll
+static constexpr uint32_t RENDER_SENSOR_MS = 66;    // 15fps sensor data
 static constexpr uint32_t RENDER_MAX_MS = 1000;     // Force refresh at least 1Hz
 static constexpr uint32_t ON_TIME_SAVE_INTERVAL_MS = 60000;  // Save every minute
 static constexpr uint32_t HOLD_HOME_MS = 3000;      // Hold back for 3s to go home
