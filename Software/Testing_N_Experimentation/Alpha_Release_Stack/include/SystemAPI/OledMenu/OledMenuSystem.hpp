@@ -943,25 +943,41 @@ private:
         }
         
         // === VIEWPORT SECTION (Middle 64 pixels: code Y 32-95) ===
-        // Draw viewport outline/border (rectangle around the viewport area)
+        // Draw viewport borders - just top and bottom lines
         gpu_->oledLine(0, 32, 127, 32, true);    // Top edge
         gpu_->oledLine(0, 95, 127, 95, true);    // Bottom edge
-        gpu_->oledLine(0, 32, 0, 95, true);      // Left edge
-        gpu_->oledLine(127, 32, 127, 95, true);  // Right edge
         
-        // Simplified viewport - just time and fan status for debugging
+        // Viewport content
         char statusBuf[32];
-        int viewportY = 50;  // Center vertically in viewport
+        int viewportY = 38;  // Start near top of viewport
         
-        // Time from GPS (or loading message if no fix)
+        // Speedometer from GPS
+        if (gpsData_.hasFix && gpsData_.connected) {
+            snprintf(statusBuf, sizeof(statusBuf), "Speed: %.1f km/h", gpsData_.speed);
+        } else {
+            snprintf(statusBuf, sizeof(statusBuf), "Speed: -- km/h");
+        }
+        gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
+        viewportY += 12;
+        
+        // Time from GPS
         if (gpsData_.hasFix && gpsData_.connected) {
             snprintf(statusBuf, sizeof(statusBuf), "Time: %02d:%02d:%02d", 
                      gpsData_.hour, gpsData_.minute, gpsData_.second);
         } else {
-            snprintf(statusBuf, sizeof(statusBuf), "GPS loading...");
+            snprintf(statusBuf, sizeof(statusBuf), "Time: --:--:--");
         }
         gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
-        viewportY += 14;
+        viewportY += 12;
+        
+        // System uptime
+        uint32_t uptimeSec = (uint32_t)(esp_timer_get_time() / 1000000);
+        uint32_t hours = uptimeSec / 3600;
+        uint32_t mins = (uptimeSec % 3600) / 60;
+        uint32_t secs = uptimeSec % 60;
+        snprintf(statusBuf, sizeof(statusBuf), "Uptime: %02lu:%02lu:%02lu", hours, mins, secs);
+        gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
+        viewportY += 12;
         
         // Fan status
         bool fanOn = Drivers::FanDriver::isOn();

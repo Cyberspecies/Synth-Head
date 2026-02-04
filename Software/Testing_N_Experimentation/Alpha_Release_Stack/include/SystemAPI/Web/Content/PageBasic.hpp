@@ -122,6 +122,20 @@ inline const char PAGE_BASIC[] = R"rawliteral(
     <section class="tab-content active">
       <div class="card" style="max-width: 100%;">
         <div class="card-header">
+          <h2>Quick Controls</h2>
+        </div>
+        <div class="card-body">
+          <div class="control-row">
+            <span class="control-label">Cooling Fans</span>
+            <button class="toggle-btn" id="fan-toggle-btn" onclick="toggleFan()">
+              <span id="fan-status-text">OFF</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card section-gap" style="max-width: 100%;">
+        <div class="card-header">
           <h2>Display Presets</h2>
         </div>
         <div class="card-body">
@@ -166,9 +180,58 @@ inline const char PAGE_BASIC[] = R"rawliteral(
   
   <div id="toast" class="toast"></div>
   
+  <style>
+    .control-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+    .control-label { font-weight: 500; color: var(--text-primary); }
+    .toggle-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #444; background: #2a2a2a; color: #888; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s ease; min-width: 60px; }
+    .toggle-btn:hover { background: #333; border-color: #555; }
+    .toggle-btn.active { background: #22c55e; border-color: #22c55e; color: #fff; }
+    .toggle-btn.active:hover { background: #16a34a; border-color: #16a34a; }
+  </style>
+  
   <script>
   var scenes = [];
   var activeSceneId = -1;
+  
+  function toggleFan() {
+    var btn = document.getElementById('fan-toggle-btn');
+    btn.disabled = true;
+    fetch('/api/fan/toggle', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          updateFanUI(data.fanEnabled);
+        }
+        btn.disabled = false;
+      })
+      .catch(function(err) {
+        console.error('Fan toggle error:', err);
+        btn.disabled = false;
+      });
+  }
+  
+  function updateFanUI(enabled) {
+    var btn = document.getElementById('fan-toggle-btn');
+    var text = document.getElementById('fan-status-text');
+    if (enabled) {
+      btn.classList.add('active');
+      text.textContent = 'ON';
+    } else {
+      btn.classList.remove('active');
+      text.textContent = 'OFF';
+    }
+  }
+  
+  function fetchFanState() {
+    fetch('/api/status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.fanEnabled !== undefined) {
+          updateFanUI(data.fanEnabled);
+        }
+      })
+      .catch(function(err) { console.error('Fan state error:', err); });
+  }
   
   function fetchScenes() {
     fetch('/api/scenes')
@@ -341,6 +404,7 @@ inline const char PAGE_BASIC[] = R"rawliteral(
   
   fetchScenes();
   fetchLedPresets();
+  fetchFanState();
   </script>
 </body>
 </html>
