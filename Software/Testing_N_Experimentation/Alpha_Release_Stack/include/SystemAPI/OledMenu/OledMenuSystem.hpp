@@ -970,11 +970,15 @@ private:
         gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
         viewportY += 10;
         
-        // GPS quick data
-        if (gpsData_.hasFix) {
-            snprintf(statusBuf, sizeof(statusBuf), "GPS: %d sats", gpsData_.satellites);
+        // Time from GPS (or loading message if no fix)
+        if (gpsData_.hasFix && gpsData_.connected) {
+            // Show time in HH:MM:SS format
+            snprintf(statusBuf, sizeof(statusBuf), "Time: %02d:%02d:%02d", 
+                     gpsData_.hour, gpsData_.minute, gpsData_.second);
+        } else if (gpsData_.connected) {
+            snprintf(statusBuf, sizeof(statusBuf), "GPS loading...");
         } else {
-            snprintf(statusBuf, sizeof(statusBuf), "GPS: No Fix");
+            snprintf(statusBuf, sizeof(statusBuf), "GPS loading...");
         }
         gpu_->oledTextNative(4, viewportY, statusBuf, 1, true);
         viewportY += 10;
