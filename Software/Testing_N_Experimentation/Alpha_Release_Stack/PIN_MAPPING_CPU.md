@@ -1,149 +1,73 @@
+# CPU Pin Mapping
 
-# CPU Pin Mapping Documentation
+Source of truth: `env:CPU_Main` → `CPU_Main.cpp` → `LifecycleController` / `CurrentMode` + `Drivers/*`.
 
-This document describes the pin assignments and connected peripherals for the CPU in the current hardware setup.
-
----
-
-## CPU Pin Mapping Overview
-
-### I2C Bus
-- **SDA:** GPIO 9
-- **SCL:** GPIO 10
-- **Connected Devices:** ICM20948 (IMU), BME280 (Environmental Sensor)
-
-### LED Strips
-- **LED Strip 0:** GPIO 16
-- **LED Strip 1 (Left Fin):** GPIO 18 — 13 LEDs in series
-- **LED Strip 2:** GPIO 8
-- **LED Strip 3:** GPIO 39
-- **LED Strip 4 (Right Fin):** GPIO 38 — 13 LEDs in series
-- **LED Strip 5 (Scale LEDs):** GPIO 37 — 14 LEDs in a row
-
-### Buttons (A/B/C/D)
-- **Button 0 (A):** GPIO 5
-- **Button 1 (B):** GPIO 6
-- **Button 2 (C):** GPIO 7
-- **Button 3 (D):** GPIO 15
-
-### Fans (PWM Controlled)
-- **Fan 1:** GPIO 17
-- **Fan 2:** GPIO 36
-
-### MicroSD Card (SPI)
-- **MISO:** GPIO 14
-- **MOSI:** GPIO 47
-- **CLK:** GPIO 21
-- **CS:** GPIO 48
-
-### UART Connections
-- **NEO M8 (GPS):** 
-  - ESP RX: GPIO 44 (receives from GPS TX)
-  - ESP TX: GPIO 43 (sends to GPS RX)
-  - Baud Rate: 9600
-- **ESP-to-ESP Connection:** RX: GPIO 11, TX: GPIO 12
-  - **Baud Rate:** 1,000,000 (1M) by default
-
-### I2S Microphone (INMP441)
-- **DOUT:** GPIO 2
-- **CLK:** GPIO 40
-- **L/R Select:** GPIO 41
-- **WS:** GPIO 42
+Board: ESP32-S3 (`esp32s3_n16`), upload/monitor **COM6**.
 
 ---
 
-## CPU Features Used
+## I2C (port 0, 400 kHz)
 
-All features are used except:
-- Fan 1
-- LED Strip 0
-- LED Strip 3
+| Signal | GPIO | Devices |
+|--------|------|---------|
+| SDA | 9 | ICM20948 (`0x68`), BME280 (`0x76`) |
+| SCL | 10 | |
 
-#### LED Strip Details
-- **Strip 1 (Left Fin):** 13 LEDs in series
-- **Strip 2 (Tongue):** 9 LEDs in series
-- **Strip 4 (Right Fin):** 13 LEDs in series
-- **Strip 5 (Scale LEDs):** 14 LEDs in a row
+## Buttons (active LOW)
 
-#### Button Mapping
-- **Button 0:** A
-- **Button 1:** B
-- **Button 2:** C
-- **Button 3:** D
+| Button | GPIO | Notes |
+|--------|------|-------|
+| A | 5 | Boot: hold for debug menu; with D = system test |
+| B | 6 | Select; hold 15s at boot = factory reset |
+| C | 7 | Next / down |
+| D | 15 | Back / cancel; with A at boot = system test |
 
-#### UART Settings
-- **ESP-to-ESP UART Baud Rate:** 1,000,000 (1M) by default
+## LED strips (WS2812)
 
----
+| Strip | GPIO | LEDs | Role |
+|-------|------|------|------|
+| 0 | 16 | 0 | Unused |
+| 1 | 18 | 13 | Left fin |
+| 2 | 8 | 9 | Tongue |
+| 3 | 39 | 0 | Unused |
+| 4 | 38 | 13 | Right fin |
+| 5 | 37 | 14 | Scale LEDs |
 
-**Note:** Please verify all connections before powering the system. Update this document if hardware changes are made.
+## Fans
 
-## I2C Bus
-- **SDA:** GPIO 9
-- **SCL:** GPIO 10
-- **Connected Devices:**
-  - ICM20948 (IMU)
-  - BME280 (Environmental Sensor)
+| Fan | GPIO |
+|-----|------|
+| 1 | 17 |
+| 2 | 36 |
 
-## LED Strips
-- **LED Strip 0:** GPIO 16
-- **LED Strip 1:** GPIO 18
-- **LED Strip 2:** GPIO 5
-- **LED Strip 3:** GPIO 39
-- **LED Strip 4:** GPIO 38
-- **LED Strip 5:** GPIO 37
+## MicroSD (SPI)
 
-## Buttons
-- **Button 1:** GPIO 5
-- **Button 2:** GPIO 6
-- **Button 3:** GPIO 7
-- **Button 4:** GPIO 10
+| Signal | GPIO |
+|--------|------|
+| MISO | 14 |
+| MOSI | 47 |
+| CLK | 21 |
+| CS | 48 |
 
-## Fans (PWM Controlled)
-- **Fan 1:** GPIO 17
-- **Fan 2:** GPIO 36
+## UART — GPS (UART2, 9600)
 
-## MicroSD Card (SPI)
-- **MISO:** GPIO 14
-- **MOSI:** GPIO 47
-- **CLK:** GPIO 21
-- **CS:** GPIO 48
+| Signal | GPIO | Direction |
+|--------|------|-----------|
+| TX | 43 | CPU → GPS RX |
+| RX | 44 | CPU ← GPS TX |
 
-## UART Connections
-- **NEO M8 (GPS):**
-  - TX: GPIO 43
-  - RX: GPIO 44
-- **ESP-to-ESP Connection:**
-  - RX: GPIO 11
-  - TX: GPIO 12
+## UART — CPU↔GPU (UART1, **921600**)
 
-## I2S Microphone (INMP441)
-- **DOUT:** GPIO 2
-- **CLK:** GPIO 40
-- **L/R Select:** GPIO 41
-- **WS:** GPIO 42
+| Signal | GPIO | Direction |
+|--------|------|-----------|
+| TX | 12 | CPU → GPU RX (GPU GPIO 13) |
+| RX | 11 | CPU ← GPU TX (GPU GPIO 12) |
 
+## I2S mic (INMP441)
 
-
----
-
-## Features Used
-
-All features are used except:
-- Fan 1
-- LED Strip 0
-- LED Strip 3
-
-### LED Strip Details
-- **Strip 1 (Left Fin):** 13 LEDs in series
-- **Strip 4 (Right Fin):** 13 LEDs in series
-- **Strip 5 (Scale LEDs):** 14 LEDs in a row
-
-### Button Mapping
-- **Button 0:** A
-- **Button 1:** B
-- **Button 2:** C
-- **Button 3:** D
-
-### UART Settings
-- **ESP-to-ESP UART Baud Rate:** 1,000,000 (1M) by default
+| Signal | GPIO |
+|--------|------|
+| DOUT / DATA | 2 |
+| CLK / BCK | 40 |
+| L/R select | 41 |
+| WS / LRCLK | 42 |
